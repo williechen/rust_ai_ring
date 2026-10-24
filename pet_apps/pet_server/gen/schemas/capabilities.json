@@ -1,1 +1,0 @@
-{"default":{"identifier":"default","description":"Main controller and dynamically-created pet life windows","local":true,"windows":["main","pet-*"],"permissions":["core:default","core:window:allow-start-dragging","core:event:default"]}}
