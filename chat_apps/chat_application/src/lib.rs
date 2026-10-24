@@ -24,6 +24,20 @@ impl ChatService {
     }
 }
 
+/// 表單與 JSON 建房共用；保留合法輸入原字串。
+pub fn validate_room_name(name: &str) -> Result<(), &'static str> {
+    if name.trim().is_empty() {
+        return Err("聊天室名稱不得為空白");
+    }
+    if name.len() > 200 {
+        return Err("聊天室名稱最多 200 UTF-8 bytes");
+    }
+    if name.chars().any(char::is_control) {
+        return Err("聊天室名稱不得含控制字元");
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone)]
 pub struct CreateRoom {
     pub id: String,
@@ -240,5 +254,29 @@ mod tests {
         .await;
         assert!(matches!(result, Err(RepositoryError::RoomAccessError(_))));
         assert_eq!(published, 0);
+    }
+}
+
+#[cfg(test)]
+mod day35_room_name_tests {
+    use super::validate_room_name;
+
+    #[test]
+    fn room_name_policy_is_utf8_bytes_and_control_safe() {
+        for ok in ["中文房間", " 房間 ", &"a".repeat(200)] {
+            assert_eq!(validate_room_name(ok), Ok(()));
+        }
+        for bad in [
+            "",
+            "  ",
+            "房\n間",
+            "房\t間",
+            "房\r間",
+            "房\0間",
+            "\u{7f}",
+            &"房".repeat(67),
+        ] {
+            assert!(validate_room_name(bad).is_err(), "{bad:?}");
+        }
     }
 }

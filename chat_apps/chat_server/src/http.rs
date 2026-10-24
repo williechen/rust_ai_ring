@@ -21,8 +21,7 @@ pub async fn create_room(
     State(state): State<AppState>,
     Json(request): Json<CreateRoomRequest>,
 ) -> Result<(StatusCode, Json<CreateRoomResponse>), StatusCode> {
-    // 與成品相同：長度採 UTF-8 位元組，拒絕全空白與 NUL。
-    if request.name.trim().is_empty() || request.name.len() > 200 || request.name.contains('\0') {
+    if chat_application::validate_room_name(&request.name).is_err() {
         return Err(StatusCode::BAD_REQUEST);
     }
     let room = chat_application::create_room(
@@ -202,6 +201,26 @@ mod room_http_tests {
             .await
             .into_response();
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn day35_json_create_rejects_control_names_before_sqlite() {
+        let (state, pool) = fixture().await;
+        for name in ["房\n間", "房\t間", "房\r間", "\u{7f}"] {
+            let response = create_room(
+                State(state.clone()),
+                Json(CreateRoomRequest { name: name.into() }),
+            )
+            .await
+            .into_response();
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        }
+        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM rooms")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(count, 0);
+        pool.close().await;
     }
 }
 

@@ -145,15 +145,10 @@ async fn account_create_room(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    if form.name.trim().is_empty() || form.name.len() > 200 || form.name.contains('\0') {
+    if let Err(message) = chat_application::validate_room_name(&form.name) {
         return Ok((
             StatusCode::UNPROCESSABLE_ENTITY,
-            account_html(
-                &headers,
-                "名稱須非空白、不得含 NUL，且最多 200 UTF-8 bytes".into(),
-                form.name,
-                None,
-            )?,
+            account_html(&headers, message.into(), form.name, None)?,
         )
             .into_response());
     }
@@ -308,5 +303,51 @@ mod day34_login_redirect_tests {
         assert_eq!(response.headers()["location"], "/signin");
         let body = to_bytes(response.into_body(), 16384).await.unwrap();
         assert!(!std::str::from_utf8(&body).unwrap().contains("<form"));
+    }
+}
+
+#[cfg(test)]
+mod day35_account_room_tests {
+    use super::*;
+    use axum::http::header;
+
+    #[tokio::test]
+    async fn logged_in_account_rejects_newline_without_room_write() {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        chat_persistence::migrate(&pool).await.unwrap();
+        sqlx::query("INSERT INTO mbr_user (id,user_acnt,user_pd,user_email,user_name,user_status,is_init_pd,created_at,updated_at) VALUES ('day35','learner35','unused','day35@example.test','Learner','active',FALSE,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)")
+            .execute(&pool).await.unwrap();
+        let raw = "b".repeat(64);
+        sqlx::query("INSERT INTO mbr_session(id,mbr_user_id,token_hash,expires_at) VALUES ('s35','day35',?1,unixepoch()+60)")
+            .bind(shared::auth::token_digest(&raw))
+            .execute(&pool).await.unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::COOKIE,
+            format!("chat_session={raw}").parse().unwrap(),
+        );
+        headers.insert(header::ORIGIN, "http://127.0.0.1:3000".parse().unwrap());
+        let csrf = crate::auth_session::csrf_for_create_room(&headers).unwrap();
+        let response = account_create_room(
+            State(pool.clone()),
+            headers,
+            Form(AccountRoomForm {
+                name: "房\n間".into(),
+                csrf,
+            }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM rooms")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(count, 0);
+        pool.close().await;
     }
 }
