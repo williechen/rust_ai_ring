@@ -3,6 +3,7 @@ mod file_organizer;
 pub mod pet_store;
 pub mod pet_windows;
 mod roam;
+use pet_application::normalize_new_pet_name;
 
 use ai_core::{ChatRequest, MockChatModel};
 use pet_domain::{PetCommand, PetMachine, PetSnapshot};
@@ -45,14 +46,6 @@ fn roam_enabled_value(value: Option<&str>) -> bool {
 fn roam_enabled() -> bool {
     let value = std::env::var("PET_ENABLE_ROAM").ok();
     roam_enabled_value(value.as_deref())
-}
-
-fn normalize_new_pet_name(input: &str) -> Result<String, String> {
-    let name = input.trim();
-    if name.is_empty() || name.chars().count() > 32 {
-        return Err("寵物名稱須為 1 到 32 字元".into());
-    }
-    Ok(name.to_owned())
 }
 
 fn control_menu_pet_id(menu_id: &str) -> Option<String> {

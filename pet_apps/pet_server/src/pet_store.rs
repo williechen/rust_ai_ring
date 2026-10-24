@@ -118,7 +118,7 @@ impl PetStore {
     // 只將既有 create() 簽名與尾端的返回值更換，
     // INSERT/transaction/提交後 SELECT id,name/錯誤分支完整保留。
     pub async fn create(&self, input: &str) -> Result<SavedPet, String> {
-        let name = crate::normalize_new_pet_name(input)?;
+        let name = pet_application::normalize_new_pet_name(input)?;
         let id = uuid::Uuid::new_v4().to_string();
         let mut tx = self.pool.begin().await.map_err(|_| "無法開始儲存")?;
         sqlx::query(
@@ -226,5 +226,34 @@ mod day22_tests {
                 .await
                 .unwrap();
         assert_eq!(selected, turtle.id);
+    }
+}
+
+#[cfg(test)]
+mod day34_create_name_tests {
+    use super::PetStore;
+
+    #[sqlx::test(migrations = "../migrations")]
+    async fn day34_bad_name_never_writes_owner_or_profile(pool: sqlx::SqlitePool) {
+        let store = PetStore { pool: pool.clone() };
+        let before: (i64, i64) = sqlx::query_as(
+            "SELECT (SELECT count(*) FROM pet_owner), (SELECT count(*) FROM pet_profile)",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        for name in ["小\0橘", "小\n橘", "小\t橘", "\u{7f}"] {
+            assert!(store.create(name).await.is_err());
+        }
+        let after: (i64, i64) = sqlx::query_as(
+            "SELECT (SELECT count(*) FROM pet_owner), (SELECT count(*) FROM pet_profile)",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(after, before);
+        let created = store.create("  小橘  ").await.unwrap();
+        assert_eq!(created.name, "小橘");
+        assert_eq!(store.profile(&created.id).await.unwrap(), created);
     }
 }

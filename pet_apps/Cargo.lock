@@ -2958,6 +2958,7 @@ dependencies = [
  "ai-core",
  "dotenv",
  "libc",
+ "pet-application",
  "pet-domain",
  "serde",
  "serde_json",
