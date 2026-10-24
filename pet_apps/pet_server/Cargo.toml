@@ -9,8 +9,9 @@ ai-core = { path = "../../crates/ai_core" }
 
 dotenv.workspace = true
 
-pet-domain = { path = "../pet_domain" }
 pet-application = { path = "../pet_application" }
+pet-domain = { path = "../pet_domain" }
+pet-persistence = { path = "../pet_persistence" }
 
 serde.workspace = true
 serde_json.workspace = true

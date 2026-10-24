@@ -149,20 +149,7 @@ impl PetStore {
     }
 
     pub async fn set_caged(&self, id: &str, caged: bool) -> Result<(), String> {
-        let result = sqlx::query(
-            "UPDATE pet_profile SET is_default_closure=?1,
-         updated_at=CURRENT_TIMESTAMP
-         WHERE id=?2 AND owner_id='local-owner'",
-        )
-        .bind(caged)
-        .bind(id)
-        .execute(&self.pool)
-        .await
-        .map_err(|_| "無法保存回籠狀態".to_owned())?;
-        if result.rows_affected() != 1 {
-            return Err("找不到可回籠的寵物".into());
-        }
-        Ok(())
+        pet_persistence::set_caged(&self.pool, id, caged).await
     }
 }
 
@@ -255,5 +242,32 @@ mod day34_create_name_tests {
         let created = store.create("  小橘  ").await.unwrap();
         assert_eq!(created.name, "小橘");
         assert_eq!(store.profile(&created.id).await.unwrap(), created);
+    }
+}
+
+#[cfg(test)]
+mod day35_cage_caller_tests {
+    use super::PetStore;
+
+    #[sqlx::test(migrations = "../migrations")]
+    async fn live_store_cages_only_one_saved_pet(pool: sqlx::SqlitePool) {
+        let store = PetStore { pool: pool.clone() };
+        let first = store.create("小橘").await.unwrap();
+        let second = store.create("阿龜").await.unwrap();
+        store.set_caged(&second.id, true).await.unwrap();
+        let first_flag: i64 =
+            sqlx::query_scalar("SELECT is_default_closure FROM pet_profile WHERE id=?1")
+                .bind(&first.id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        let second_flag: i64 =
+            sqlx::query_scalar("SELECT is_default_closure FROM pet_profile WHERE id=?1")
+                .bind(&second.id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!((first_flag, second_flag), (0, 1));
+        assert!(store.set_caged("not-a-pet", true).await.is_err());
     }
 }
