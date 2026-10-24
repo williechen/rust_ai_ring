@@ -32,31 +32,8 @@ pub fn routes(pool: SqlitePool) -> Router {
         .with_state(pool)
 }
 
-async fn login_page() -> Html<&'static str> {
-    Html(
-        r#"<!doctype html>
-        <html lang="zh-Hant">
-            <head>
-                <meta charset="utf-8">
-                <title>帳密登入</title>
-            </head>
-            <body>
-                <h1>帳密登入</h1>
-                <form action="/login" method="post">
-                    <div style="margin-bottom: 1em;">
-                        <label>帳號</label>
-                        <input name="username" autocomplete="username" required>
-                    </div>
-                    <div style="margin-bottom: 1em;">
-                        <label>密碼</label>
-                        <input name="password" type="password" autocomplete="current-password" required>
-                    </div>
-                    <button type="submit">登入</button>
-                </form>
-                <a href="/signin">回登入頁</a>
-            </body>
-        </html>"#,
-    )
+async fn login_page() -> Html<String> {
+    Html(chat_ui::login::render_login())
 }
 
 async fn login(
@@ -307,5 +284,51 @@ mod day23_tests {
             .await
             .unwrap();
         assert_eq!(count, 1);
+    }
+}
+
+#[cfg(test)]
+mod day34_login_view_tests {
+    use axum::{
+        body::{Body, to_bytes},
+        http::{Request, StatusCode},
+    };
+    use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn real_login_route_has_labelled_form_without_database_access() {
+        // GET 頁面不應查帳號或建立 Session，lazy pool 不連線。
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .connect_lazy("sqlite::memory:")
+            .unwrap();
+        let response = super::routes(pool)
+            .oneshot(Request::get("/login").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(
+            response.headers()["content-type"]
+                .to_str()
+                .unwrap()
+                .starts_with("text/html")
+        );
+        let body = to_bytes(response.into_body(), 16384).await.unwrap();
+        let html = std::str::from_utf8(&body).unwrap();
+        for marker in [
+            "<!doctype html>",
+            "action=\"/login\"",
+            "method=\"post\"",
+            "for=\"login-username\"",
+            "id=\"login-username\"",
+            "name=\"username\"",
+            "for=\"login-password\"",
+            "id=\"login-password\"",
+            "type=\"password\"",
+            "autocomplete=\"current-password\"",
+            "href=\"/signup\"",
+        ] {
+            assert!(html.contains(marker), "missing {marker}: {html}");
+        }
+        assert!(!html.contains("value=\"admin\""));
     }
 }

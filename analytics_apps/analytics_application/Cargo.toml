@@ -1,0 +1,6 @@
+[package]
+name = "analytics-application"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]

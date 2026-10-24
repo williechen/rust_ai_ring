@@ -2923,7 +2923,7 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
 name = "pet-application"
-version = "0.2.33"
+version = "0.2.34"
 dependencies = [
  "serde",
  "serde_json",
@@ -2933,7 +2933,7 @@ dependencies = [
 
 [[package]]
 name = "pet-domain"
-version = "0.2.33"
+version = "0.2.34"
 dependencies = [
  "serde",
  "serde_json",
@@ -2943,7 +2943,7 @@ dependencies = [
 
 [[package]]
 name = "pet-persistence"
-version = "0.2.33"
+version = "0.2.34"
 dependencies = [
  "serde",
  "serde_json",
@@ -2953,7 +2953,7 @@ dependencies = [
 
 [[package]]
 name = "pet-server"
-version = "0.2.33"
+version = "0.2.34"
 dependencies = [
  "ai-core",
  "dotenv",
@@ -2972,7 +2972,7 @@ dependencies = [
 
 [[package]]
 name = "pet-ui"
-version = "0.2.33"
+version = "0.2.34"
 dependencies = [
  "gloo-timers",
  "js-sys",

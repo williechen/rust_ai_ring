@@ -1,0 +1,6 @@
+[package]
+name = "analytics-domain"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]

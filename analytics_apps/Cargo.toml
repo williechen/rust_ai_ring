@@ -1,9 +1,15 @@
 [workspace]
 resolver = "3"
-members = ["analytics_server", "analytics_persistence"]
+members = [
+    "analytics_server",
+    "analytics_persistence",
+    "analytics_ui",
+    "analytics_domain",
+    "analytics_application",
+]
 
 [workspace.package]
-version = "0.2.33"
+version = "0.2.34"
 edition = "2024"
 
 [workspace.dependencies]

@@ -1,6 +1,7 @@
 mod chat_socket;
 
 pub mod account;
+pub mod login;
 #[cfg(target_arch = "wasm32")]
 mod room_api;
 
