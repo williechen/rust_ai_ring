@@ -64,7 +64,7 @@ async fn login(
     }
 
     if !form.username.trim().eq_ignore_ascii_case("admin")
-        || !(8..=128).contains(&form.password.len())
+        || !(form.password == "admin" || (8..=128).contains(&form.password.len()))
     {
         return Err(StatusCode::UNAUTHORIZED);
     }

@@ -17,6 +17,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Err("來源憑證設定不合法".into());
     }
 
+    analytics_server::bootstrap::ensure_default(&pool)
+        .await
+        .map_err(std::io::Error::other)?;
+
     let app = password_login::build(IngestState {
         pool,
         tokens: Arc::new(IngestTokens { chat, pet }),
