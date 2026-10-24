@@ -1,7 +1,6 @@
 mod chat_socket;
 
 pub mod account;
-pub mod login;
 #[cfg(target_arch = "wasm32")]
 mod room_api;
 
@@ -598,5 +597,31 @@ mod day33_room_list_feedback_tests {
         assert_eq!(room_list_feedback(true, 0, 0), "尚無房間");
         assert_eq!(room_list_feedback(true, 3, 0), "沒有符合條件的房間");
         assert_eq!(room_list_feedback(true, 3, 2), "請選擇房間");
+    }
+}
+
+#[cfg(all(test, feature = "ssr"))]
+mod day34_existing_signin_tests {
+    use super::*;
+
+    #[test]
+    fn existing_signin_is_the_single_login_form() {
+        let html = view! { <SignInPage/> }.to_html();
+        assert_eq!(html.matches("<form").count(), 1);
+        for marker in [
+            "method=\"post\"",
+            "action=\"/login\"",
+            "for=\"login-username\"",
+            "id=\"login-username\"",
+            "name=\"username\"",
+            "for=\"login-password\"",
+            "id=\"login-password\"",
+            "name=\"password\"",
+            "type=\"password\"",
+            "autocomplete=\"current-password\"",
+            "href=\"/signup\"",
+        ] {
+            assert!(html.contains(marker), "missing {marker}");
+        }
     }
 }

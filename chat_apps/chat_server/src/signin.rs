@@ -3,7 +3,7 @@ use axum::{
     Form, Router,
     extract::{DefaultBodyLimit, State},
     http::{HeaderMap, StatusCode, header},
-    response::{Html, IntoResponse, Response},
+    response::{Html, IntoResponse, Redirect, Response},
     routing::get,
 };
 use serde::Deserialize;
@@ -32,8 +32,8 @@ pub fn routes(pool: SqlitePool) -> Router {
         .with_state(pool)
 }
 
-async fn login_page() -> Html<String> {
-    Html(chat_ui::login::render_login())
+async fn login_page() -> Redirect {
+    Redirect::to("/signin")
 }
 
 async fn login(
@@ -288,7 +288,7 @@ mod day23_tests {
 }
 
 #[cfg(test)]
-mod day34_login_view_tests {
+mod day34_login_redirect_tests {
     use axum::{
         body::{Body, to_bytes},
         http::{Request, StatusCode},
@@ -296,8 +296,7 @@ mod day34_login_view_tests {
     use tower::ServiceExt;
 
     #[tokio::test]
-    async fn real_login_route_has_labelled_form_without_database_access() {
-        // GET 頁面不應查帳號或建立 Session，lazy pool 不連線。
+    async fn legacy_login_get_redirects_without_rendering_another_form() {
         let pool = sqlx::sqlite::SqlitePoolOptions::new()
             .connect_lazy("sqlite::memory:")
             .unwrap();
@@ -305,30 +304,9 @@ mod day34_login_view_tests {
             .oneshot(Request::get("/login").body(Body::empty()).unwrap())
             .await
             .unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-        assert!(
-            response.headers()["content-type"]
-                .to_str()
-                .unwrap()
-                .starts_with("text/html")
-        );
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(response.headers()["location"], "/signin");
         let body = to_bytes(response.into_body(), 16384).await.unwrap();
-        let html = std::str::from_utf8(&body).unwrap();
-        for marker in [
-            "<!doctype html>",
-            "action=\"/login\"",
-            "method=\"post\"",
-            "for=\"login-username\"",
-            "id=\"login-username\"",
-            "name=\"username\"",
-            "for=\"login-password\"",
-            "id=\"login-password\"",
-            "type=\"password\"",
-            "autocomplete=\"current-password\"",
-            "href=\"/signup\"",
-        ] {
-            assert!(html.contains(marker), "missing {marker}: {html}");
-        }
-        assert!(!html.contains("value=\"admin\""));
+        assert!(!std::str::from_utf8(&body).unwrap().contains("<form"));
     }
 }
