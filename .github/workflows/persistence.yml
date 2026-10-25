@@ -62,6 +62,9 @@ jobs:
       - name: Test persistence
         run: DATABASE_URL="$CHAT_DATABASE_URL" cargo test --locked -p chat-persistence
 
+      - name: Test Pet Persistence
+        run: DATABASE_URL="$PET_DATABASE_URL" cargo test --locked -p pet-persistence
+
       - name: Test analytics server with PostgreSQL
-        run: DATABASE_URL="$ANALYTICS_DATABASE_URL" cargo test --locked -p analytics-server --features postgres-integration
+        run: DATABASE_URL="$ANALYTICS_DATABASE_URL" cargo test --locked -p analytics-persistence --features postgres-integration
         working-directory: analytics_apps
