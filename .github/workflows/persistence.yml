@@ -56,14 +56,13 @@ jobs:
       - name: Install sqlx-cli
         run: cargo install sqlx-cli --version "^0.9" --no-default-features --features postgres,sqlite --locked
 
-      - name: Run database migrations
-        run: sqlx migrate run --database-url $CHAT_DATABASE_URL
-
       - name: Test persistence
         run: DATABASE_URL="$CHAT_DATABASE_URL" cargo test --locked -p chat-persistence
+        working-directory: chat_apps
 
       - name: Test Pet Persistence
         run: DATABASE_URL="$PET_DATABASE_URL" cargo test --locked -p pet-persistence
+        working-directory: pet_apps
 
       - name: Test analytics server with PostgreSQL
         run: DATABASE_URL="$ANALYTICS_DATABASE_URL" cargo test --locked -p analytics-persistence --features postgres-integration
