@@ -189,10 +189,20 @@ pub fn application(db: sqlx::SqlitePool) {
             let handle = app.handle().clone();
             let store = app.state::<pet_store::PetStore>().inner().clone();
             tauri::async_runtime::spawn(async move {
-                if let Ok(Some(pet)) = store.active().await
-                    && let Err(e) = pet_windows::open(&handle, &pet)
-                {
-                    eprintln!("載入預設寵物失敗：{e}");
+                match store.uncaged().await {
+                    Ok(pets) => {
+                        for pet in pets {
+                            // 每個 UUID 由既有 open() 建立獨立原生視窗與 Runtime。
+                            // 單隻失敗不應讓其他未回籠寵物無法恢復。
+                            if let Err(error) = pet_windows::open(&handle, &pet) {
+                                eprintln!("重啟恢復寵物 {} 失敗：{error}", pet.id);
+                            }
+                        }
+                    }
+                    Err(error) => {
+                        // DB 失敗時不可誤認沒有寵物，更不可將其標成回籠。
+                        eprintln!("重啟讀取出籠寵物失敗：{error}");
+                    }
                 }
             });
             /*

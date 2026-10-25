@@ -339,18 +339,6 @@ fn RoomList() -> impl IntoView {
             match room_api::search_rooms(&submitted).await {
                 Ok(value) => {
                     set_has_snapshot.set(true);
-                    set_status.set(
-                        if value.is_empty() {
-                            if submitted.trim().is_empty() {
-                                "尚無房間"
-                            } else {
-                                "沒有符合條件的房間"
-                            }
-                        } else {
-                            "查詢完成，請選擇房間"
-                        }
-                        .into(),
-                    );
                     set_rows.set(value);
                 }
                 Err(message) => {

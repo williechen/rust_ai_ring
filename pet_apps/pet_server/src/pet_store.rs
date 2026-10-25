@@ -148,6 +148,18 @@ impl PetStore {
         })
     }
 
+    pub async fn uncaged(&self) -> Result<Vec<SavedPet>, String> {
+        let rows = pet_persistence::list_uncaged(&self.pool).await?;
+        Ok(rows
+            .into_iter()
+            .map(|row| SavedPet {
+                id: row.id,
+                name: row.name,
+                species: row.species,
+            })
+            .collect())
+    }
+
     pub async fn set_caged(&self, id: &str, caged: bool) -> Result<(), String> {
         pet_persistence::set_caged(&self.pool, id, caged).await
     }
@@ -213,6 +225,25 @@ mod day22_tests {
                 .await
                 .unwrap();
         assert_eq!(selected, turtle.id);
+    }
+
+    #[sqlx::test(migrations = "../migrations")]
+    async fn day36_restart_restores_all_uncaged_not_just_selected(pool: sqlx::SqlitePool) {
+        let store = PetStore { pool: pool.clone() };
+        let first = store.create("小橘").await.unwrap();
+        let caged = store.create("阿龜").await.unwrap();
+        let third = store.create("小白").await.unwrap();
+        store.select(&first.id).await.unwrap();
+        store.select(&third.id).await.unwrap();
+        store.set_caged(&caged.id, true).await.unwrap();
+        assert_eq!(store.active().await.unwrap(), Some(third.clone()));
+
+        // 模擬程式重啟：以同一持久化 DB 重新建立 Store，不依賴 Runtime 記憶體。
+        let restarted = PetStore { pool: pool.clone() };
+        let pets = restarted.uncaged().await.unwrap();
+        let ids: std::collections::HashSet<_> = pets.into_iter().map(|p| p.id).collect();
+        assert_eq!(ids, [first.id, third.id].into_iter().collect());
+        assert!(!ids.contains(&caged.id));
     }
 }
 

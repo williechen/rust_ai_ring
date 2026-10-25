@@ -16,6 +16,35 @@ pub async fn set_caged(pool: &sqlx::SqlitePool, id: &str, caged: bool) -> Result
     Ok(())
 }
 
+/// 重啟查詢 DTO；不依賴 Tauri 或 server 的 SavedPet。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UncagedPet {
+    pub id: String,
+    pub name: String,
+    pub species: String,
+}
+
+/// 只查本機 owner 的未回籠寵物；slot=1 不是出籠清單。
+pub async fn list_uncaged(pool: &sqlx::SqlitePool) -> Result<Vec<UncagedPet>, String> {
+    let rows: Vec<(String, String, String)> = sqlx::query_as(
+        r#"SELECT id
+            , name
+            , species
+        FROM pet_profile
+        WHERE owner_id='local-owner'
+            AND COALESCE(is_default_closure, 0)=0
+        ORDER BY name
+            , id"#,
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|_| "無法讀取出籠寵物".to_owned())?;
+    Ok(rows
+        .into_iter()
+        .map(|(id, name, species)| UncagedPet { id, name, species })
+        .collect())
+}
+
 #[cfg(test)]
 mod day35_cage_adapter_tests {
     use super::set_caged;
@@ -54,5 +83,36 @@ mod day35_cage_adapter_tests {
     async fn failed_database_update_is_not_success(pool: sqlx::SqlitePool) {
         pool.close().await;
         assert!(set_caged(&pool, "pet-a", true).await.is_err());
+    }
+}
+
+#[cfg(test)]
+mod day36_restore_adapter_tests {
+    use super::list_uncaged;
+    #[sqlx::test(migrations = "../migrations")]
+    async fn reads_only_uncaged_local_owner(pool: sqlx::SqlitePool) {
+        sqlx::query("INSERT INTO pet_owner(id,name) VALUES('local-owner','本機')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        for (id, caged) in [("pet-a", false), ("pet-b", true), ("pet-c", false)] {
+            sqlx::query(
+                "INSERT INTO pet_profile(id,name,species,owner_id,is_default_closure)
+                 VALUES(?1,?2,'tortoise','local-owner',?3)",
+            )
+            .bind(id)
+            .bind(id)
+            .bind(caged)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+        let rows = list_uncaged(&pool).await.unwrap();
+        assert_eq!(
+            rows.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(),
+            vec!["pet-a", "pet-c"]
+        );
+        pool.close().await;
+        assert!(list_uncaged(&pool).await.is_err());
     }
 }

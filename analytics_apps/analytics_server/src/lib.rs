@@ -186,17 +186,11 @@ async fn source_kind_summary(
     State(state): State<IngestState>,
     axum::extract::Path((source, event_type)): axum::extract::Path<(String, String)>,
     headers: HeaderMap,
-) -> Result<Json<Vec<EventSummary>>, StatusCode> {
+) -> Result<axum::response::Response, StatusCode> {
+    // 先驗人員 Session，再驗來源／事件類型，最後才碰統計資料。
+    let raw = password_login::require_query_session(&state, &headers).await?;
     if !matches!(source.as_str(), "web_chat" | "desktop_pet") {
         return Err(StatusCode::BAD_REQUEST);
-    }
-    let authorization = headers
-        .get(AUTHORIZATION)
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or("");
-    // 先授權來源，不能用 Chat 憑證讀取 Pet。
-    if !state.tokens.authorized(&source, authorization) {
-        return Err(StatusCode::UNAUTHORIZED);
     }
     if !valid_event_type(&event_type) || event_type.contains('\0') {
         return Err(StatusCode::BAD_REQUEST);
@@ -204,7 +198,7 @@ async fn source_kind_summary(
     let rows = summary_for_source_and_type(&state.pool, &source, &event_type)
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    Ok(Json(rows))
+    Ok(password_login::renewed(Json(rows), &raw))
 }
 
 #[cfg(test)]
@@ -492,60 +486,25 @@ mod source_kind_summary_tests {
     }
 
     #[tokio::test]
-    async fn authorization_and_filter_validation_precede_database_access() {
+    async fn day36_source_token_alone_cannot_read_even_before_database_access() {
         let pool = sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgres://fixture:fixture@127.0.0.1:1/unused")
             .unwrap();
         pool.close().await;
         let state = state(pool);
-        for (source, kind, token, expected) in [
-            (
-                "desktop_pet",
-                "chat.message.persisted",
-                "fixture-chat-only",
-                StatusCode::UNAUTHORIZED,
-            ),
-            (
-                "web_chat",
-                "chat.message.persisted",
-                "",
-                StatusCode::UNAUTHORIZED,
-            ),
-            (
-                "unknown",
-                "chat.message.persisted",
-                "fixture-chat-only",
-                StatusCode::BAD_REQUEST,
-            ),
-            (
-                "web_chat",
-                " ",
-                "fixture-chat-only",
-                StatusCode::BAD_REQUEST,
-            ),
-            (
-                "web_chat",
-                "a\0b",
-                "fixture-chat-only",
-                StatusCode::BAD_REQUEST,
-            ),
-            (
-                "web_chat",
-                "chat.message.persisted",
-                "fixture-chat-only",
-                StatusCode::SERVICE_UNAVAILABLE,
-            ),
+        for (source, kind) in [
+            ("web_chat", "chat.message.persisted"),
+            ("desktop_pet", "chat.message.persisted"),
+            ("unknown", "chat.message.persisted"),
+            ("web_chat", " "),
         ] {
-            assert_eq!(
-                source_kind_summary(
-                    State(state.clone()),
-                    Path((source.into(), kind.into())),
-                    headers(token),
-                )
-                .await
-                .unwrap_err(),
-                expected
-            );
+            let result = source_kind_summary(
+                State(state.clone()),
+                Path((source.into(), kind.into())),
+                headers("fixture-chat-only"),
+            )
+            .await;
+            assert_eq!(result.unwrap_err(), StatusCode::UNAUTHORIZED);
         }
     }
 
@@ -574,11 +533,10 @@ mod source_kind_summary_tests {
                 PersistOutcome::AlreadyExists
             );
         }
-        let state = state(pool.clone());
-        let Json(rows) = source_kind_summary(
-            State(state),
-            Path(("web_chat".into(), "chat.message.persisted".into())),
-            headers("fixture-chat-only"),
+        let rows = analytics_persistence::summary_for_source_and_type(
+            &pool,
+            "web_chat",
+            "chat.message.persisted",
         )
         .await
         .unwrap();
@@ -688,12 +646,45 @@ mod day16_total_tests {
 
 #[cfg(feature = "postgres-integration")]
 #[sqlx::test(migrations = "../migrations")]
-async fn day35_live_router_exposes_exact_kind_with_source_acl(pool: PgPool) {
+async fn day36_live_router_requires_person_session_not_source_token(pool: PgPool) {
     use axum::{
         body::{Body, to_bytes},
-        http::Request,
+        http::{Request, header},
     };
+    use sha2::{Digest, Sha256};
     use tower::ServiceExt;
+
+    let digest = |s: &str| {
+        Sha256::digest(s.as_bytes())
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>()
+    };
+    let user_id = crate::bootstrap::ensure_default(&pool).await.unwrap();
+    // 只在隔離測試 DB 建立「已完成首次改密碼」的 Session fixture；
+    // 正式修改密碼流程另由 day27/day34 HTTP 測試覆蓋。
+    sqlx::query("UPDATE uac_user SET is_init_pd=FALSE WHERE id=$1")
+        .bind(&user_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let password_hash: String = sqlx::query_scalar("SELECT user_pd FROM uac_user WHERE id=$1")
+        .bind(&user_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let raw = "a".repeat(64);
+    sqlx::query(
+        "INSERT INTO uac_login_session
+         (token_hash,user_id,credential_fingerprint,restricted,expires_at)
+         VALUES ($1,$2,$3,FALSE,floor(extract(epoch from now()))::bigint+1800)",
+    )
+    .bind(digest(&raw))
+    .bind(&user_id)
+    .bind(digest(&password_hash))
+    .execute(&pool)
+    .await
+    .unwrap();
 
     let event = EventInput {
         schema_version: 1,
@@ -706,38 +697,73 @@ async fn day35_live_router_exposes_exact_kind_with_source_acl(pool: PgPool) {
         pg_store::PersistOutcome::Stored
     );
     let app = crate::build_app(IngestState {
-        pool,
+        pool: pool.clone(),
         tokens: Arc::new(IngestTokens {
-            pet: "fixture-pet-only".into(),
             chat: "fixture-chat-only".into(),
+            pet: "fixture-pet-only".into(),
         }),
     });
     let path = "/api/v1/events/web_chat/summary/chat.message.persisted";
-    let denied = app
+    for token in ["fixture-chat-only", "fixture-pet-only"] {
+        let denied = app
+            .clone()
+            .oneshot(
+                Request::get(path)
+                    .header(AUTHORIZATION, format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(denied.status(), StatusCode::UNAUTHORIZED);
+    }
+    let cookie = format!("analytics_session={raw}");
+    let ok = app
         .clone()
         .oneshot(
             Request::get(path)
-                .header(AUTHORIZATION, "Bearer fixture-pet-only")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(denied.status(), StatusCode::UNAUTHORIZED);
-    let ok = app
-        .oneshot(
-            Request::get(path)
-                .header(AUTHORIZATION, "Bearer fixture-chat-only")
+                .header(header::COOKIE, &cookie)
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
     assert_eq!(ok.status(), StatusCode::OK);
-    let bytes = to_bytes(ok.into_body(), 8192).await.unwrap();
-    let rows: Vec<serde_json::Value> = serde_json::from_slice(&bytes).unwrap();
+    assert!(ok.headers().contains_key(header::SET_COOKIE)); // 活動續期
+    let body = to_bytes(ok.into_body(), 8192).await.unwrap();
+    let rows: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0]["source_app"], "web_chat");
     assert_eq!(rows[0]["event_type"], "chat.message.persisted");
     assert_eq!(rows[0]["total"], 1);
+
+    // 同一已登入人員仍需通過事件類型校驗。
+    let bad = app
+        .clone()
+        .oneshot(
+            Request::get("/api/v1/events/web_chat/summary/%20")
+                .header(header::COOKIE, &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(bad.status(), StatusCode::BAD_REQUEST);
+
+    // 登出/密碼變更/停用都由相同 Session adapter 拒絕。
+    sqlx::query("DELETE FROM uac_login_session WHERE token_hash=$1")
+        .bind(digest(&raw))
+        .execute(&pool)
+        .await
+        .unwrap();
+    let revoked = app
+        .oneshot(
+            Request::get(path)
+                .header(header::COOKIE, &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(revoked.status(), StatusCode::UNAUTHORIZED);
 }

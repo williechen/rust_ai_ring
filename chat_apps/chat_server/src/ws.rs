@@ -1,13 +1,18 @@
-use crate::state::AppState;
+use std::time::Duration;
+
+use crate::{auth_session::active_member, state::AppState};
 use axum::{
+    Extension,
     extract::{
         Path, State,
         ws::{Message, WebSocket, WebSocketUpgrade},
     },
+    http::HeaderMap,
     response::Response,
 };
 use shared::{ClientEvent, ServerEvent};
-use tokio::sync::broadcast;
+use sqlx::SqlitePool;
+use tokio::{sync::broadcast, time::MissedTickBehavior};
 
 use crate::hub::RoomHub;
 use chat_application::{
@@ -27,16 +32,20 @@ async fn send_event(
 pub async fn ws_handler(
     Path(room_id): Path<String>,
     State(state): State<AppState>,
+    Extension(pool): Extension<SqlitePool>,
+    headers: HeaderMap,
     ws: WebSocketUpgrade,
 ) -> Response {
     match state.room_repository.find_by_id(&room_id).await {
-        Ok(Some(_room)) => ws.on_upgrade(move |socket| handle_socket(socket, state, room_id)),
+        Ok(Some(_)) => {
+            ws.on_upgrade(move |socket| handle_socket(socket, state, room_id, pool, headers))
+        }
         Ok(None) => Response::builder()
             .status(404)
             .body("Room not found".into())
             .unwrap(),
         Err(error) => {
-            eprintln!("websocket room lookup error: {:?}", error);
+            eprintln!("websocket room lookup error: {error:?}");
             Response::builder()
                 .status(500)
                 .body("Internal server error".into())
@@ -66,15 +75,31 @@ fn typing_event_for_room(
     })
 }
 
-async fn handle_socket(mut socket: WebSocket, state: AppState, room_id: String) {
+async fn socket_session_active(pool: &SqlitePool, headers: &HeaderMap) -> bool {
+    active_member(pool, headers).await.is_ok()
+}
+
+async fn handle_socket(
+    mut socket: WebSocket,
+    state: AppState,
+    room_id: String,
+    pool: SqlitePool,
+    headers: HeaderMap,
+) {
     let (room_sender, mut room_events) = state.room_hub.subscribe(room_id.clone());
+    let mut recheck = tokio::time::interval(Duration::from_secs(1));
+    recheck.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
     loop {
         tokio::select! {
-            incoming = socket.recv() => {
-                let Some(result) = incoming else {
+            _ = recheck.tick() => {
+                if !socket_session_active(&pool, &headers).await {
+                    let _ = socket.send(Message::Close(None)).await;
                     break;
-                };
+                }
+            }
+            incoming = socket.recv() => {
+                let Some(result) = incoming else { break; };
                 let message = match result {
                     Ok(message) => message,
                     Err(error) => {
@@ -82,16 +107,26 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, room_id: String) 
                         break;
                     }
                 };
-
+                // 不因握手時曾通過就永久信任 Cookie。
+                if !socket_session_active(&pool, &headers).await {
+                    let _ = socket.send(Message::Close(None)).await;
+                    break;
+                }
                 if let Message::Text(text) = message
-                    && let Err(error) = handle_client_event(&mut socket, &state, text.as_str(), room_id.clone()).await {
+                    && let Err(error) = handle_client_event(
+                        &mut socket, &state, text.as_str(), room_id.clone()
+                    ).await {
                         eprintln!("client message error: {error}");
                         break;
-                }
+                    }
             }
             event = room_events.recv() => {
                 match event {
                     Ok(event) => {
+                        if !socket_session_active(&pool, &headers).await {
+                            let _ = socket.send(Message::Close(None)).await;
+                            break;
+                        }
                         if let Err(error) = send_event(&mut socket, event).await {
                             eprintln!("websocket send error: {error}");
                             break;
@@ -100,18 +135,13 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, room_id: String) 
                     Err(broadcast::error::RecvError::Lagged(skipped)) => {
                         eprintln!("websocket receiver lagged skipped: {skipped} events");
                     }
-                    Err(broadcast::error::RecvError::Closed) => {
-                        eprintln!("websocket receiver closed");
-                        break;
-                    }
+                    Err(broadcast::error::RecvError::Closed) => break,
                 }
             }
         }
     }
-
     drop(room_events);
-
-    state.room_hub.cleanup(room_id.clone(), &room_sender);
+    state.room_hub.cleanup(room_id, &room_sender);
 }
 
 async fn persist_ws_message(
@@ -321,5 +351,50 @@ mod test {
                 active: false,
             })
         );
+    }
+
+    #[sqlx::test(migrations = "../migrations")]
+    async fn day36_revoked_session_is_not_active(pool: sqlx::SqlitePool) {
+        use super::socket_session_active;
+        use axum::http::{HeaderMap, header};
+        use shared::auth::token_digest;
+        let raw = "a".repeat(64);
+        sqlx::query(
+        "INSERT INTO mbr_user
+         (id,user_acnt,user_pd,user_email,user_name,user_status,is_init_pd,created_at,updated_at)
+         VALUES('day36-user','day36','hash','day36@example.invalid','Day36','active',FALSE,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)"
+    ).execute(&pool).await.unwrap();
+        sqlx::query(
+            "INSERT INTO mbr_session(id,mbr_user_id,token_hash,expires_at)
+         VALUES('day36-session','day36-user',?1,unixepoch()+60)",
+        )
+        .bind(token_digest(&raw))
+        .execute(&pool)
+        .await
+        .unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::COOKIE,
+            format!("chat_session={raw}").parse().unwrap(),
+        );
+        assert!(socket_session_active(&pool, &headers).await);
+        sqlx::query("DELETE FROM mbr_session WHERE id='day36-session'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert!(!socket_session_active(&pool, &headers).await);
+    }
+
+    #[sqlx::test(migrations = "../migrations")]
+    async fn day36_database_error_fails_closed(pool: sqlx::SqlitePool) {
+        use super::socket_session_active;
+        use axum::http::{HeaderMap, header};
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::COOKIE,
+            format!("chat_session={}", "a".repeat(64)).parse().unwrap(),
+        );
+        pool.close().await;
+        assert!(!socket_session_active(&pool, &headers).await);
     }
 }

@@ -51,6 +51,8 @@ pub async fn application() -> Result<(), Box<dyn std::error::Error>> {
 
     let guarded_ws = Router::new()
         .route("/ws/{room_id}", any(ws::ws_handler))
+        // 此 pool 僅給已存在的 WS handler 重驗 Session；不改其他路由的 State。
+        .layer(axum::Extension(db.clone()))
         .route_layer(axum::middleware::from_fn_with_state(
             db.clone(),
             room_auth::require_member,

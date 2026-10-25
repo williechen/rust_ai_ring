@@ -36,7 +36,7 @@ fn raw_cookie(headers: &HeaderMap) -> Option<String> {
     (raw.len() == 64 && raw.bytes().all(|c| c.is_ascii_hexdigit())).then(|| raw.to_owned())
 }
 
-fn renewed(response: impl IntoResponse, raw: &str) -> Response {
+pub(crate) fn renewed(response: impl IntoResponse, raw: &str) -> Response {
     let mut response = response.into_response();
     response.headers_mut().insert(
         header::SET_COOKIE,
@@ -196,6 +196,19 @@ async fn session(state: &IngestState, headers: &HeaderMap) -> Result<(bool, Stri
         return Err(StatusCode::UNAUTHORIZED);
     }
     Ok((restricted || must_change, raw))
+}
+
+/// 已完成首次改密碼的有效管理者，才可讀取業務統計。
+/// 角色與來源 ACL 尚未建置，不得冒稱檢視者已獲授權。
+pub(crate) async fn require_query_session(
+    state: &IngestState,
+    headers: &HeaderMap,
+) -> Result<String, StatusCode> {
+    let (restricted, raw) = session(state, headers).await?;
+    if restricted {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    Ok(raw)
 }
 
 async fn change_page(
