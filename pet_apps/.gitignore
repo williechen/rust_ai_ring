@@ -1,0 +1,11 @@
+**/target
+
+/pet_apps/pet_server/gen
+/pet_apps/pet_ui/public
+/pet_apps/pet_ui/dist
+
+.env
+
+*.db
+
+/.local/

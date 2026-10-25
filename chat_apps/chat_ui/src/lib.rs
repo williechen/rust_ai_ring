@@ -50,6 +50,7 @@ fn room_list_feedback(loaded: bool, total: usize, visible: usize) -> &'static st
     }
 }
 
+#[cfg(any(target_arch = "wasm32", test))]
 fn refreshed_room_list(
     previous: Vec<(String, String)>,
     result: Result<Vec<(String, String)>, String>,
@@ -67,6 +68,7 @@ fn refreshed_room_list(
     }
 }
 
+#[cfg(any(target_arch = "wasm32", test))]
 fn refresh_result_view(
     previous: Vec<(String, String)>,
     previous_query: String,
@@ -85,6 +87,7 @@ fn refresh_result_view(
     }
 }
 
+#[cfg(any(target_arch = "wasm32", test))]
 fn apply_room_search(
     previous: Vec<(String, String)>,
     submitted: String,
@@ -370,6 +373,8 @@ fn RoomList() -> impl IntoView {
         #[cfg(not(target_arch = "wasm32"))]
         {
             set_loading.set(false);
+            set_rows.set(Vec::new());
+            set_has_snapshot.set(false);
         }
     };
 
@@ -418,7 +423,6 @@ fn RoomList() -> impl IntoView {
                     #[cfg(not(target_arch = "wasm32"))]
                     { set_loading.set(false); }
             }>"讀取／重新整理房間"</button>
-            <p role="status">{move || status.get()}</p>
             <div class="room-results" aria-live="polite">
             {move || {
                 let all = rows.get();
@@ -684,7 +688,7 @@ mod day37_search_tests {
             }
             let (rows, set_rows) = signal(Vec::new());
             let (snapshot, set_snapshot) = signal(false);
-            let (status, set_status) = signal("查詢中…".to_owned());
+            let (_status, set_status) = signal("查詢中…".to_owned());
             let (loading, set_loading) = signal(true);
             apply_room_search(
                 Vec::new(),
