@@ -588,13 +588,13 @@ mod source_kind_summary_tests {
         assert_eq!(rows[0].total, 2);
         // SQL 字元視為資料，不變成跨來源的查詢條件。
         assert!(
-            pg_store::summary_for_source_and_type(&pool, "web_chat", "' OR TRUE --")
+            analytics_persistence::summary_for_source_and_type(&pool, "web_chat", "' OR TRUE --")
                 .await
                 .unwrap()
                 .is_empty()
         );
         assert!(
-            pg_store::summary_for_source_and_type(&pool, "web_chat", "not.recorded")
+            analytics_persistence::summary_for_source_and_type(&pool, "web_chat", "not.recorded")
                 .await
                 .unwrap()
                 .is_empty()
@@ -619,9 +619,13 @@ mod source_kind_summary_tests {
         .unwrap();
         tx.rollback().await.unwrap();
         assert_eq!(
-            pg_store::summary_for_source_and_type(&pool, "web_chat", "chat.message.persisted")
-                .await
-                .unwrap()[0]
+            analytics_persistence::summary_for_source_and_type(
+                &pool,
+                "web_chat",
+                "chat.message.persisted"
+            )
+            .await
+            .unwrap()[0]
                 .total,
             2
         );
@@ -633,9 +637,13 @@ mod source_kind_summary_tests {
         .await
         .unwrap();
         assert_eq!(
-            pg_store::summary_for_source_and_type(&pool, "web_chat", "chat.message.persisted")
-                .await
-                .unwrap(),
+            analytics_persistence::summary_for_source_and_type(
+                &pool,
+                "web_chat",
+                "chat.message.persisted"
+            )
+            .await
+            .unwrap(),
             rows
         );
     }
@@ -697,7 +705,13 @@ async fn day35_live_router_exposes_exact_kind_with_source_acl(pool: PgPool) {
         pg_store::persist_event(&pool, &event).await.unwrap(),
         pg_store::PersistOutcome::Stored
     );
-    let app = crate::build_app(state(pool));
+    let app = crate::build_app(IngestState {
+        pool,
+        tokens: Arc::new(IngestTokens {
+            pet: "fixture-pet-only".into(),
+            chat: "fixture-chat-only".into(),
+        }),
+    });
     let path = "/api/v1/events/web_chat/summary/chat.message.persisted";
     let denied = app
         .clone()
