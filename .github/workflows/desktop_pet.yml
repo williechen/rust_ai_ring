@@ -65,7 +65,7 @@ jobs:
           pkg-config --modversion webkit2gtk-4.1
 
       - name: Install trunk
-        run: cargo install trunk --version 0.21.14 --locked
+        run: cargo install trunk --version 0.22.0 --locked
 
       - name: Check native workspace
         run: cargo check --locked --workspace --exclude pet-ui
@@ -100,7 +100,7 @@ jobs:
             libwebkit2gtk-4.1-dev
 
       - name: Install trunk
-        run: cargo install trunk --version 0.21.14 --locked
+        run: cargo install trunk --version 0.22.0 --locked
 
       - name: Build desktop
         working-directory: pet_apps/pet_ui

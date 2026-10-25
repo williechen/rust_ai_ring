@@ -85,6 +85,25 @@ fn refresh_result_view(
     }
 }
 
+fn apply_room_search(
+    previous: Vec<(String, String)>,
+    submitted: String,
+    result: Result<Vec<(String, String)>, String>,
+    set_rows: WriteSignal<Vec<(String, String)>>,
+    set_has_snapshot: WriteSignal<bool>,
+    set_status: WriteSignal<String>,
+    set_loading: WriteSignal<bool>,
+) {
+    let succeeded = result.is_ok();
+    let (next_rows, _retry_query, next_status) = refresh_result_view(previous, submitted, result);
+    if succeeded {
+        set_has_snapshot.set(true);
+    }
+    set_rows.set(next_rows);
+    set_status.set(next_status);
+    set_loading.set(false);
+}
+
 pub fn shell(options: LeptosOptions) -> impl IntoView {
     view! {
         <!DOCTYPE html>
@@ -336,16 +355,17 @@ fn RoomList() -> impl IntoView {
         #[cfg(target_arch = "wasm32")]
         wasm_bindgen_futures::spawn_local(async move {
             let submitted = query.get_untracked();
-            match room_api::search_rooms(&submitted).await {
-                Ok(value) => {
-                    set_has_snapshot.set(true);
-                    set_rows.set(value);
-                }
-                Err(message) => {
-                    set_status.set(format!("查詢失敗：{message}，請重試"));
-                }
-            }
-            set_loading.set(false);
+            let previous = rows.get_untracked();
+            let result = room_api::search_rooms(&submitted).await;
+            apply_room_search(
+                previous,
+                submitted,
+                result,
+                set_rows,
+                set_has_snapshot,
+                set_status,
+                set_loading,
+            );
         });
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -611,5 +631,73 @@ mod day34_existing_signin_tests {
         ] {
             assert!(html.contains(marker), "missing {marker}");
         }
+    }
+}
+
+#[cfg(test)]
+mod day37_search_tests {
+    use super::*;
+
+    #[test]
+    fn real_search_completion_updates_the_signals_used_by_the_view() {
+        let owner = Owner::new();
+        owner.with(|| {
+            for result in [
+                Ok(vec![("new".to_owned(), "貓房".to_owned())]),
+                Ok(vec![]),
+                Err("離線".to_owned()),
+            ] {
+                let old = vec![("old".to_owned(), "原房間".to_owned())];
+                let (rows, set_rows) = signal(old.clone());
+                let (snapshot, set_snapshot) = signal(true);
+                let (status, set_status) = signal("查詢中…".to_owned());
+                let (loading, set_loading) = signal(true);
+                let expected = result.clone();
+                apply_room_search(
+                    old.clone(),
+                    "貓".to_owned(),
+                    result,
+                    set_rows,
+                    set_snapshot,
+                    set_status,
+                    set_loading,
+                );
+                assert!(!loading.get_untracked());
+                assert!(snapshot.get_untracked());
+                match expected {
+                    Ok(value) => {
+                        assert_eq!(rows.get_untracked(), value);
+                        assert_eq!(
+                            status.get_untracked(),
+                            if value.is_empty() {
+                                "尚無房間"
+                            } else {
+                                "請選擇房間"
+                            }
+                        );
+                    }
+                    Err(_) => {
+                        assert_eq!(rows.get_untracked(), old);
+                        assert_eq!(status.get_untracked(), "離線，請重試");
+                    }
+                }
+            }
+            let (rows, set_rows) = signal(Vec::new());
+            let (snapshot, set_snapshot) = signal(false);
+            let (status, set_status) = signal("查詢中…".to_owned());
+            let (loading, set_loading) = signal(true);
+            apply_room_search(
+                Vec::new(),
+                String::new(),
+                Err("離線".into()),
+                set_rows,
+                set_snapshot,
+                set_status,
+                set_loading,
+            );
+            assert!(rows.get_untracked().is_empty());
+            assert!(!snapshot.get_untracked());
+            assert!(!loading.get_untracked());
+        });
     }
 }
