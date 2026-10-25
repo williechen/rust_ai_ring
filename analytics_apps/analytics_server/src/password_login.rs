@@ -25,15 +25,28 @@ fn cookie(raw: &str) -> String {
 }
 
 fn raw_cookie(headers: &HeaderMap) -> Option<String> {
-    let raw = headers
-        .get(header::COOKIE)?
-        .to_str()
-        .ok()?
-        .split(';')
-        .filter_map(|v| v.trim().split_once('='))
-        .find(|(k, _)| *k == "analytics_session")?
-        .1;
-    (raw.len() == 64 && raw.bytes().all(|c| c.is_ascii_hexdigit())).then(|| raw.to_owned())
+    let mut session = None;
+    // HTTP 可以有多條 Cookie，不能只讀第一條。
+    for value in headers.get_all(header::COOKIE).iter() {
+        let line = value.to_str().ok()?;
+        for part in line.split(';').map(str::trim) {
+            if let Some((name, raw)) = part.split_once('=') {
+                if name != "analytics_session" {
+                    continue;
+                }
+                if session.is_some()
+                    || raw.len() != 64
+                    || !raw.bytes().all(|c| c.is_ascii_hexdigit())
+                {
+                    return None;
+                }
+                session = Some(raw.to_owned());
+            } else if part == "analytics_session" {
+                return None;
+            }
+        }
+    }
+    session
 }
 
 pub(crate) fn renewed(response: impl IntoResponse, raw: &str) -> Response {
@@ -403,10 +416,7 @@ async fn summary(
     Path(source): Path<String>,
     headers: HeaderMap,
 ) -> Result<Response, StatusCode> {
-    let (restricted, raw) = session(&state, &headers).await?;
-    if restricted {
-        return Err(StatusCode::FORBIDDEN);
-    }
+    let raw = require_query_session(&state, &headers).await?;
     if !matches!(source.as_str(), "web_chat" | "desktop_pet") {
         return Err(StatusCode::BAD_REQUEST);
     }
