@@ -1,4 +1,5 @@
-use crate::{IngestState, pg_store};
+use crate::{IngestState, pg_store::summary_for_source};
+use analytics_persistence::summary_for_source_and_type;
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use axum::{
     Form, Json, Router,
@@ -361,9 +362,9 @@ async fn dashboard(
     }
 
     let rows = if kind.is_empty() {
-        pg_store::summary_for_source(&state.pool, source).await
+        summary_for_source(&state.pool, source).await
     } else {
-        pg_store::summary_for_source_and_type(&state.pool, source, kind).await
+        summary_for_source_and_type(&state.pool, source, kind).await
     };
     let rows = match rows {
         Ok(v) => v,
@@ -396,7 +397,7 @@ async fn summary(
     if !matches!(source.as_str(), "web_chat" | "desktop_pet") {
         return Err(StatusCode::BAD_REQUEST);
     }
-    let rows = pg_store::summary_for_source(&state.pool, &source)
+    let rows = summary_for_source(&state.pool, &source)
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     Ok(renewed(Json(rows), &raw))
@@ -436,6 +437,10 @@ pub fn build(state: IngestState) -> Router {
         .route("/", get(dashboard))
         .route("/dashboard", get(dashboard))
         .route("/api/v1/events/{source}/summary", get(summary))
+        .route(
+            "/api/v1/events/{source}/summary/{event_type}",
+            get(crate::source_kind_summary),
+        )
         .route("/healthz", get(crate::health))
         .route("/api/v1/events", post(crate::ingest))
         .layer(DefaultBodyLimit::max(4096))

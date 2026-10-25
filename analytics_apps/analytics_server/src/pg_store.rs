@@ -1,3 +1,4 @@
+use analytics_persistence::EventSummary;
 use sqlx::PgPool;
 
 use crate::{EventInput, valid_event};
@@ -68,13 +69,6 @@ pub async fn persist_event(
     Ok(outcome)
 }
 
-#[derive(Debug, serde::Serialize, sqlx::FromRow, PartialEq, Eq)]
-pub struct EventSummary {
-    pub source_app: String,
-    pub event_type: String,
-    pub total: i64,
-}
-
 pub async fn summary_for_source(
     pool: &PgPool,
     source: &str,
@@ -88,24 +82,6 @@ pub async fn summary_for_source(
          ORDER BY event_type",
     )
     .bind(source)
-    .fetch_all(pool)
-    .await
-}
-
-pub async fn summary_for_source_and_type(
-    pool: &PgPool,
-    source: &str,
-    event_type: &str,
-) -> Result<Vec<EventSummary>, sqlx::Error> {
-    // 兩個值都綁定；不把 URL 內容拼入 SQL。
-    sqlx::query_as::<_, EventSummary>(
-        "SELECT source_app, event_type, COUNT(*)::bigint AS total
-         FROM product_events
-         WHERE source_app = $1 AND event_type = $2
-         GROUP BY source_app, event_type",
-    )
-    .bind(source)
-    .bind(event_type)
     .fetch_all(pool)
     .await
 }

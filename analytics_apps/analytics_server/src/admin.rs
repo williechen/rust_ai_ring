@@ -1,4 +1,5 @@
-use crate::{IngestState, pg_store};
+use crate::{IngestState, pg_store::*};
+use analytics_persistence::{EventSummary, summary_for_source_and_type};
 use axum::{
     Form, Json, Router,
     extract::{DefaultBodyLimit, Path, Query, State},
@@ -340,11 +341,7 @@ struct Filter {
     kind: Option<String>,
 }
 
-async fn rows(
-    state: &Admin,
-    source: &str,
-    kind: &str,
-) -> Result<Vec<pg_store::EventSummary>, StatusCode> {
+async fn rows(state: &Admin, source: &str, kind: &str) -> Result<Vec<EventSummary>, StatusCode> {
     if !matches!(source, "web_chat" | "desktop_pet")
         || (!kind.is_empty() && (!crate::valid_event_type(kind) || kind.contains('\0')))
     {
@@ -352,9 +349,9 @@ async fn rows(
     }
 
     let result = if kind.is_empty() {
-        pg_store::summary_for_source(&state.ingest.pool, source).await
+        summary_for_source(&state.ingest.pool, source).await
     } else {
-        pg_store::summary_for_source_and_type(&state.ingest.pool, source, kind).await
+        summary_for_source_and_type(&state.ingest.pool, source, kind).await
     };
     result.map_err(|_| StatusCode::SERVICE_UNAVAILABLE)
 }
@@ -433,7 +430,7 @@ async fn summary(
     State(state): State<Admin>,
     Path(source): Path<String>,
     headers: HeaderMap,
-) -> Result<Json<Vec<pg_store::EventSummary>>, StatusCode> {
+) -> Result<Json<Vec<EventSummary>>, StatusCode> {
     csrf_for(&state, &headers).ok_or(StatusCode::UNAUTHORIZED)?;
     Ok(Json(rows(&state, &source, "").await?))
 }
@@ -442,7 +439,7 @@ async fn kind_summary(
     State(state): State<Admin>,
     Path((source, kind)): Path<(String, String)>,
     headers: HeaderMap,
-) -> Result<Json<Vec<pg_store::EventSummary>>, StatusCode> {
+) -> Result<Json<Vec<EventSummary>>, StatusCode> {
     csrf_for(&state, &headers).ok_or(StatusCode::UNAUTHORIZED)?;
     Ok(Json(rows(&state, &source, &kind).await?))
 }
@@ -488,6 +485,8 @@ pub fn build(ingest: IngestState, config: Option<Config>) -> Router {
 
 #[cfg(test)]
 mod tests {
+    use crate::pg_store;
+
     use super::*;
     use axum::{body::Body, http::Request};
     use tower::ServiceExt;

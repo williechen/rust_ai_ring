@@ -4,6 +4,7 @@ pub mod dashboard_ui;
 pub mod password_login;
 pub mod pg_store;
 
+use analytics_persistence::{EventSummary, summary_for_source_and_type};
 use axum::{
     Json, Router,
     extract::State,
@@ -13,7 +14,7 @@ use axum::{
 use serde::Deserialize;
 use uuid::Uuid;
 
-use pg_store::{PersistError, PersistOutcome};
+use crate::pg_store::{PersistError, PersistOutcome};
 use sqlx::PgPool;
 use std::sync::Arc;
 
@@ -144,7 +145,7 @@ pub async fn ingest(
     }
 }
 
-fn summary_total(rows: &[pg_store::EventSummary]) -> Option<i64> {
+fn summary_total(rows: &[EventSummary]) -> Option<i64> {
     rows.iter().try_fold(0_i64, |sum, row| {
         if row.total < 0 {
             None
@@ -163,7 +164,7 @@ async fn source_summary(
     State(state): State<IngestState>,
     axum::extract::Path(source): axum::extract::Path<String>,
     headers: HeaderMap,
-) -> Result<Json<Vec<pg_store::EventSummary>>, StatusCode> {
+) -> Result<Json<Vec<EventSummary>>, StatusCode> {
     if !matches!(source.as_str(), "web_chat" | "desktop_pet") {
         return Err(StatusCode::BAD_REQUEST);
     }
@@ -181,12 +182,11 @@ async fn source_summary(
     Ok(Json(rows))
 }
 
-#[cfg(test)]
 async fn source_kind_summary(
     State(state): State<IngestState>,
     axum::extract::Path((source, event_type)): axum::extract::Path<(String, String)>,
     headers: HeaderMap,
-) -> Result<Json<Vec<pg_store::EventSummary>>, StatusCode> {
+) -> Result<Json<Vec<EventSummary>>, StatusCode> {
     if !matches!(source.as_str(), "web_chat" | "desktop_pet") {
         return Err(StatusCode::BAD_REQUEST);
     }
@@ -201,7 +201,7 @@ async fn source_kind_summary(
     if !valid_event_type(&event_type) || event_type.contains('\0') {
         return Err(StatusCode::BAD_REQUEST);
     }
-    let rows = pg_store::summary_for_source_and_type(&state.pool, &source, &event_type)
+    let rows = summary_for_source_and_type(&state.pool, &source, &event_type)
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     Ok(Json(rows))
@@ -643,10 +643,9 @@ mod source_kind_summary_tests {
 
 #[cfg(test)]
 mod day16_total_tests {
-    use crate::pg_store;
 
     use super::summary_total;
-    use pg_store::EventSummary;
+    use analytics_persistence::EventSummary;
 
     #[test]
     fn total_uses_actual_committed_summary_counts() {
@@ -677,4 +676,54 @@ mod day16_total_tests {
             assert!(!html.contains("test-pet"));
         }
     }
+}
+
+#[cfg(feature = "postgres-integration")]
+#[sqlx::test(migrations = "../migrations")]
+async fn day35_live_router_exposes_exact_kind_with_source_acl(pool: PgPool) {
+    use axum::{
+        body::{Body, to_bytes},
+        http::Request,
+    };
+    use tower::ServiceExt;
+
+    let event = EventInput {
+        schema_version: 1,
+        event_id: Uuid::new_v4(),
+        source_app: "web_chat".into(),
+        event_type: "chat.message.persisted".into(),
+    };
+    assert_eq!(
+        pg_store::persist_event(&pool, &event).await.unwrap(),
+        pg_store::PersistOutcome::Stored
+    );
+    let app = crate::build_app(state(pool));
+    let path = "/api/v1/events/web_chat/summary/chat.message.persisted";
+    let denied = app
+        .clone()
+        .oneshot(
+            Request::get(path)
+                .header(AUTHORIZATION, "Bearer fixture-pet-only")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(denied.status(), StatusCode::UNAUTHORIZED);
+    let ok = app
+        .oneshot(
+            Request::get(path)
+                .header(AUTHORIZATION, "Bearer fixture-chat-only")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(ok.status(), StatusCode::OK);
+    let bytes = to_bytes(ok.into_body(), 8192).await.unwrap();
+    let rows: Vec<serde_json::Value> = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0]["source_app"], "web_chat");
+    assert_eq!(rows[0]["event_type"], "chat.message.persisted");
+    assert_eq!(rows[0]["total"], 1);
 }

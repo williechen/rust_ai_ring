@@ -5,9 +5,11 @@ edition.workspace = true
 default-run = "analytics-server"
 
 [features]
-postgres-integration = []
+postgres-integration = ["analytics-persistence/postgres-integration"]
 
 [dependencies]
+analytics-persistence = { path = "../analytics_persistence" }
+
 axum.workspace = true
 argon2.workspace = true
 
