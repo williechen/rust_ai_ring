@@ -204,7 +204,7 @@ mod day29_tests {
         let html = render_dashboard("Pet", 3);
         assert!(html.contains("desktop_pet"));
         assert!(html.contains("aria-current=\"page\""));
-        assert!(html.contains("Pet 已提交事件總數 3"));
+        assert!(html.contains("全部事件類型：3 筆已提交事件"));
     }
 }
 

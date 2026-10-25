@@ -677,7 +677,7 @@ mod day16_total_tests {
         #[test]
         fn day28_leptos_dashboard_renders_source_and_links() {
             let html = crate::dashboard_ui::render_dashboard("Pet", 2);
-            assert!(html.contains("Pet 已提交事件總數 2"));
+            assert!(html.contains("全部事件類型：2 筆已提交事件"));
             assert!(html.contains("/dashboard?source=web_chat"));
             assert!(html.contains("/dashboard?source=desktop_pet"));
             assert!(html.contains("修改密碼"));
