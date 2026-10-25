@@ -145,6 +145,7 @@ async fn select_pet(
     app: tauri::AppHandle,
     store: State<'_, pet_store::PetStore>,
 ) -> Result<pet_store::SavedPet, String> {
+    let _operation = pet_windows::lifecycle_guard().await;
     let saved = store.select(&id).await?;
     pet_windows::open(&app, &saved)?;
     app.emit("pet-profile-changed", &saved)
@@ -189,6 +190,7 @@ pub fn application(db: sqlx::SqlitePool) {
             let handle = app.handle().clone();
             let store = app.state::<pet_store::PetStore>().inner().clone();
             tauri::async_runtime::spawn(async move {
+                let _operation = pet_windows::lifecycle_guard().await;
                 match store.uncaged().await {
                     Ok(pets) => {
                         for pet in pets {
@@ -218,6 +220,7 @@ pub fn application(db: sqlx::SqlitePool) {
                     let handle = app_handle.clone();
                     let store = app_handle.state::<pet_store::PetStore>().inner().clone();
                     tauri::async_runtime::spawn(async move {
+                        let _operation = pet_windows::lifecycle_guard().await;
                         match store.select(&id).await {
                             Ok(saved) => {
                                 // 控制窗原有 Leptos 監聽此事件，選取成功才通知。

@@ -16,6 +16,23 @@ pub async fn set_caged(pool: &sqlx::SqlitePool, id: &str, caged: bool) -> Result
     Ok(())
 }
 
+pub async fn read_caged(pool: &sqlx::SqlitePool, id: &str) -> Result<bool, String> {
+    let value: Option<i64> = sqlx::query_scalar(
+        "SELECT is_default_closure FROM pet_profile
+         WHERE id=?1 AND owner_id='local-owner'",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|_| "無法讀取回籠狀態".to_owned())?;
+    match value {
+        Some(0) => Ok(false),
+        Some(1) => Ok(true),
+        Some(_) => Err("回籠狀態資料不合法".into()),
+        None => Err("找不到寵物".into()),
+    }
+}
+
 /// 重啟查詢 DTO；不依賴 Tauri 或 server 的 SavedPet。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UncagedPet {
@@ -114,5 +131,30 @@ mod day36_restore_adapter_tests {
         );
         pool.close().await;
         assert!(list_uncaged(&pool).await.is_err());
+    }
+}
+
+#[cfg(test)]
+mod day37_open_state_tests {
+    use super::*;
+    #[sqlx::test(migrations = "../migrations")]
+    async fn read_flag_and_fail_closed_for_missing_pet(pool: sqlx::SqlitePool) {
+        sqlx::query("INSERT INTO pet_owner(id,name) VALUES('local-owner','本機')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO pet_profile(id,name,species,owner_id,is_default_closure)
+            VALUES('a','A','tortoise','local-owner',1)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert!(read_caged(&pool, "a").await.unwrap());
+        set_caged(&pool, "a", false).await.unwrap();
+        assert!(!read_caged(&pool, "a").await.unwrap());
+        assert!(read_caged(&pool, "missing").await.is_err());
+        pool.close().await;
+        assert!(read_caged(&pool, "a").await.is_err());
     }
 }

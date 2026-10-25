@@ -3,6 +3,34 @@ use pet_domain::{PetCommand, PetMachine, PetSnapshot};
 use std::{collections::HashMap, sync::Mutex};
 use tauri::{Emitter, Manager, State};
 
+// 產品目前單程序；全域序列化所有出／入籠、選取與啟動恢復。
+// 不持有 std::sync::MutexGuard 跨 await；Tauri command future 仍可 Send。
+static LIFECYCLE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+pub(crate) async fn lifecycle_guard() -> tokio::sync::MutexGuard<'static, ()> {
+    LIFECYCLE.lock().await
+}
+
+async fn persist_then_open<W, F, O>(
+    old_caged: bool,
+    mut write: W,
+    open_window: O,
+) -> Result<(), String>
+where
+    W: FnMut(bool) -> F,
+    F: std::future::Future<Output = Result<(), String>>,
+    O: FnOnce() -> Result<(), String>,
+{
+    write(false).await?;
+    if let Err(error) = open_window() {
+        return match write(old_caged).await {
+            Ok(()) => Err(format!("開窗失敗，已恢復原回籠值：{error}")),
+            Err(rollback) => Err(format!("開窗失敗：{error}；DB 補償失敗：{rollback}")),
+        };
+    }
+    Ok(())
+}
+
 #[derive(Default)]
 pub struct Runtime {
     machines: Mutex<HashMap<String, PetMachine>>,
@@ -106,9 +134,15 @@ pub async fn open_saved_pet(
     app: tauri::AppHandle,
     store: State<'_, PetStore>,
 ) -> Result<(), String> {
+    let _operation = lifecycle_guard().await;
     let pet = store.profile(&id).await?;
-    open(&app, &pet)?;
-    store.set_caged(&id, false).await
+    let old_caged = store.read_caged(&id).await?;
+    persist_then_open(
+        old_caged,
+        |flag| store.set_caged(&id, flag),
+        || open(&app, &pet),
+    )
+    .await
 }
 
 #[tauri::command]
@@ -117,6 +151,7 @@ pub async fn cage_saved_pet(
     app: tauri::AppHandle,
     store: State<'_, PetStore>,
 ) -> Result<(), String> {
+    let _operation = lifecycle_guard().await;
     store.profile(&id).await?;
     let window = app.get_webview_window(&label(&id)?);
 
@@ -168,5 +203,93 @@ mod tests {
             .collect();
         assert_eq!(labels.len(), 12);
         assert!(label("../invalid").is_err());
+    }
+}
+
+#[cfg(test)]
+mod day37_open_tests {
+    use super::*;
+    use std::{
+        cell::{Cell, RefCell},
+        future::ready,
+    };
+
+    #[tokio::test]
+    async fn persist_failure_never_opens_or_closes_a_window() {
+        let opened = Cell::new(false);
+        let writes = RefCell::new(Vec::new());
+        let result = persist_then_open(
+            true,
+            |flag| {
+                writes.borrow_mut().push(flag);
+                ready(Err("DB".into()))
+            },
+            || {
+                opened.set(true);
+                Ok(())
+            },
+        )
+        .await;
+        assert!(result.is_err());
+        assert!(!opened.get());
+        assert_eq!(*writes.borrow(), vec![false]);
+    }
+
+    #[tokio::test]
+    async fn open_failure_restores_the_actual_old_flag() {
+        for old in [true, false] {
+            let writes = RefCell::new(Vec::new());
+            let result = persist_then_open(
+                old,
+                |flag| {
+                    writes.borrow_mut().push(flag);
+                    ready(Ok(()))
+                },
+                || Err("native".into()),
+            )
+            .await;
+            assert!(result.unwrap_err().contains("native"));
+            assert_eq!(*writes.borrow(), vec![false, old]);
+        }
+    }
+
+    #[tokio::test]
+    async fn success_writes_once_and_rollback_error_is_visible() {
+        let writes = RefCell::new(Vec::new());
+        persist_then_open(
+            true,
+            |flag| {
+                writes.borrow_mut().push(flag);
+                ready(Ok(()))
+            },
+            || Ok(()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(*writes.borrow(), vec![false]);
+        let calls = Cell::new(0);
+        let error = persist_then_open(
+            true,
+            |_| {
+                calls.set(calls.get() + 1);
+                ready(if calls.get() == 1 {
+                    Ok(())
+                } else {
+                    Err("rollback".into())
+                })
+            },
+            || Err("native".into()),
+        )
+        .await
+        .unwrap_err();
+        assert!(error.contains("native") && error.contains("rollback"));
+    }
+
+    #[tokio::test]
+    async fn lifecycle_lock_excludes_a_second_operation() {
+        let first = lifecycle_guard().await;
+        assert!(LIFECYCLE.try_lock().is_err());
+        drop(first);
+        assert!(LIFECYCLE.try_lock().is_ok());
     }
 }

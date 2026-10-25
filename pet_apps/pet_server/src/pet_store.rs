@@ -163,6 +163,10 @@ impl PetStore {
     pub async fn set_caged(&self, id: &str, caged: bool) -> Result<(), String> {
         pet_persistence::set_caged(&self.pool, id, caged).await
     }
+
+    pub async fn read_caged(&self, id: &str) -> Result<bool, String> {
+        pet_persistence::read_caged(&self.pool, id).await
+    }
 }
 
 #[cfg(test)]
