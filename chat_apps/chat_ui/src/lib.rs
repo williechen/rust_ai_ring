@@ -1,8 +1,10 @@
+pub mod account;
+
 mod chat_socket;
 
-pub mod account;
 #[cfg(target_arch = "wasm32")]
 mod room_api;
+
 mod room_list_state;
 
 #[cfg(all(test, feature = "ssr"))]
@@ -11,6 +13,7 @@ mod signin_contract;
 use std::rc::Rc;
 
 use chat_domain::{ChatMessage, MessageAuthor};
+use chat_socket::ChatSocket;
 use leptos::prelude::*;
 use leptos_router::{
     components::{Route, Router, Routes},
@@ -30,8 +33,6 @@ use shared::ClientEvent;
 
 #[cfg(target_arch = "wasm32")]
 use shared::ServerEvent;
-
-use chat_socket::ChatSocket;
 
 fn room_status_text(status: &str, loaded: bool, total: usize, visible: usize) -> String {
     if matches!(status, "查詢中…" | "載入中…") || status.ends_with("，請重試") {
@@ -133,6 +134,7 @@ fn session_entry_display(state: SessionEntry) -> (&'static str, &'static str, &'
 #[component]
 fn HomePage() -> impl IntoView {
     let (entry, set_entry) = signal(SessionEntry::Checking);
+
     #[cfg(target_arch = "wasm32")]
     Effect::new(move |_| {
         wasm_bindgen_futures::spawn_local(async move {
@@ -144,8 +146,10 @@ fn HomePage() -> impl IntoView {
             set_entry.set(next);
         });
     });
+
     #[cfg(not(target_arch = "wasm32"))]
     let _ = set_entry;
+
     view! {
         <p>"Welcome to Rust AI Chat!"</p>
         <p>
@@ -351,6 +355,7 @@ fn RoomList() -> impl IntoView {
         }
         set_loading.set(true);
         set_status.set("查詢中…".into());
+
         #[cfg(target_arch = "wasm32")]
         wasm_bindgen_futures::spawn_local(async move {
             let submitted = query.get_untracked();
@@ -366,6 +371,7 @@ fn RoomList() -> impl IntoView {
                 set_loading,
             );
         });
+
         #[cfg(not(target_arch = "wasm32"))]
         {
             set_loading.set(false);
@@ -426,6 +432,7 @@ fn RoomList() -> impl IntoView {
 
                     #[cfg(not(target_arch = "wasm32"))]
                     { set_loading.set(false); }
+
             }>"讀取／重新整理房間"</button>
             <div class="room-results" aria-live="polite">
             {move || {
