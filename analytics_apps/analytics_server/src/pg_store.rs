@@ -1,4 +1,4 @@
-use analytics_persistence::EventSummary;
+use analytics_persistence::summary_for_source;
 use sqlx::PgPool;
 
 use crate::{EventInput, valid_event};
@@ -67,21 +67,4 @@ pub async fn persist_event(
     };
 
     Ok(outcome)
-}
-
-pub async fn summary_for_source(
-    pool: &PgPool,
-    source: &str,
-) -> Result<Vec<EventSummary>, sqlx::Error> {
-    // 來源值一律綁定；同一 SQL statement 取得一致的聚合快照。
-    sqlx::query_as::<_, EventSummary>(
-        "SELECT source_app, event_type, COUNT(*)::bigint AS total
-         FROM product_events
-         WHERE source_app = $1
-         GROUP BY source_app, event_type
-         ORDER BY event_type",
-    )
-    .bind(source)
-    .fetch_all(pool)
-    .await
 }

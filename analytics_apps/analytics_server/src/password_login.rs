@@ -1,4 +1,5 @@
-use crate::{IngestState, pg_store::summary_for_source};
+use crate::IngestState;
+use analytics_persistence::summary_for_source;
 use analytics_persistence::summary_for_source_and_type;
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use axum::{
@@ -460,6 +461,10 @@ pub fn build(state: IngestState) -> Router {
         .route("/", get(dashboard))
         .route("/dashboard", get(dashboard))
         .route("/api/v1/events/{source}/summary", get(summary))
+        .route(
+            "/api/v1/events/{source}/export.csv",
+            get(crate::export::export_summary),
+        )
         .route(
             "/api/v1/events/{source}/summary/{event_type}",
             get(crate::source_kind_summary),

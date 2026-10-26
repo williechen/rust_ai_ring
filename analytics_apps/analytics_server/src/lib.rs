@@ -1,9 +1,11 @@
 pub mod admin;
 pub mod bootstrap;
 pub mod dashboard_ui;
+pub mod export;
 pub mod password_login;
 pub mod pg_store;
 
+use analytics_persistence::summary_for_source;
 use analytics_persistence::{EventSummary, summary_for_source_and_type};
 use axum::{
     Json, Router,
@@ -182,7 +184,7 @@ async fn source_summary(
     if !state.tokens.authorized(&source, authorization) {
         return Err(StatusCode::UNAUTHORIZED);
     }
-    let rows = pg_store::summary_for_source(&state.pool, &source)
+    let rows = summary_for_source(&state.pool, &source)
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     Ok(Json(rows))
@@ -434,19 +436,14 @@ mod source_summary_tests {
         .execute(&pool)
         .await
         .unwrap();
-        assert_eq!(
-            pg_store::summary_for_source(&pool, "web_chat")
-                .await
-                .unwrap(),
-            chat
-        );
+        assert_eq!(summary_for_source(&pool, "web_chat").await.unwrap(), chat);
     }
 
     #[cfg(feature = "postgres-integration")]
     #[sqlx::test(migrations = "../migrations")]
     async fn empty_and_rolled_back_events_are_not_counted(pool: PgPool) {
         assert!(
-            pg_store::summary_for_source(&pool, "web_chat")
+            summary_for_source(&pool, "web_chat")
                 .await
                 .unwrap()
                 .is_empty()
@@ -462,7 +459,7 @@ mod source_summary_tests {
         .unwrap();
         tx.rollback().await.unwrap();
         assert!(
-            pg_store::summary_for_source(&pool, "web_chat")
+            summary_for_source(&pool, "web_chat")
                 .await
                 .unwrap()
                 .is_empty()
@@ -565,10 +562,7 @@ mod source_kind_summary_tests {
         );
         // 原 Day 13 的未篩選查詢仍可使用。
         assert_eq!(
-            pg_store::summary_for_source(&pool, "web_chat")
-                .await
-                .unwrap()
-                .len(),
+            summary_for_source(&pool, "web_chat").await.unwrap().len(),
             2
         );
 

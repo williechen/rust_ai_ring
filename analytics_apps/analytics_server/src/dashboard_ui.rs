@@ -44,6 +44,7 @@ fn DashboardView(
                         </a>
                     </nav>
                     <a href="/change-password">"修改密碼與 Email"</a>
+                    <a href=format!("/api/v1/events/{source}/export.csv")>"匯出目前來源 CSV"</a>
                     <form method="get" action="/dashboard">
                         <input type="hidden" name="source" value=source/>
                         <label for="event-type">"事件類型（精確比對）"</label>
