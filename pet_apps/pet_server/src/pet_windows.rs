@@ -2,7 +2,7 @@ use crate::pet_store::{PetStore, SavedPet};
 use pet_application::lifecycle::persist_then_open;
 use pet_domain::{PetCommand, PetMachine, PetSnapshot};
 use std::{collections::HashMap, sync::Mutex};
-use tauri::{Emitter, Manager, State};
+use tauri::{Emitter, Manager, PhysicalPosition, PhysicalRect, PhysicalSize, State};
 
 // 產品目前單程序；全域序列化所有出／入籠、選取與啟動恢復。
 // 不持有 std::sync::MutexGuard 跨 await；Tauri command future 仍可 Send。
@@ -139,28 +139,61 @@ pub async fn cage_saved_pet(
     let _operation = lifecycle_guard().await;
     store.profile(&id).await?;
     let window = app.get_webview_window(&label(&id)?);
-
-    // 儲存失敗不能先關窗，也不能清除 Runtime。
-    store.set_caged(&id, true).await?;
-    if let Some(window) = window {
-        if let Err(close_error) = window.close() {
-            // 關窗未成功，盡可能恢復 DB 的出籠標記。
-            let original = close_error.to_string();
-            return match store.set_caged(&id, false).await {
-                Ok(()) => Err(format!("關閉寵物視窗失敗，已恢復出籠狀態：{original}")),
-                Err(rollback) => Err(format!(
-                    "關閉寵物視窗失敗：{original}；回復資料庫亦失敗：{rollback}"
-                )),
-            };
-        }
-    }
+    pet_application::lifecycle::persist_then_close(
+        |flag| store.set_caged(&id, flag),
+        || match window {
+            Some(window) => window.close().map_err(|e| e.to_string()),
+            None => Ok(()),
+        },
+    )
+    .await?;
     app.state::<Runtime>().remove(&id);
     Ok(())
+}
+
+/// Place one existing pet window inside the primary monitor's work area.
+fn centered_position(
+    area: &PhysicalRect<i32, u32>,
+    size: PhysicalSize<u32>,
+) -> PhysicalPosition<i32> {
+    let x = i64::from(area.position.x) + i64::from(area.size.width.saturating_sub(size.width) / 2);
+    let y =
+        i64::from(area.position.y) + i64::from(area.size.height.saturating_sub(size.height) / 2);
+    PhysicalPosition {
+        x: x.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32,
+        y: y.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32,
+    }
+}
+
+#[tauri::command]
+pub async fn find_saved_pet(
+    id: String,
+    app: tauri::AppHandle,
+    store: State<'_, PetStore>,
+) -> Result<(), String> {
+    let _operation = lifecycle_guard().await;
+    store.profile(&id).await?;
+    let name = label(&id)?;
+    let window = app.get_webview_window(&name).ok_or("寵物尚未出籠")?;
+    let monitor = app
+        .primary_monitor()
+        .map_err(|e| e.to_string())?
+        .ok_or("找不到主螢幕")?;
+    let size = window.outer_size().map_err(|e| e.to_string())?;
+    let position = centered_position(monitor.work_area(), size);
+    crate::roam::stop_for_pet(&name);
+    let result = window
+        .set_position(position)
+        .and_then(|_| window.show())
+        .and_then(|_| window.set_focus());
+    crate::roam::spawn_for_pet(app.clone(), name);
+    result.map_err(|e| format!("找回寵物失敗：{e}"))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
     fn day24_more_than_two_pet_states_are_independent_and_caging_is_local() {
         let runtime = Runtime::default();
@@ -181,6 +214,7 @@ mod tests {
         assert!(runtime.snapshot("two").is_ok());
         assert!(runtime.snapshot("three").is_ok());
     }
+
     #[test]
     fn day24_window_labels_are_derived_from_each_uuid_not_a_two_window_limit() {
         let labels: std::collections::HashSet<_> = (0..12)
@@ -188,6 +222,37 @@ mod tests {
             .collect();
         assert_eq!(labels.len(), 12);
         assert!(label("../invalid").is_err());
+    }
+
+    #[test]
+    fn day39_find_position_respects_primary_work_area_and_negative_origins() {
+        let area = PhysicalRect {
+            position: PhysicalPosition { x: -1920, y: -100 },
+            size: PhysicalSize {
+                width: 1920,
+                height: 1080,
+            },
+        };
+        assert_eq!(
+            centered_position(
+                &area,
+                PhysicalSize {
+                    width: 200,
+                    height: 200
+                }
+            ),
+            PhysicalPosition { x: -1060, y: 340 }
+        );
+        assert_eq!(
+            centered_position(
+                &area,
+                PhysicalSize {
+                    width: 2500,
+                    height: 1200
+                }
+            ),
+            PhysicalPosition { x: -1920, y: -100 }
+        );
     }
 }
 

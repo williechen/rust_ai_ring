@@ -41,6 +41,14 @@ fn finish_task(label: &str, active: &Arc<AtomicBool>) {
     }
 }
 
+pub(crate) fn stop_for_pet(label: &str) {
+    if let Ok(tasks) = roam_tasks().lock() {
+        if let Some(active) = tasks.get(label) {
+            active.store(false, Ordering::Release);
+        }
+    }
+}
+
 pub(crate) fn spawn_for_pet(app: tauri::AppHandle, label: String) {
     if !crate::roam_enabled() {
         return;
@@ -314,6 +322,19 @@ mod tests {
         );
         assert_eq!(next, PhysicalPosition { x: -100, y: -50 });
         assert_eq!((dx, dy), (0, 0));
+    }
+
+    #[test]
+    fn day39_find_cancels_only_target_pet_roaming() {
+        let a = format!("pet-{}", uuid::Uuid::new_v4().simple());
+        let b = format!("pet-{}", uuid::Uuid::new_v4().simple());
+        let first = register_task(&a).unwrap();
+        let other = register_task(&b).unwrap();
+        stop_for_pet(&a);
+        assert!(!first.load(Ordering::Acquire));
+        assert!(other.load(Ordering::Acquire));
+        finish_task(&a, &first);
+        finish_task(&b, &other);
     }
 
     #[test]

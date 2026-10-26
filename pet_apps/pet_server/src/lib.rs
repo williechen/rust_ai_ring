@@ -295,6 +295,7 @@ pub fn application(db: sqlx::SqlitePool) {
             pet_windows::get_saved_pet_state,
             pet_windows::send_saved_pet_command,
             pet_windows::cage_saved_pet,
+            pet_windows::find_saved_pet,
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Rust AI Desktop Pet");

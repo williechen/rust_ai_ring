@@ -78,6 +78,9 @@ extern "C" {
     #[wasm_bindgen(js_namespace=window, js_name=cageSavedPet)]
     fn cage_saved_pet_js() -> Promise;
 
+    #[wasm_bindgen(js_namespace=window, js_name=findSavedPet)]
+    fn find_saved_pet_js(id: &str) -> Promise;
+
     #[wasm_bindgen(js_namespace=window, js_name=activePet)]
     fn active_pet_js() -> Promise;
 
@@ -235,6 +238,13 @@ pub async fn open_saved_pet(id: &str) -> Result<(), String> {
 
 pub async fn cage_saved_pet() -> Result<(), String> {
     JsFuture::from(cage_saved_pet_js())
+        .await
+        .map_err(js_error)?;
+    Ok(())
+}
+
+pub async fn find_saved_pet(id: &str) -> Result<(), String> {
+    JsFuture::from(find_saved_pet_js(id))
         .await
         .map_err(js_error)?;
     Ok(())
