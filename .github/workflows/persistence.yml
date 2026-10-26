@@ -2,9 +2,9 @@ name: Persistence
 
 on:
   push:
-    branches: ["main"]
+    branches: [main]
   pull_request:
-    branches: ["main"]
+    branches: [main]
 
 permissions:
   contents: read
@@ -15,69 +15,70 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-
-defaults:
-  run:
-    working-directory: chat_apps
-
-jobs:  
-  test-persistence:
+  
+jobs:
+  chat-sqlite:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Chat SQLite adapter tests
+        working-directory: chat_apps
+        env:
+          DATABASE_URL: "sqlite::memory:"
+        run: cargo test --locked -p chat-persistence
 
+  pet-sqlite:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Pet SQLite adapter tests (no Tauri)
+        working-directory: pet_apps
+        env:
+          DATABASE_URL: "sqlite::memory:"
+        run: cargo test --locked -p pet-persistence
+
+  pet-native:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Tauri native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config curl wget file \
+            libssl-dev libxdo-dev librsvg2-dev libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Pet native/server tests (not GUI acceptance)
+        working-directory: pet_apps
+        env:
+          DATABASE_URL: "sqlite::memory:"
+        run: cargo test --locked -p pet-server
+
+  analytics-postgres:
+    runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:latest
+        image: postgres:18
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: rust_ai_chat_test
-        ports:
-          - 5432:5432
+          POSTGRES_DB: analytics_ci
+        ports: ["5432:5432"]
         options: >-
-          --health-cmd "pg_isready -U postgres -d rust_ai_chat_test"
+          --health-cmd "pg_isready -U postgres -d analytics_ci"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-
-    env:
-      ANALYTICS_DATABASE_URL: postgres://postgres:postgres@localhost:5432/rust_ai_chat_test
-      ANALYTICS_CHAT_TOKEN: local-ci-chat-token
-      ANALYTICS_PET_TOKEN: local-ci-pet-token
-      CHAT_DATABASE_URL: "sqlite::memory:"
-      PET_DATABASE_URL: "sqlite::memory:"
-
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Linux dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            pkg-config \
-            curl \
-            wget \
-            file \
-            libssl-dev \
-            libxdo-dev \
-            librsvg2-dev \
-            libwebkit2gtk-4.1-dev
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install sqlx-cli
-        run: cargo install sqlx-cli --version "^0.9" --no-default-features --features postgres,sqlite --locked
-
-      - name: Test persistence
-        run: DATABASE_URL="$CHAT_DATABASE_URL" cargo test --locked -p chat-persistence
-        working-directory: chat_apps
-
-      - name: Test Pet Persistence
-        run: DATABASE_URL="$PET_DATABASE_URL" cargo test --locked -p pet-server -p pet-persistence
-        working-directory: pet_apps
-
-      - name: Test analytics server with PostgreSQL
-        run: DATABASE_URL="$ANALYTICS_DATABASE_URL" cargo test --locked -p analytics-server -p analytics-persistence --features postgres-integration
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Analytics SQLx adapter + real Router integration
         working-directory: analytics_apps
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/analytics_ci
+          ANALYTICS_DATABASE_URL: postgres://postgres:postgres@localhost:5432/analytics_ci
+          ANALYTICS_CHAT_TOKEN: local-ci-chat-token
+          ANALYTICS_PET_TOKEN: local-ci-pet-token
+        run: cargo test --locked -p analytics-server -p analytics-persistence --features postgres-integration

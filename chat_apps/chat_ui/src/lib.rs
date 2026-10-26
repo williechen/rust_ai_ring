@@ -3,6 +3,7 @@ mod chat_socket;
 pub mod account;
 #[cfg(target_arch = "wasm32")]
 mod room_api;
+mod room_list_state;
 
 use std::rc::Rc;
 
@@ -14,6 +15,11 @@ use leptos_router::{
     path,
 };
 
+use room_list_state::{filter_rooms, room_list_feedback};
+
+#[cfg(any(target_arch = "wasm32", test))]
+use room_list_state::refresh_result_view;
+
 use shared::ClientEvent;
 
 #[cfg(target_arch = "wasm32")]
@@ -21,69 +27,19 @@ use shared::ServerEvent;
 
 use chat_socket::ChatSocket;
 
+fn room_status_text(status: &str, loaded: bool, total: usize, visible: usize) -> String {
+    if matches!(status, "查詢中…" | "載入中…") || status.ends_with("，請重試") {
+        return status.to_owned();
+    }
+    room_list_feedback(loaded, total, visible).to_owned()
+}
+
 fn author_label(author: &MessageAuthor) -> String {
     match author {
         MessageAuthor::AnonymousUser => "You".to_string(),
         MessageAuthor::User { user_id } => format!("User {}", user_id),
         MessageAuthor::Ai { persona_id } => format!("AI {}", persona_id),
         MessageAuthor::System => "System".to_string(),
-    }
-}
-
-fn filter_rooms(rows: &[(String, String)], query: &str) -> Vec<(String, String)> {
-    let needle = query.trim().to_lowercase();
-    rows.iter()
-        .filter(|(_, name)| name.to_lowercase().contains(&needle))
-        .cloned()
-        .collect()
-}
-
-fn room_list_feedback(loaded: bool, total: usize, visible: usize) -> &'static str {
-    if !loaded {
-        "請先讀取房間列表"
-    } else if total == 0 {
-        "尚無房間"
-    } else if visible == 0 {
-        "沒有符合條件的房間"
-    } else {
-        "請選擇房間"
-    }
-}
-
-#[cfg(any(target_arch = "wasm32", test))]
-fn refreshed_room_list(
-    previous: Vec<(String, String)>,
-    result: Result<Vec<(String, String)>, String>,
-) -> (Vec<(String, String)>, String) {
-    match result {
-        Ok(value) => {
-            let status = if value.is_empty() {
-                "尚無房間"
-            } else {
-                "請選擇房間"
-            };
-            (value, status.to_owned())
-        }
-        Err(message) => (previous, format!("{message}，請重試")),
-    }
-}
-
-#[cfg(any(target_arch = "wasm32", test))]
-fn refresh_result_view(
-    previous: Vec<(String, String)>,
-    previous_query: String,
-    result: Result<Vec<(String, String)>, String>,
-) -> (Vec<(String, String)>, String, String) {
-    match result {
-        Ok(next) => {
-            let status = if next.is_empty() {
-                "尚無房間"
-            } else {
-                "請選擇房間"
-            };
-            (next, String::new(), status.to_owned())
-        }
-        Err(error) => (previous, previous_query, format!("{error}，請重試")),
     }
 }
 
@@ -427,8 +383,11 @@ fn RoomList() -> impl IntoView {
             {move || {
                 let all = rows.get();
                 let visible = filter_rooms(&all, &query.get());
-                let feedback = room_list_feedback(
-                    has_snapshot.get(), all.len(), visible.len()
+                let feedback = room_status_text(
+                    &status.get(),
+                    has_snapshot.get(),
+                    all.len(),
+                    visible.len(),
                 );
                 view! {
                     <p class="room-result-feedback" role="status">{feedback}</p>
@@ -447,85 +406,6 @@ fn RoomList() -> impl IntoView {
             }}
             </div>
         </section>
-    }
-}
-
-#[cfg(test)]
-mod day16_room_search_tests {
-    use super::filter_rooms;
-    #[test]
-    fn day19_empty_success_replaces_previous_rows() {
-        let (rows, status) =
-            super::refreshed_room_list(vec![("old".into(), "舊房間".into())], Ok(vec![]));
-        assert!(rows.is_empty());
-        assert_eq!(status, "尚無房間");
-    }
-
-    #[test]
-    fn day19_failure_preserves_complete_rows_and_message() {
-        let old = vec![
-            ("one".into(), "同名房間".into()),
-            ("two".into(), "同名房間".into()),
-        ];
-        let (rows, status) = super::refreshed_room_list(old.clone(), Err("讀取失敗：503".into()));
-        assert_eq!(rows, old);
-        assert_eq!(status, "讀取失敗：503，請重試");
-    }
-
-    #[test]
-    fn day19_refresh_failure_keeps_previous_room_links() {
-        let old = vec![("room_1".into(), "Rust 技術交流".into())];
-        let (rows, status) = super::refreshed_room_list(old.clone(), Err("503".into()));
-        assert_eq!(rows, old);
-        assert!(status.contains("請重試"));
-
-        let (rows, status) =
-            super::refreshed_room_list(old, Ok(vec![("room_2".into(), "生活閒聊".into())]));
-        assert_eq!(rows[0].0, "room_2");
-        assert_eq!(status, "請選擇房間");
-    }
-
-    #[test]
-    fn search_matches_chinese_names_and_preserves_ids() {
-        let rooms = vec![
-            ("room_1".to_owned(), "Rust 技術交流".to_owned()),
-            ("room_2".to_owned(), "生活閒聊".to_owned()),
-        ];
-        assert_eq!(filter_rooms(&rooms, " 技術 "), vec![rooms[0].clone()]);
-        assert_eq!(filter_rooms(&rooms, ""), rooms);
-        assert!(filter_rooms(&rooms, "不存在").is_empty());
-    }
-
-    #[test]
-    fn day18_query_filter_preserves_room_ids() {
-        let rows = vec![
-            ("room_1".to_string(), "Rust 技術交流".to_string()),
-            ("room_2".to_string(), "生活閒聊".to_string()),
-        ];
-        assert_eq!(super::filter_rooms(&rows, " 技術 "), vec![rows[0].clone()]);
-        assert_eq!(super::filter_rooms(&rows, " "), rows);
-    }
-
-    #[test]
-    fn day20_refresh_success_reveals_full_snapshot() {
-        let old = vec![("a".into(), "Rust".into())];
-        let fresh = vec![("a".into(), "Rust".into()), ("b".into(), "Pet".into())];
-        let (rows, query, status) =
-            super::refresh_result_view(old, "Rust".into(), Ok(fresh.clone()));
-        assert_eq!(rows, fresh);
-        assert_eq!(query, "");
-        assert_eq!(status, "請選擇房間");
-        assert_eq!(super::filter_rooms(&rows, &query).len(), 2);
-    }
-
-    #[test]
-    fn day20_refresh_failure_keeps_query_and_rows() {
-        let old = vec![("a".into(), "Rust".into())];
-        let (rows, query, status) =
-            super::refresh_result_view(old.clone(), "Rust".into(), Err("503".into()));
-        assert_eq!(rows, old);
-        assert_eq!(query, "Rust");
-        assert_eq!(status, "503，請重試");
     }
 }
 
@@ -596,19 +476,6 @@ mod day32_history_disclosure_tests {
         assert!(html.contains("重新整理不會載入已儲存訊息"));
         assert!(html.contains("目前尚無本次連線收到的訊息"));
         assert!(html.contains("aria-live=\"polite\""));
-    }
-}
-
-#[cfg(test)]
-mod day33_room_list_feedback_tests {
-    use super::room_list_feedback;
-
-    #[test]
-    fn distinguish_not_loaded_empty_filtered_and_found() {
-        assert_eq!(room_list_feedback(false, 0, 0), "請先讀取房間列表");
-        assert_eq!(room_list_feedback(true, 0, 0), "尚無房間");
-        assert_eq!(room_list_feedback(true, 3, 0), "沒有符合條件的房間");
-        assert_eq!(room_list_feedback(true, 3, 2), "請選擇房間");
     }
 }
 
@@ -703,5 +570,38 @@ mod day37_search_tests {
             assert!(!snapshot.get_untracked());
             assert!(!loading.get_untracked());
         });
+    }
+}
+
+#[cfg(test)]
+mod day38_room_status_tests {
+    use super::room_status_text;
+
+    #[test]
+    fn request_progress_and_failure_override_stale_room_feedback() {
+        assert_eq!(room_status_text("查詢中…", true, 2, 1), "查詢中…");
+        assert_eq!(room_status_text("載入中…", true, 2, 1), "載入中…");
+        assert_eq!(
+            room_status_text("伺服器：500，請重試", true, 2, 1),
+            "伺服器：500，請重試"
+        );
+        assert_eq!(
+            room_status_text("離線，請重試", false, 0, 0),
+            "離線，請重試"
+        );
+    }
+
+    #[test]
+    fn success_and_local_filter_show_one_consistent_status() {
+        assert_eq!(
+            room_status_text("請選擇房間", false, 0, 0),
+            "請先讀取房間列表"
+        );
+        assert_eq!(room_status_text("請選擇房間", true, 0, 0), "尚無房間");
+        assert_eq!(
+            room_status_text("請選擇房間", true, 2, 0),
+            "沒有符合條件的房間"
+        );
+        assert_eq!(room_status_text("請選擇房間", true, 2, 1), "請選擇房間");
     }
 }
