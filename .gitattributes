@@ -1,12 +1,14 @@
-# 預設文字檔統一使用 LF
-* text=auto eol=lf
+* text=auto
 
-# Windows 腳本保留 CRLF
+*.rs text eol=lf
+*.toml text eol=lf
+*.lock text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.json text eol=lf
+*.sql text eol=lf
+*.sh text eol=lf
+
 *.bat text eol=crlf
 *.cmd text eol=crlf
-
-# 二進位檔不轉換
-*.png binary
-*.jpg binary
-*.pdf binary
-*.zip binary
