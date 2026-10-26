@@ -223,6 +223,23 @@ mod tests {
     use super::*;
 
     #[test]
+    fn day40_runtime_cleanup_cancels_only_the_removed_pet() {
+        let a = uuid::Uuid::new_v4().to_string();
+        let b = uuid::Uuid::new_v4().to_string();
+        let la = crate::pet_windows::label(&a).unwrap();
+        let lb = crate::pet_windows::label(&b).unwrap();
+        let aa = register_task(&la).unwrap();
+        let bb = register_task(&lb).unwrap();
+        let runtime = crate::pet_windows::Runtime::default();
+        runtime.remove(&a);
+        assert!(!aa.load(Ordering::Acquire));
+        assert!(bb.load(Ordering::Acquire));
+        stop_for_pet(&lb);
+        finish_task(&la, &aa);
+        finish_task(&lb, &bb);
+    }
+
+    #[test]
     fn day19_displacement_threshold_axes_and_extremes() {
         let p = |x, y| PhysicalPosition { x, y };
         assert!(!unexpected_displacement(p(-100, -100), p(-68, -132)));
