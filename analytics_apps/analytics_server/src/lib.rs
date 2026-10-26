@@ -77,6 +77,15 @@ pub fn valid_event(event: &EventInput) -> bool {
         && valid_event_type(event.event_type.as_str())
 }
 
+fn single_authorization(headers: &HeaderMap) -> Option<&str> {
+    let mut values = headers.get_all(AUTHORIZATION).iter();
+    let first = values.next()?.to_str().ok()?;
+    if values.next().is_some() {
+        return None;
+    }
+    Some(first)
+}
+
 #[derive(Clone)]
 pub struct IngestTokens {
     pub chat: String,
@@ -131,10 +140,7 @@ pub async fn ingest(
     if !valid_event(&event) {
         return StatusCode::BAD_REQUEST;
     }
-    let authorization = headers
-        .get(AUTHORIZATION)
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or("");
+    let authorization = single_authorization(&headers).unwrap_or("");
     if !state.tokens.authorized(&event.source_app, authorization) {
         return StatusCode::UNAUTHORIZED;
     }

@@ -1,59 +1,14 @@
-// apps/analytics_server/tests/day27_dashboard_source.rs
 #![cfg(feature = "postgres-integration")]
-use analytics_server::{IngestState, IngestTokens, bootstrap, password_login};
-use axum::{
-    body::{Body, to_bytes},
-    http::{Request, StatusCode, header},
-};
-use std::sync::Arc;
-use tower::ServiceExt;
+mod support;
+
+use analytics_server::bootstrap;
+use axum::http::{StatusCode, header};
+use support::http::{body_text, get, post_form as post, response_cookie};
 
 fn app(pool: sqlx::PgPool) -> axum::Router {
-    password_login::build(IngestState {
-        pool,
-        tokens: Arc::new(IngestTokens {
-            chat: "test-chat".into(),
-            pet: "test-pet".into(),
-        }),
-    })
+    support::app(pool, "test-chat", "test-pet")
 }
-async fn get(app: axum::Router, path: &str, cookie: Option<&str>) -> axum::response::Response {
-    let mut request = Request::get(path);
-    if let Some(cookie) = cookie {
-        request = request.header(header::COOKIE, cookie);
-    }
-    app.oneshot(request.body(Body::empty()).unwrap())
-        .await
-        .unwrap()
-}
-async fn post(
-    app: axum::Router,
-    path: &str,
-    form: String,
-    cookie: Option<&str>,
-) -> axum::response::Response {
-    let mut req = Request::post(path)
-        .header(header::ORIGIN, "http://127.0.0.1:3100")
-        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded");
-    if let Some(cookie) = cookie {
-        req = req.header(header::COOKIE, cookie);
-    }
-    app.oneshot(req.body(Body::from(form)).unwrap())
-        .await
-        .unwrap()
-}
-fn response_cookie(r: &axum::response::Response) -> String {
-    r.headers()[header::SET_COOKIE]
-        .to_str()
-        .unwrap()
-        .split(';')
-        .next()
-        .unwrap()
-        .to_owned()
-}
-async fn body_text(r: axum::response::Response) -> String {
-    String::from_utf8(to_bytes(r.into_body(), 32768).await.unwrap().to_vec()).unwrap()
-}
+
 #[sqlx::test(migrations = "../migrations")]
 async fn day27_session_admin_can_switch_real_source_counts(pool: sqlx::PgPool) {
     bootstrap::initialize(&pool, "first-password-27".into())

@@ -1,52 +1,13 @@
 #![cfg(feature = "postgres-integration")]
-use analytics_server::{IngestState, IngestTokens, password_login};
-use axum::{
-    body::Body,
-    http::{Request, StatusCode, header},
-};
-use std::sync::Arc;
-use tower::ServiceExt;
+mod support;
+
+use axum::http::{StatusCode, header};
+use support::http::{response_cookie as cookie, send};
+
 fn app(pool: sqlx::PgPool) -> axum::Router {
-    password_login::build(IngestState {
-        pool,
-        tokens: Arc::new(IngestTokens {
-            chat: "fixture-chat".into(),
-            pet: "fixture-pet".into(),
-        }),
-    })
+    support::app(pool, "fixture-chat", "fixture-pet")
 }
-async fn send(
-    app: axum::Router,
-    path: &str,
-    body: Option<&str>,
-    cookie: Option<&str>,
-) -> axum::response::Response {
-    let mut r = if body.is_some() {
-        Request::post(path)
-            .header("origin", "http://127.0.0.1:3100")
-            .header("content-type", "application/x-www-form-urlencoded")
-    } else {
-        Request::get(path)
-    };
-    if let Some(c) = cookie {
-        r = r.header(header::COOKIE, c);
-    }
-    app.oneshot(
-        r.body(body.map_or_else(Body::empty, |s| Body::from(s.to_owned())))
-            .unwrap(),
-    )
-    .await
-    .unwrap()
-}
-fn cookie(r: &axum::response::Response) -> String {
-    r.headers()[header::SET_COOKIE]
-        .to_str()
-        .unwrap()
-        .split(';')
-        .next()
-        .unwrap()
-        .to_owned()
-}
+
 #[sqlx::test(migrations = "../migrations")]
 async fn day23_bootstrapped_password_is_restricted_before_first_change(pool: sqlx::PgPool) {
     analytics_server::bootstrap::initialize(&pool, "lesson-only-password".into())

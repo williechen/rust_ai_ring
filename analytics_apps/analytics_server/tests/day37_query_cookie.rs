@@ -1,11 +1,12 @@
 #![cfg(feature = "postgres-integration")]
-use analytics_server::{IngestState, IngestTokens, bootstrap, password_login};
+mod support;
+
+use analytics_server::bootstrap;
 use axum::{
     Router,
     body::Body,
     http::{Request, StatusCode, header},
 };
-use std::sync::Arc;
 use tower::ServiceExt;
 
 async fn query(
@@ -47,13 +48,7 @@ async fn day37_real_query_routes_reject_ambiguous_session_cookies(pool: sqlx::Pg
     .execute(&pool)
     .await
     .unwrap();
-    let app = password_login::build(IngestState {
-        pool: pool.clone(),
-        tokens: Arc::new(IngestTokens {
-            chat: "fixture-chat".into(),
-            pet: "fixture-pet".into(),
-        }),
-    });
+    let app = support::app(pool.clone(), "fixture-chat", "fixture-pet");
     let login = app
         .clone()
         .oneshot(
@@ -67,13 +62,7 @@ async fn day37_real_query_routes_reject_ambiguous_session_cookies(pool: sqlx::Pg
         .unwrap();
     assert_eq!(login.status(), StatusCode::SEE_OTHER);
     assert_eq!(login.headers()[header::LOCATION], "/dashboard");
-    let cookie = login.headers()[header::SET_COOKIE]
-        .to_str()
-        .unwrap()
-        .split(';')
-        .next()
-        .unwrap()
-        .to_owned();
+    let cookie = support::http::response_cookie(&login);
     let invalid = format!("analytics_session={}", "0".repeat(64));
     let paths = [
         "/api/v1/events/web_chat/summary",
