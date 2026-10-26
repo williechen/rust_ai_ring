@@ -105,6 +105,45 @@ async fn day39_authenticated_admin_exports_only_selected_source_csv(pool: sqlx::
         StatusCode::BAD_REQUEST
     );
 
+    let filtered = get(
+        app.clone(),
+        "/api/v1/events/web_chat/export.csv?event_type=chat.message.persisted",
+        Some(&cookie),
+    )
+    .await;
+    assert_eq!(filtered.status(), StatusCode::OK);
+    let body = body_text(filtered).await;
+    assert!(body.contains("chat.message.persisted"));
+    assert!(!body.contains("chat.room.created"));
+    assert!(!body.contains("pet.sleep.started"));
+    let no_kind = get(
+        app.clone(),
+        "/api/v1/events/web_chat/export.csv?event_type=missing.kind",
+        Some(&cookie),
+    )
+    .await;
+    assert_eq!(no_kind.status(), StatusCode::OK);
+    assert!(!body_text(no_kind).await.contains("chat.message.persisted"));
+    let invalid = get(
+        app.clone(),
+        "/api/v1/events/web_chat/export.csv?event_type=%20invalid",
+        Some(&cookie),
+    )
+    .await;
+    assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
+    let page = get(
+        app.clone(),
+        "/dashboard?source=web_chat&event_type=chat.message.persisted",
+        Some(&cookie),
+    )
+    .await;
+    assert_eq!(page.status(), StatusCode::OK);
+    assert!(
+        body_text(page)
+            .await
+            .contains("/api/v1/events/web_chat/export.csv?event_type=chat.message.persisted")
+    );
+
     let logout = post_form(app.clone(), "/logout", String::new(), Some(&cookie)).await;
     assert_eq!(logout.status(), StatusCode::SEE_OTHER);
     assert_eq!(

@@ -8,6 +8,18 @@ fn summary_count_label(source_label: &str, event_type: &str, total: i64) -> Stri
     }
 }
 
+fn encode_query_component(value: &str) -> String {
+    let mut result = String::new();
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
+            result.push(char::from(byte));
+        } else {
+            result.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    result
+}
+
 #[component]
 fn DashboardView(
     source_label: &'static str,
@@ -18,6 +30,14 @@ fn DashboardView(
     let chat_current = (source_label == "Chat").then_some("page");
     let pet_current = (source_label == "Pet").then_some("page");
     let clear_url = format!("/dashboard?source={source}");
+    let export_url = if event_type.is_empty() {
+        format!("/api/v1/events/{source}/export.csv")
+    } else {
+        format!(
+            "/api/v1/events/{source}/export.csv?event_type={}",
+            encode_query_component(&event_type)
+        )
+    };
     let filter_description = if event_type.is_empty() {
         "全部事件類型".to_string()
     } else {
@@ -44,7 +64,7 @@ fn DashboardView(
                         </a>
                     </nav>
                     <a href="/change-password">"修改密碼與 Email"</a>
-                    <a href=format!("/api/v1/events/{source}/export.csv")>"匯出目前來源 CSV"</a>
+                    <a href=export_url>"匯出目前篩選 CSV"</a>
                     <form method="get" action="/dashboard">
                         <input type="hidden" name="source" value=source/>
                         <label for="event-type">"事件類型（精確比對）"</label>
@@ -292,5 +312,22 @@ mod day33_summary_caption_tests {
         assert!(html.contains("class=\"summary-count\""));
         assert!(!html.contains("<img src=x onerror=alert(1)>"));
         assert!(html.contains("&lt;img"));
+    }
+}
+
+#[cfg(test)]
+mod day40_csv_filter_ui_tests {
+    use super::*;
+    #[test]
+    fn dashboard_csv_link_encodes_exact_kind_and_escapes_markup() {
+        assert_eq!(
+            encode_query_component("a &中文"),
+            "a%20%26%E4%B8%AD%E6%96%87"
+        );
+        let html = render_dashboard_filtered("Chat", 1, "web_chat", "x&y");
+        assert!(html.contains("/api/v1/events/web_chat/export.csv?event_type=x%26y"));
+        assert!(!html.contains("event_type=x&y"));
+        let empty = render_dashboard_filtered("Chat", 0, "web_chat", "");
+        assert!(empty.contains("/api/v1/events/web_chat/export.csv"));
     }
 }
