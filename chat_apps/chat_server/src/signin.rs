@@ -19,6 +19,7 @@ struct Credentials {
 pub fn routes(pool: SqlitePool) -> Router {
     Router::new()
         .route("/login", get(login_page).post(login))
+        .route("/account", get(account))
         .route("/api/session", get(session_status))
         .route("/account/rooms", axum::routing::post(account_create_room))
         .layer(DefaultBodyLimit::max(4096))
