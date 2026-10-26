@@ -37,6 +37,12 @@ pub(super) fn refresh_result_view(
     }
 }
 
+/// chat_apps/chat_ui/src/room_list_state.rs
+#[cfg(any(target_arch = "wasm32", test))]
+pub(super) fn should_auto_load(has_snapshot: bool, loading: bool) -> bool {
+    !has_snapshot && !loading
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -124,5 +130,13 @@ mod tests {
         assert_eq!(room_list_feedback(true, 0, 0), "尚無房間");
         assert_eq!(room_list_feedback(true, 3, 0), "沒有符合條件的房間");
         assert_eq!(room_list_feedback(true, 3, 2), "請選擇房間");
+    }
+
+    #[test]
+    fn day39_initial_load_is_once_and_does_not_interrupt_pending_request() {
+        assert!(should_auto_load(false, false));
+        assert!(!should_auto_load(false, true));
+        assert!(!should_auto_load(true, false));
+        assert!(!should_auto_load(true, true));
     }
 }

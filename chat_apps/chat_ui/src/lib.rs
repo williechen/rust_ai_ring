@@ -5,6 +5,9 @@ pub mod account;
 mod room_api;
 mod room_list_state;
 
+#[cfg(all(test, feature = "ssr"))]
+mod signin_contract;
+
 use std::rc::Rc;
 
 use chat_domain::{ChatMessage, MessageAuthor};
@@ -19,6 +22,9 @@ use room_list_state::{filter_rooms, room_list_feedback};
 
 #[cfg(any(target_arch = "wasm32", test))]
 use room_list_state::refresh_result_view;
+
+#[cfg(any(target_arch = "wasm32"))]
+use room_list_state::should_auto_load;
 
 use shared::ClientEvent;
 
@@ -334,6 +340,14 @@ fn RoomList() -> impl IntoView {
         }
     };
 
+    // chat_apps/chat_ui/src/lib.rs::RoomList，query_room closure 宣告之後、view! 之前
+    #[cfg(target_arch = "wasm32")]
+    Effect::new(move |_| {
+        if should_auto_load(has_snapshot.get_untracked(), loading.get_untracked()) {
+            query_room(); // existing real search_rooms("") -> GET /api/rooms?q=
+        }
+    });
+
     view! {
         <section>
             <h2>"房間列表"</h2>
@@ -425,25 +439,6 @@ mod day16_layout_tests {
     }
 }
 
-// crates/ui/src/lib.rs：檔尾新增；先跑 Red，後貼 Green。
-#[cfg(all(test, feature = "ssr"))]
-mod day28_signin_tests {
-    use super::*;
-
-    #[test]
-    fn day28_leptos_signin_posts_to_existing_login_handler() {
-        let html = view! { <SignInPage /> }.to_html();
-        assert!(html.contains("<form"));
-        assert!(html.contains("method=\"post\""));
-        assert!(html.contains("action=\"/login\""));
-        assert!(html.contains("name=\"username\""));
-        assert!(html.contains("name=\"password\""));
-        assert!(html.contains("type=\"password\""));
-        assert!(html.contains("autocomplete=\"current-password\""));
-        assert!(html.contains("/signup"));
-    }
-}
-
 #[cfg(all(test, feature = "ssr"))]
 mod day31_account_tests {
     #[test]
@@ -476,32 +471,6 @@ mod day32_history_disclosure_tests {
         assert!(html.contains("重新整理不會載入已儲存訊息"));
         assert!(html.contains("目前尚無本次連線收到的訊息"));
         assert!(html.contains("aria-live=\"polite\""));
-    }
-}
-
-#[cfg(all(test, feature = "ssr"))]
-mod day34_existing_signin_tests {
-    use super::*;
-
-    #[test]
-    fn existing_signin_is_the_single_login_form() {
-        let html = view! { <SignInPage/> }.to_html();
-        assert_eq!(html.matches("<form").count(), 1);
-        for marker in [
-            "method=\"post\"",
-            "action=\"/login\"",
-            "for=\"login-username\"",
-            "id=\"login-username\"",
-            "name=\"username\"",
-            "for=\"login-password\"",
-            "id=\"login-password\"",
-            "name=\"password\"",
-            "type=\"password\"",
-            "autocomplete=\"current-password\"",
-            "href=\"/signup\"",
-        ] {
-            assert!(html.contains(marker), "missing {marker}");
-        }
     }
 }
 
