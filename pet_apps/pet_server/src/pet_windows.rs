@@ -16,6 +16,7 @@ pub(crate) async fn lifecycle_guard() -> tokio::sync::MutexGuard<'static, ()> {
 pub struct Runtime {
     machines: Mutex<HashMap<String, PetMachine>>,
 }
+
 impl Runtime {
     pub fn snapshot(&self, id: &str) -> Result<PetSnapshot, String> {
         self.machines
@@ -215,6 +216,67 @@ mod tests {
         assert_eq!(pet_id_from_window_label("main"), None);
         assert_eq!(pet_id_from_window_label("pet-invalid"), None);
         assert_eq!(pet_id_from_window_label("pet-../../x"), None);
+    }
+
+    #[test]
+    fn day24_more_than_two_pet_states_are_independent_and_caging_is_local() {
+        let runtime = Runtime::default();
+        for id in ["one", "two", "three"] {
+            runtime
+                .machines
+                .lock()
+                .unwrap()
+                .insert(id.into(), PetMachine::default());
+        }
+        let before_two = runtime.snapshot("two").unwrap();
+        let before_three = runtime.snapshot("three").unwrap();
+        runtime.dispatch("one", PetCommand::Sleep).unwrap();
+        assert_eq!(runtime.snapshot("two").unwrap(), before_two);
+        assert_eq!(runtime.snapshot("three").unwrap(), before_three);
+        runtime.remove("one");
+        assert!(runtime.snapshot("one").is_err());
+        assert!(runtime.snapshot("two").is_ok());
+        assert!(runtime.snapshot("three").is_ok());
+    }
+
+    #[test]
+    fn day24_window_labels_are_derived_from_each_uuid_not_a_two_window_limit() {
+        let labels: std::collections::HashSet<_> = (0..12)
+            .map(|_| label(&uuid::Uuid::new_v4().to_string()).unwrap())
+            .collect();
+        assert_eq!(labels.len(), 12);
+        assert!(label("../invalid").is_err());
+    }
+
+    #[test]
+    fn day39_find_position_respects_primary_work_area_and_negative_origins() {
+        let area = PhysicalRect {
+            position: PhysicalPosition { x: -1920, y: -100 },
+            size: PhysicalSize {
+                width: 1920,
+                height: 1080,
+            },
+        };
+        assert_eq!(
+            centered_position(
+                &area,
+                PhysicalSize {
+                    width: 200,
+                    height: 200
+                }
+            ),
+            PhysicalPosition { x: -1060, y: 340 }
+        );
+        assert_eq!(
+            centered_position(
+                &area,
+                PhysicalSize {
+                    width: 2500,
+                    height: 1200
+                }
+            ),
+            PhysicalPosition { x: -1920, y: -100 }
+        );
     }
 }
 
