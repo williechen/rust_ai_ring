@@ -168,18 +168,39 @@ pub fn application(db: sqlx::SqlitePool) {
                 return;
             }
 
-            // 保留生活窗原有 Destroyed 清理；本日不改回籠持久化政策。
-            if window.label().starts_with("pet-")
-                && let tauri::WindowEvent::Destroyed = event
-                && let Some(id) = window
-                    .label()
-                    .strip_prefix("pet-")
-                    .and_then(|s| uuid::Uuid::parse_str(s).ok())
-            {
-                window
-                    .app_handle()
-                    .state::<pet_windows::Runtime>()
-                    .remove(&id.to_string());
+            // Native X/close is the same cage transaction as the explicit IPC command.
+            // The control window keeps its existing hide-on-close behavior above.
+            if let Some(id) = pet_windows::pet_id_from_window_label(window.label()) {
+                match event {
+                    tauri::WindowEvent::CloseRequested { api, .. } => {
+                        api.prevent_close();
+                        let window = window.clone();
+                        let store = window
+                            .app_handle()
+                            .state::<pet_store::PetStore>()
+                            .inner()
+                            .clone();
+                        tauri::async_runtime::spawn(async move {
+                            let _operation = pet_windows::lifecycle_guard().await;
+                            if let Err(error) = pet_application::lifecycle::persist_then_close(
+                                |flag| store.set_caged(&id, flag),
+                                || window.destroy().map_err(|e| e.to_string()),
+                            )
+                            .await
+                            {
+                                // DB failure must leave the window alive; never silently claim cage.
+                                eprintln!("生活窗直接關閉／回籠失敗：{error}");
+                            }
+                        });
+                    }
+                    tauri::WindowEvent::Destroyed => {
+                        window
+                            .app_handle()
+                            .state::<pet_windows::Runtime>()
+                            .remove(&id);
+                    }
+                    _ => {}
+                }
             }
         })
         .manage(Mutex::new(PetMachine::default()))
