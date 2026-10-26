@@ -10,7 +10,7 @@ use pet_domain::{PetCommand, PetMachine, PetSnapshot};
 use std::sync::{Arc, Mutex};
 use tauri::{Emitter, Manager, State};
 
-use crate::{chat::AiState, roam::roam_desktop};
+use crate::chat::AiState;
 
 // 派發寵物指令並更新狀態
 fn dispatch_pet_command(
@@ -275,13 +275,6 @@ pub fn application(db: sqlx::SqlitePool) {
                     eprintln!("pet context menu command failed: {error}");
                 }
             });
-
-            if roam_enabled() {
-                let app_handle = app.handle().clone();
-                tauri::async_runtime::spawn(async move {
-                    roam_desktop(app_handle).await;
-                });
-            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

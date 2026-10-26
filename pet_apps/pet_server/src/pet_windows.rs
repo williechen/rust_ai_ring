@@ -1,4 +1,5 @@
 use crate::pet_store::{PetStore, SavedPet};
+use pet_application::lifecycle::persist_then_open;
 use pet_domain::{PetCommand, PetMachine, PetSnapshot};
 use std::{collections::HashMap, sync::Mutex};
 use tauri::{Emitter, Manager, State};
@@ -9,26 +10,6 @@ static LIFECYCLE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 pub(crate) async fn lifecycle_guard() -> tokio::sync::MutexGuard<'static, ()> {
     LIFECYCLE.lock().await
-}
-
-async fn persist_then_open<W, F, O>(
-    old_caged: bool,
-    mut write: W,
-    open_window: O,
-) -> Result<(), String>
-where
-    W: FnMut(bool) -> F,
-    F: std::future::Future<Output = Result<(), String>>,
-    O: FnOnce() -> Result<(), String>,
-{
-    write(false).await?;
-    if let Err(error) = open_window() {
-        return match write(old_caged).await {
-            Ok(()) => Err(format!("開窗失敗，已恢復原回籠值：{error}")),
-            Err(rollback) => Err(format!("開窗失敗：{error}；DB 補償失敗：{rollback}")),
-        };
-    }
-    Ok(())
 }
 
 #[derive(Default)]
@@ -56,10 +37,12 @@ impl Runtime {
         }
     }
 }
-fn label(id: &str) -> Result<String, String> {
+
+pub(crate) fn label(id: &str) -> Result<String, String> {
     let id = uuid::Uuid::parse_str(id).map_err(|_| "寵物ID格式錯誤")?;
     Ok(format!("pet-{}", id.simple()))
 }
+
 pub fn open(app: &tauri::AppHandle, pet: &SavedPet) -> Result<(), String> {
     let name = label(&pet.id)?;
     let runtime = app.state::<Runtime>();
@@ -92,6 +75,8 @@ pub fn open(app: &tauri::AppHandle, pet: &SavedPet) -> Result<(), String> {
         machines.remove(&pet.id);
         return Err(e.to_string());
     }
+    // 僅真正建立新生活窗後啟動；既有窗 show/focus 早退不重複 spawn。
+    crate::roam::spawn_for_pet(app.clone(), name);
     Ok(())
 }
 
@@ -207,83 +192,8 @@ mod tests {
 }
 
 #[cfg(test)]
-mod day37_open_tests {
+mod lifecycle_lock_tests {
     use super::*;
-    use std::{
-        cell::{Cell, RefCell},
-        future::ready,
-    };
-
-    #[tokio::test]
-    async fn persist_failure_never_opens_or_closes_a_window() {
-        let opened = Cell::new(false);
-        let writes = RefCell::new(Vec::new());
-        let result = persist_then_open(
-            true,
-            |flag| {
-                writes.borrow_mut().push(flag);
-                ready(Err("DB".into()))
-            },
-            || {
-                opened.set(true);
-                Ok(())
-            },
-        )
-        .await;
-        assert!(result.is_err());
-        assert!(!opened.get());
-        assert_eq!(*writes.borrow(), vec![false]);
-    }
-
-    #[tokio::test]
-    async fn open_failure_restores_the_actual_old_flag() {
-        for old in [true, false] {
-            let writes = RefCell::new(Vec::new());
-            let result = persist_then_open(
-                old,
-                |flag| {
-                    writes.borrow_mut().push(flag);
-                    ready(Ok(()))
-                },
-                || Err("native".into()),
-            )
-            .await;
-            assert!(result.unwrap_err().contains("native"));
-            assert_eq!(*writes.borrow(), vec![false, old]);
-        }
-    }
-
-    #[tokio::test]
-    async fn success_writes_once_and_rollback_error_is_visible() {
-        let writes = RefCell::new(Vec::new());
-        persist_then_open(
-            true,
-            |flag| {
-                writes.borrow_mut().push(flag);
-                ready(Ok(()))
-            },
-            || Ok(()),
-        )
-        .await
-        .unwrap();
-        assert_eq!(*writes.borrow(), vec![false]);
-        let calls = Cell::new(0);
-        let error = persist_then_open(
-            true,
-            |_| {
-                calls.set(calls.get() + 1);
-                ready(if calls.get() == 1 {
-                    Ok(())
-                } else {
-                    Err("rollback".into())
-                })
-            },
-            || Err("native".into()),
-        )
-        .await
-        .unwrap_err();
-        assert!(error.contains("native") && error.contains("rollback"));
-    }
 
     #[tokio::test]
     async fn lifecycle_lock_excludes_a_second_operation() {

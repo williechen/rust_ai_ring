@@ -1,3 +1,5 @@
+pub mod lifecycle;
+
 /// 建立寵物的輸入規則；不持有 Tauri、SQLx 或 OS driver。
 pub fn normalize_new_pet_name(input: &str) -> Result<String, String> {
     // 必須在 trim 前檢查；避免尾端換行被當一般空白悄悄吃掉。

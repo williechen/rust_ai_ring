@@ -8,10 +8,51 @@ const ROAM_STALL_LIMIT: u8 = 3;
 
 const UNEXPECTED_MOVE_TOLERANCE: i64 = 32;
 
-// 與 tauri.conf.json 的生活窗 label 一致，main 僅供控制台。
-const PET_WINDOW_LABEL: &str = "pet";
-fn roaming_window_label() -> &'static str {
-    PET_WINDOW_LABEL
+use std::{
+    collections::HashMap,
+    sync::{
+        Arc, Mutex, OnceLock,
+        atomic::{AtomicBool, Ordering},
+    },
+};
+
+fn roam_tasks() -> &'static Mutex<HashMap<String, Arc<AtomicBool>>> {
+    static TASKS: OnceLock<Mutex<HashMap<String, Arc<AtomicBool>>>> = OnceLock::new();
+    TASKS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn register_task(label: &str) -> Option<Arc<AtomicBool>> {
+    let mut tasks = roam_tasks().lock().ok()?;
+    let active = Arc::new(AtomicBool::new(true));
+    if let Some(previous) = tasks.insert(label.to_owned(), active.clone()) {
+        previous.store(false, Ordering::Release);
+    }
+    Some(active)
+}
+
+fn finish_task(label: &str, active: &Arc<AtomicBool>) {
+    if let Ok(mut tasks) = roam_tasks().lock() {
+        if tasks
+            .get(label)
+            .is_some_and(|current| Arc::ptr_eq(current, active))
+        {
+            tasks.remove(label);
+        }
+    }
+}
+
+pub(crate) fn spawn_for_pet(app: tauri::AppHandle, label: String) {
+    if !crate::roam_enabled() {
+        return;
+    }
+    let Some(active) = register_task(&label) else {
+        eprintln!("desktop roaming unavailable: task registry poisoned");
+        return;
+    };
+    tauri::async_runtime::spawn(async move {
+        roam_desktop(app, &label, &active).await;
+        finish_task(&label, &active);
+    });
 }
 
 fn unexpected_displacement(
@@ -77,18 +118,20 @@ fn no_roaming_space(dx: i32, dy: i32) -> bool {
     dx == 0 && dy == 0
 }
 
-// 在桌面上漫遊寵物的主循環
-// 在桌面上漫遊寵物的主循環
-pub async fn roam_desktop(app: tauri::AppHandle) {
+async fn roam_desktop(app: tauri::AppHandle, label: &str, active: &AtomicBool) {
     let mut dx = ROAM_INITIAL_DX;
     let mut dy = ROAM_INITIAL_DY;
     let mut stalled_attempts = 0_u8;
 
     loop {
-        let window = match app.get_webview_window(roaming_window_label()) {
+        if !active.load(Ordering::Acquire) {
+            break;
+        }
+
+        let window = match app.get_webview_window(label) {
             Some(window) => window,
             None => {
-                eprintln!("desktop roaming unavailable: pet window not found");
+                eprintln!("desktop roaming unavailable: pet window not found: {label}");
                 break;
             }
         };
@@ -123,20 +166,22 @@ pub async fn roam_desktop(app: tauri::AppHandle) {
 
         let requested =
             bounded_next_position(before, window_size, monitor.work_area(), &mut dx, &mut dy);
-
+        // 取消後不可再送出新的位移；不持有 registry Mutex 跨 await。
+        if !active.load(Ordering::Acquire) {
+            break;
+        }
         if let Err(error) = window.set_position(requested) {
             eprintln!("desktop roaming unavailable: {error}");
             break;
         }
-
-        // 先讓 WM 接受要求的位置，再停止沒有任何可移動軸的漫遊。
-        // 不把普通的單軸邊界反彈誤認為無空間。
         if no_roaming_space(dx, dy) {
             eprintln!("desktop roaming stopped: pet window exceeds available work area");
             break;
         }
-
         tokio::time::sleep(ROAM_VERIFY_INTERVAL).await;
+        if !active.load(Ordering::Acquire) {
+            break;
+        }
 
         let after = match window.outer_position() {
             Ok(position) => position,
@@ -145,20 +190,15 @@ pub async fn roam_desktop(app: tauri::AppHandle) {
                 break;
             }
         };
-
         if unexpected_displacement(requested, after) {
             eprintln!("desktop roaming stopped: unexpected window displacement");
             break;
         }
-
         if after == before {
             stalled_attempts += 1;
-
             if stalled_attempts >= ROAM_STALL_LIMIT {
                 eprintln!(
-                    "desktop roaming unavailable: \
-                     window position did not change after \
-                     {ROAM_STALL_LIMIT} attempts"
+                    "desktop roaming unavailable: window position did not change after                      {ROAM_STALL_LIMIT} attempts"
                 );
                 break;
             }
@@ -277,9 +317,34 @@ mod tests {
     }
 
     #[test]
-    fn day18_roaming_selects_pet_life_window() {
-        assert_eq!(roaming_window_label(), "pet");
-        assert_ne!(roaming_window_label(), "main");
+    fn day38_window_label_is_per_pet_not_control_or_fixed_pet() {
+        let id = uuid::Uuid::new_v4().to_string();
+        let label = crate::pet_windows::label(&id).unwrap();
+        assert_eq!(
+            label,
+            format!("pet-{}", uuid::Uuid::parse_str(&id).unwrap().simple())
+        );
+        assert_ne!(label, "pet");
+        assert_ne!(label, "main");
+    }
+
+    #[test]
+    fn day38_reopen_cancels_only_previous_task_for_same_label() {
+        use std::sync::atomic::Ordering;
+        let a = format!("pet-{}", uuid::Uuid::new_v4().simple());
+        let b = format!("pet-{}", uuid::Uuid::new_v4().simple());
+        let first = register_task(&a).unwrap();
+        let other = register_task(&b).unwrap();
+        let second = register_task(&a).unwrap();
+        assert!(!first.load(Ordering::Acquire));
+        assert!(second.load(Ordering::Acquire));
+        assert!(other.load(Ordering::Acquire));
+        finish_task(&a, &first);
+        assert!(roam_tasks().lock().unwrap().contains_key(&a));
+        finish_task(&a, &second);
+        finish_task(&b, &other);
+        assert!(!roam_tasks().lock().unwrap().contains_key(&a));
+        assert!(!roam_tasks().lock().unwrap().contains_key(&b));
     }
 
     #[test]
