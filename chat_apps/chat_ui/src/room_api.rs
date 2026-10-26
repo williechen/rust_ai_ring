@@ -92,3 +92,16 @@ pub async fn search_rooms(query: &str) -> Result<Vec<(String, String)>, String> 
         })
         .collect()
 }
+
+pub async fn session_status() -> Result<bool, String> {
+    let window = web_sys::window().ok_or("無法取得瀏覽器")?;
+    let value = JsFuture::from(window.fetch_with_str("/api/session"))
+        .await
+        .map_err(|_| "無法確認登入狀態")?;
+    let response: web_sys::Response = value.dyn_into().map_err(|_| "無效 Session 回應")?;
+    match response.status() {
+        204 => Ok(true),
+        401 => Ok(false),
+        code => Err(format!("Session 查詢失敗：HTTP {code}")),
+    }
+}

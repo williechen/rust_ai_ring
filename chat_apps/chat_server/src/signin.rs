@@ -7,15 +7,8 @@ use axum::{
     routing::get,
 };
 use serde::Deserialize;
-use sha2::{Digest, Sha256};
+use shared::auth::token_digest;
 use sqlx::SqlitePool;
-
-fn token_digest(token: &str) -> String {
-    Sha256::digest(token.as_bytes())
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
-}
 
 #[derive(Deserialize)]
 struct Credentials {
@@ -26,10 +19,22 @@ struct Credentials {
 pub fn routes(pool: SqlitePool) -> Router {
     Router::new()
         .route("/login", get(login_page).post(login))
-        .route("/account", get(account))
+        .route("/api/session", get(session_status))
         .route("/account/rooms", axum::routing::post(account_create_room))
         .layer(DefaultBodyLimit::max(4096))
         .with_state(pool)
+}
+
+/// Valid, active SQLite member Session; never expose the bearer token.
+async fn session_status(
+    State(pool): State<SqlitePool>,
+    headers: HeaderMap,
+) -> Result<impl IntoResponse, StatusCode> {
+    crate::auth_session::active_member(&pool, &headers).await?;
+    Ok((
+        StatusCode::NO_CONTENT,
+        [(header::CACHE_CONTROL, "no-store")],
+    ))
 }
 
 async fn login_page() -> Redirect {
@@ -203,27 +208,32 @@ mod day23_tests {
             .connect("sqlite::memory:")
             .await
             .unwrap();
+
         sqlx::raw_sql(include_str!(
             "../../migrations/20261018073931_create_auth_user.sql"
         ))
         .execute(&pool)
         .await
         .unwrap();
+
         sqlx::raw_sql(include_str!(
             "../../migrations/20261020152737_mbr_sessions.sql"
         ))
         .execute(&pool)
         .await
         .unwrap();
+
         let encoded = argon2::Argon2::default()
             .hash_password(b"lesson-only-password")
             .unwrap()
             .to_string();
+
         sqlx::query(
             "INSERT INTO mbr_user (id,user_acnt,user_pd,user_email,user_name,user_status,user_sexy,user_birthday,is_init_pd,created_at,updated_at) VALUES ('member-1','learner',?1,'learner@example.test','Learner','active',NULL,NULL,FALSE,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)"
         ).bind(encoded).execute(&pool).await.unwrap();
 
         let app = routes(pool.clone());
+
         let denied = app
             .clone()
             .oneshot(Request::get("/account").body(Body::empty()).unwrap())
@@ -257,6 +267,7 @@ mod day23_tests {
             .unwrap();
         assert_eq!(ok.status(), StatusCode::SEE_OTHER);
         assert_eq!(ok.headers()["location"], "/account");
+
         let cookie = ok.headers()[axum::http::header::SET_COOKIE]
             .to_str()
             .unwrap()
@@ -264,6 +275,7 @@ mod day23_tests {
             .next()
             .unwrap()
             .to_owned();
+
         let allowed = app
             .oneshot(
                 Request::get("/account")
@@ -274,6 +286,7 @@ mod day23_tests {
             .await
             .unwrap();
         assert_eq!(allowed.status(), StatusCode::OK);
+
         let (count,): (i64,) = sqlx::query_as("SELECT count(*) FROM mbr_session")
             .fetch_one(&pool)
             .await
@@ -349,5 +362,86 @@ mod day35_account_room_tests {
             .unwrap();
         assert_eq!(count, 0);
         pool.close().await;
+    }
+}
+
+#[cfg(test)]
+mod day40_session_entry_tests {
+    use super::*;
+    use axum::{body::Body, http::Request};
+    use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn session_endpoint_checks_active_revoked_and_expired_sqlite_session() {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        chat_persistence::migrate(&pool).await.unwrap();
+        sqlx::query("INSERT INTO mbr_user(id,user_acnt,user_pd,user_email,user_name,user_status,is_init_pd,created_at,updated_at)
+            VALUES('day40-member','day40','hash','day40@example.invalid','Day40','active',FALSE,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)")
+            .execute(&pool).await.unwrap();
+        let raw = "a".repeat(64);
+        sqlx::query(
+            "INSERT INTO mbr_session(id,mbr_user_id,token_hash,expires_at)
+            VALUES('day40-session','day40-member',?1,unixepoch()+60)",
+        )
+        .bind(shared::auth::token_digest(&raw))
+        .execute(&pool)
+        .await
+        .unwrap();
+        let app = routes(pool.clone());
+        let anonymous = app
+            .clone()
+            .oneshot(Request::get("/api/session").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(anonymous.status(), StatusCode::UNAUTHORIZED);
+        let live = app
+            .clone()
+            .oneshot(
+                Request::get("/api/session")
+                    .header("cookie", format!("chat_session={raw}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(live.status(), StatusCode::NO_CONTENT);
+        assert_eq!(live.headers()[header::CACHE_CONTROL], "no-store");
+        sqlx::query("UPDATE mbr_user SET user_status='disabled' WHERE id='day40-member'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let disabled = app
+            .clone()
+            .oneshot(
+                Request::get("/api/session")
+                    .header("cookie", format!("chat_session={raw}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(disabled.status(), StatusCode::UNAUTHORIZED);
+        sqlx::query("UPDATE mbr_user SET user_status='active' WHERE id='day40-member'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE mbr_session SET expires_at=unixepoch()-1 WHERE id='day40-session'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let expired = app
+            .oneshot(
+                Request::get("/api/session")
+                    .header("cookie", format!("chat_session={raw}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(expired.status(), StatusCode::UNAUTHORIZED);
     }
 }

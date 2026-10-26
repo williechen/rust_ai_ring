@@ -113,12 +113,46 @@ pub fn App() -> impl IntoView {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum SessionEntry {
+    Checking,
+    SignedOut,
+    SignedIn,
+    Unavailable,
+}
+
+fn session_entry_display(state: SessionEntry) -> (&'static str, &'static str, &'static str) {
+    match state {
+        SessionEntry::Checking => ("/signin", "登入", "確認登入狀態中"),
+        SessionEntry::SignedOut => ("/signin", "登入", ""),
+        SessionEntry::SignedIn => ("/account", "管理", ""),
+        SessionEntry::Unavailable => ("/signin", "登入", "無法確認登入狀態；可使用登入入口"),
+    }
+}
+
 #[component]
 fn HomePage() -> impl IntoView {
+    let (entry, set_entry) = signal(SessionEntry::Checking);
+    #[cfg(target_arch = "wasm32")]
+    Effect::new(move |_| {
+        wasm_bindgen_futures::spawn_local(async move {
+            let next = match room_api::session_status().await {
+                Ok(true) => SessionEntry::SignedIn,
+                Ok(false) => SessionEntry::SignedOut,
+                Err(_) => SessionEntry::Unavailable,
+            };
+            set_entry.set(next);
+        });
+    });
+    #[cfg(not(target_arch = "wasm32"))]
+    let _ = set_entry;
     view! {
         <p>"Welcome to Rust AI Chat!"</p>
         <p>
-            <a href="/signin" rel="external">"登入"</a>
+            <a href=move || session_entry_display(entry.get()).0 rel="external">
+                {move || session_entry_display(entry.get()).1}
+            </a>
+            <span role="status">{move || session_entry_display(entry.get()).2}</span>
         </p>
         <RoomList />
     }
@@ -572,5 +606,23 @@ mod day38_room_status_tests {
             "沒有符合條件的房間"
         );
         assert_eq!(room_status_text("請選擇房間", true, 2, 1), "請選擇房間");
+    }
+}
+
+#[cfg(test)]
+mod day40_home_entry_tests {
+    use super::*;
+    #[test]
+    fn entry_does_not_claim_manage_without_confirmed_session() {
+        assert_eq!(session_entry_display(SessionEntry::Checking).1, "登入");
+        assert_eq!(session_entry_display(SessionEntry::SignedOut).0, "/signin");
+        assert_eq!(
+            session_entry_display(SessionEntry::Unavailable).0,
+            "/signin"
+        );
+        assert_eq!(
+            session_entry_display(SessionEntry::SignedIn),
+            ("/account", "管理", "")
+        );
     }
 }
