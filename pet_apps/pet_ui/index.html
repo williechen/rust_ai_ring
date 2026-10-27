@@ -36,6 +36,9 @@
     window.openSavedPet = (id) => invoke("open_saved_pet", { id });
     
     window.cageSavedPet = async () => invoke("cage_saved_pet", { id: await currentPetId() });
+
+    window.cageSavedPetById = (id) => invoke("cage_saved_pet", { id });
+
     window.findSavedPet = (id) => invoke("find_saved_pet", { id });
 
     window.chatWithPet = (message) => {

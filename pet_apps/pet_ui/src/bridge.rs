@@ -78,6 +78,9 @@ extern "C" {
     #[wasm_bindgen(js_namespace=window, js_name=cageSavedPet)]
     fn cage_saved_pet_js() -> Promise;
 
+    #[wasm_bindgen(js_namespace=window, js_name=cageSavedPetById)]
+    fn cage_saved_pet_by_id_js(id: &str) -> Promise;
+
     #[wasm_bindgen(js_namespace=window, js_name=findSavedPet)]
     fn find_saved_pet_js(id: &str) -> Promise;
 
@@ -192,7 +195,7 @@ pub async fn create_pet(name: String) -> Result<SavedPet, String> {
         .map_err(|_| "建立寵物回應格式錯誤；請重新整理清單確認是否已建立".into())
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
++#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
 pub struct SavedPet {
     pub id: String,
     pub name: String,
@@ -238,6 +241,13 @@ pub async fn open_saved_pet(id: &str) -> Result<(), String> {
 
 pub async fn cage_saved_pet() -> Result<(), String> {
     JsFuture::from(cage_saved_pet_js())
+        .await
+        .map_err(js_error)?;
+    Ok(())
+}
+
+pub async fn cage_saved_pet_by_id(id: &str) -> Result<(), String> {
+    JsFuture::from(cage_saved_pet_by_id_js(id))
         .await
         .map_err(js_error)?;
     Ok(())
