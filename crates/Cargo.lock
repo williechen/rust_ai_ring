@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "ai-core"
-version = "0.2.35"
+version = "0.2.41"
 dependencies = [
  "async-trait",
  "thiserror",
@@ -337,7 +337,7 @@ dependencies = [
 
 [[package]]
 name = "shared"
-version = "0.2.35"
+version = "0.2.41"
 dependencies = [
  "chat-domain",
  "serde",
@@ -391,7 +391,7 @@ dependencies = [
 
 [[package]]
 name = "telemetry"
-version = "0.2.35"
+version = "0.2.41"
 
 [[package]]
 name = "thiserror"

@@ -2071,7 +2071,7 @@ dependencies = [
 
 [[package]]
 name = "shared"
-version = "0.2.35"
+version = "0.2.41"
 dependencies = [
  "chat-domain",
  "serde",
