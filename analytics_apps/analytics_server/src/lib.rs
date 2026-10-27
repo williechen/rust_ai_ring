@@ -5,6 +5,7 @@ pub mod dashboard_ui;
 pub mod export;
 pub mod password_login;
 pub mod pg_store;
+mod session_cookie;
 
 use analytics_persistence::summary_for_source;
 use analytics_persistence::{EventSummary, summary_for_source_and_type};

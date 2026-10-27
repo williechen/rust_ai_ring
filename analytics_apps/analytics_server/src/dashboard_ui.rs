@@ -1,5 +1,7 @@
 use leptos::prelude::*;
 
+use analytics_persistence::EventSummary;
+
 fn summary_count_label(source_label: &str, event_type: &str, total: i64) -> String {
     if event_type.is_empty() {
         format!("{source_label} 全部事件類型：{total} 筆已提交事件")
@@ -26,6 +28,7 @@ fn DashboardView(
     total: i64,
     source: String,
     event_type: String,
+    rows: Vec<(String, i64)>,
 ) -> impl IntoView {
     let chat_current = (source_label == "Chat").then_some("page");
     let pet_current = (source_label == "Pet").then_some("page");
@@ -80,6 +83,15 @@ fn DashboardView(
                     </form>
                     <p>{filter_description}</p>
                     <p class="summary-count" aria-live="polite">{count_label}</p>
+                    <table>
+                        <caption>"已提交事件類型明細"</caption>
+                        <thead><tr><th scope="col">"事件類型"</th><th scope="col">"已提交筆數"</th></tr></thead>
+                        <tbody>
+                            {rows.into_iter().map(|(kind, count)| view! {
+                                <tr><td>{kind}</td><td>{count}</td></tr>
+                            }).collect_view()}
+                        </tbody>
+                    </table>
                     <p role="status">
                         {if total == 0 {
                             "沒有符合條件的已提交事件"
@@ -103,6 +115,21 @@ pub fn render_dashboard_filtered(
     source: &str,
     event_type: &str,
 ) -> String {
+    render_dashboard_with_rows(source_label, total, source, event_type, &[])
+}
+
+/// The real dashboard passes committed PG summary rows; older render callers remain valid.
+pub fn render_dashboard_with_rows(
+    source_label: &'static str,
+    total: i64,
+    source: &str,
+    event_type: &str,
+    rows: &[EventSummary],
+) -> String {
+    let rows: Vec<(String, i64)> = rows
+        .iter()
+        .map(|row| (row.event_type.clone(), row.total))
+        .collect();
     format!(
         "<!doctype html>{}",
         view! {
@@ -111,6 +138,7 @@ pub fn render_dashboard_filtered(
                 total
                 source=source.to_string()
                 event_type=event_type.to_string()
+                rows
             />
         }
         .to_html()
@@ -329,5 +357,26 @@ mod day40_csv_filter_ui_tests {
         assert!(!html.contains("event_type=x&y"));
         let empty = render_dashboard_filtered("Chat", 0, "web_chat", "");
         assert!(empty.contains("/api/v1/events/web_chat/export.csv"));
+    }
+}
+
+#[cfg(test)]
++mod day41_event_table_tests {
+    use super::*;
+    #[test]
+    fn committed_kind_rows_are_rendered_in_a_real_leptos_table_and_escaped() {
+        let html = render_dashboard_with_rows(
+            "Chat", 3, "web_chat", "",
+            &[
+                EventSummary { source_app: "web_chat".into(), event_type: "chat.message.persisted".into(), total: 2 },
+                EventSummary { source_app: "web_chat".into(), event_type: "<script>bad</script>".into(), total: 1 },
+            ],
+        );
+        assert!(html.contains("<table"));
+        assert!(html.contains("已提交事件類型明細"));
+        assert!(html.contains("chat.message.persisted"));
+        assert!(html.contains("&lt;script&gt;bad&lt;/script&gt;"));
+        assert!(!html.contains("<script>bad</script>"));
+        assert!(html.contains("全部事件類型：3 筆已提交事件"));
     }
 }

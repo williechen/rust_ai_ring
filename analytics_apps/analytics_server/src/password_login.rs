@@ -1,4 +1,5 @@
 use crate::IngestState;
+use crate::session_cookie::raw_cookie;
 use analytics_persistence::summary_for_source;
 use analytics_persistence::summary_for_source_and_type;
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
@@ -23,31 +24,6 @@ fn digest(value: &str) -> String {
 
 fn cookie(raw: &str) -> String {
     format!("analytics_session={raw}; HttpOnly; SameSite=Strict; Path=/; Max-Age=1800")
-}
-
-fn raw_cookie(headers: &HeaderMap) -> Option<String> {
-    let mut session = None;
-    // HTTP 可以有多條 Cookie，不能只讀第一條。
-    for value in headers.get_all(header::COOKIE).iter() {
-        let line = value.to_str().ok()?;
-        for part in line.split(';').map(str::trim) {
-            if let Some((name, raw)) = part.split_once('=') {
-                if name != "analytics_session" {
-                    continue;
-                }
-                if session.is_some()
-                    || raw.len() != 64
-                    || !raw.bytes().all(|c| c.is_ascii_hexdigit())
-                {
-                    return None;
-                }
-                session = Some(raw.to_owned());
-            } else if part == "analytics_session" {
-                return None;
-            }
-        }
-    }
-    session
 }
 
 pub(crate) fn renewed(response: impl IntoResponse, raw: &str) -> Response {
@@ -402,11 +378,12 @@ async fn dashboard(
     };
 
     renewed(
-        Html(crate::dashboard_ui::render_dashboard_filtered(
+        Html(crate::dashboard_ui::render_dashboard_with_rows(
             source_label,
             total,
             source,
             kind,
+            &rows,
         )),
         &raw,
     )
