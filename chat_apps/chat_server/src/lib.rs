@@ -46,7 +46,7 @@ pub async fn application() -> Result<(), Box<dyn std::error::Error>> {
         .route("/room/{room_id}", get(ssr::app_handler))
         .route_layer(axum::middleware::from_fn_with_state(
             db.clone(),
-            room_auth::require_member,
+            room_auth::require_room_member,
         ));
 
     let guarded_ws = Router::new()

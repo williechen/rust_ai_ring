@@ -2,19 +2,26 @@ use axum::http::{HeaderMap, StatusCode, header};
 use shared::auth::{cookie_token, token_digest};
 use sqlx::SqlitePool;
 
+fn session_cookie(headers: &HeaderMap) -> Result<String, StatusCode> {
+    headers
+        .get(header::COOKIE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| cookie_token(value, "chat_session"))
+        .ok_or(StatusCode::UNAUTHORIZED)
+}
+
 /// Chat SQLite adapter: caller supplies this application's independent DB pool.
 /// No plaintext bearer token is ever stored in SQLite.
 pub async fn active_member(pool: &SqlitePool, headers: &HeaderMap) -> Result<String, StatusCode> {
-    let raw = headers
-        .get(header::COOKIE)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|value| cookie_token(value, "chat_session"))
-        .ok_or(StatusCode::UNAUTHORIZED)?;
+    let raw = session_cookie(headers)?;
     let member: Option<String> = sqlx::query_scalar(
-        "SELECT u.id FROM mbr_session s
-         JOIN mbr_user u ON u.id=s.mbr_user_id
-         WHERE s.token_hash=?1 AND s.expires_at>unixepoch()
-           AND u.user_status='active'",
+        r#"SELECT u.id 
+        FROM mbr_session s
+        JOIN mbr_user u 
+            ON u.id=s.mbr_user_id
+        WHERE s.token_hash=?1 
+          AND s.expires_at>unixepoch()
+          AND u.user_status='active'"#,
     )
     .bind(token_digest(&raw))
     .fetch_optional(pool)
@@ -24,20 +31,12 @@ pub async fn active_member(pool: &SqlitePool, headers: &HeaderMap) -> Result<Str
 }
 
 pub fn csrf_for_logout(headers: &HeaderMap) -> Result<String, StatusCode> {
-    let raw = headers
-        .get(header::COOKIE)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| cookie_token(v, "chat_session"))
-        .ok_or(StatusCode::UNAUTHORIZED)?;
+    let raw = session_cookie(headers)?;
     Ok(token_digest(&format!("logout:{raw}")))
 }
 
 pub fn csrf_for_create_room(headers: &HeaderMap) -> Result<String, StatusCode> {
-    let raw = headers
-        .get(header::COOKIE)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| cookie_token(v, "chat_session"))
-        .ok_or(StatusCode::UNAUTHORIZED)?;
+    let raw = session_cookie(headers)?;
     Ok(token_digest(&format!("create-room:{raw}")))
 }
 
@@ -45,6 +44,19 @@ pub fn csrf_for_create_room(headers: &HeaderMap) -> Result<String, StatusCode> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn cookie_parser_and_both_csrf_callers_keep_the_same_contract() {
+        let mut headers = HeaderMap::new();
+        assert_eq!(session_cookie(&headers), Err(StatusCode::UNAUTHORIZED));
+        headers.insert(header::COOKIE, "chat_session=bad".parse().unwrap());
+        assert_eq!(session_cookie(&headers), Err(StatusCode::UNAUTHORIZED));
+        let raw = "b".repeat(64);
+        headers.insert(header::COOKIE, format!("x=1; chat_session={raw}").parse().unwrap());
+        assert_eq!(session_cookie(&headers).unwrap(), raw);
+        assert_eq!(csrf_for_logout(&headers).unwrap(), token_digest(&format!("logout:{raw}")));
+        assert_eq!(csrf_for_create_room(&headers).unwrap(), token_digest(&format!("create-room:{raw}")));
+    }
+
     #[tokio::test]
     async fn session_adapter_obeys_revocation_and_account_state() {
         let db = sqlx::sqlite::SqlitePoolOptions::new()

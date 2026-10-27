@@ -17,11 +17,11 @@ use chat_socket::ChatSocket;
 use leptos::prelude::*;
 use leptos_router::{
     components::{Route, Router, Routes},
-    hooks::use_params_map,
+    hooks::{use_params_map, use_query_map},
     path,
 };
 
-use room_list_state::{filter_rooms, room_list_feedback};
++use room_list_state::{filter_rooms, room_list_feedback};
 
 #[cfg(any(target_arch = "wasm32", test))]
 use room_list_state::refresh_result_view;
@@ -165,10 +165,13 @@ fn HomePage() -> impl IntoView {
 // crates/ui/src/lib.rs：完整取代原 SignInPage 函式。
 #[component]
 fn SignInPage() -> impl IntoView {
+    let query = use_query_map();
+    let next = move || query.read().get("next").unwrap_or_default();
     view! {
         <section class="sign-in">
             <h2>"使用者登入"</h2>
             <form method="post" action="/login">
+                <input type="hidden" name="next" value=next />
                 <div>
                     <label for="login-username">"帳號"</label>
                     <input

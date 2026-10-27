@@ -14,6 +14,8 @@ use sqlx::SqlitePool;
 struct Credentials {
     username: String,
     password: String,
+    #[serde(default)]
+    next: String,
 }
 
 pub fn routes(pool: SqlitePool) -> Router {
@@ -36,6 +38,13 @@ async fn session_status(
         StatusCode::NO_CONTENT,
         [(header::CACHE_CONTROL, "no-store")],
     ))
+}
+
+/// Reject external URLs, fragments, queries and noncanonical room IDs.
+fn safe_room_return(next: &str) -> Option<&str> {
+    let id = next.strip_prefix("/room/")?;
+    let parsed = uuid::Uuid::parse_str(id).ok()?;
+    (parsed.to_string() == id).then_some(next)
 }
 
 async fn login_page() -> Redirect {
@@ -100,10 +109,11 @@ async fn login(
     ).bind(id).bind(user_id).bind(hashed).execute(&pool).await
         .map_err(|_|StatusCode::INTERNAL_SERVER_ERROR)?;
     let cookie = format!("chat_session={token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=86400");
+    let destination = safe_room_return(&input.next).unwrap_or("/account");
     Ok((
         StatusCode::SEE_OTHER,
         [
-            (header::LOCATION, "/account"),
+            (header::LOCATION, destination),
             (header::SET_COOKIE, cookie.as_str()),
         ],
     )
@@ -277,7 +287,7 @@ mod day23_tests {
             .unwrap()
             .to_owned();
 
-        let allowed = app
+        let allowed = app.clone()
             .oneshot(
                 Request::get("/account")
                     .header(axum::http::header::COOKIE, cookie)
@@ -293,6 +303,22 @@ mod day23_tests {
             .await
             .unwrap();
         assert_eq!(count, 1);
+        // The no-next /account, wrong-password, Cookie and persistence assertions remain.
+        let id = uuid::Uuid::new_v4();
+        let next = format!("%2Froom%2F{id}");
+        let return_login = app.clone().oneshot(Request::post("/login")
+            .header("origin", "http://127.0.0.1:3000")
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from(format!("username=LEARNER&password=lesson-only-password&next={next}")))
+            .unwrap()).await.unwrap();
+        assert_eq!(return_login.status(), StatusCode::SEE_OTHER);
+        assert_eq!(return_login.headers()["location"], format!("/room/{id}"));
+        let hostile = app.oneshot(Request::post("/login")
+            .header("origin", "http://127.0.0.1:3000")
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from("username=LEARNER&password=lesson-only-password&next=https%3A%2F%2Fevil.invalid"))
+            .unwrap()).await.unwrap();
+        assert_eq!(hostile.headers()["location"], "/account");
     }
 }
 
