@@ -361,15 +361,26 @@ mod day40_csv_filter_ui_tests {
 }
 
 #[cfg(test)]
-+mod day41_event_table_tests {
+mod day41_event_table_tests {
     use super::*;
     #[test]
     fn committed_kind_rows_are_rendered_in_a_real_leptos_table_and_escaped() {
         let html = render_dashboard_with_rows(
-            "Chat", 3, "web_chat", "",
+            "Chat",
+            3,
+            "web_chat",
+            "",
             &[
-                EventSummary { source_app: "web_chat".into(), event_type: "chat.message.persisted".into(), total: 2 },
-                EventSummary { source_app: "web_chat".into(), event_type: "<script>bad</script>".into(), total: 1 },
+                EventSummary {
+                    source_app: "web_chat".into(),
+                    event_type: "chat.message.persisted".into(),
+                    total: 2,
+                },
+                EventSummary {
+                    source_app: "web_chat".into(),
+                    event_type: "<script>bad</script>".into(),
+                    total: 1,
+                },
             ],
         );
         assert!(html.contains("<table"));

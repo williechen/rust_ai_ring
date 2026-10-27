@@ -195,7 +195,7 @@ pub async fn create_pet(name: String) -> Result<SavedPet, String> {
         .map_err(|_| "建立寵物回應格式錯誤；請重新整理清單確認是否已建立".into())
 }
 
-+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
 pub struct SavedPet {
     pub id: String,
     pub name: String,

@@ -21,7 +21,7 @@ use leptos_router::{
     path,
 };
 
-+use room_list_state::{filter_rooms, room_list_feedback};
+use room_list_state::{filter_rooms, room_list_feedback};
 
 #[cfg(any(target_arch = "wasm32", test))]
 use room_list_state::refresh_result_view;
