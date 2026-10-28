@@ -482,8 +482,14 @@ mod day42_room_heading_tests {
     use super::room_heading;
     #[test]
     fn real_name_and_failed_detail_have_distinct_visible_states() {
-        assert_eq!(room_heading("room-1", Ok("技術討論".into())), "房間 技術討論");
-        assert_eq!(room_heading("room-1", Err("404".into())), "房間 room-1（無法取得房間名稱）");
+        assert_eq!(
+            room_heading("room-1", Ok("技術討論".into())),
+            "房間 技術討論"
+        );
+        assert_eq!(
+            room_heading("room-1", Err("404".into())),
+            "房間 room-1（無法取得房間名稱）"
+        );
     }
 }
 

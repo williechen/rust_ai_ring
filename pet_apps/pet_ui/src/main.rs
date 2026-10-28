@@ -230,7 +230,11 @@ fn App() -> impl IntoView {
                 <ul>
                     <For each=move || saved_pets.get() key=|pet| pet.id.clone()
                         children=move |pet| {
-                            let id=pet.id.clone(); let open_id=id.clone(); let cage_id=id.clone(); let find_id=id.clone();
+                            let id=pet.id.clone(); 
+                            let open_id=id.clone(); 
+                            let cage_id=id.clone(); 
+                            let find_id=id.clone(); 
+                            let status_id=id.clone();
                             view! { <li>{format!("{}／{}（{}）", pet.name, pet.species, pet.id)}
                                 <button type="button" disabled=move || pets_busy.get()
                                     on:click=move |_| {
@@ -253,6 +257,20 @@ fn App() -> impl IntoView {
                                             set_pets_busy.set(false);
                                         });
                                     }>"出籠"</button>
+                                <button type="button" disabled=move || pets_busy.get()
+                                    on:click=move |_| {
+                                        if pets_busy.get_untracked() { return; }
+                                        set_pets_busy.set(true);
+                                        let id = status_id.clone();
+                                        spawn_local(async move {
+                                            match bridge::pet_cage_status_by_id(&id).await {
+                                                Ok(true) => set_new_pet_feedback.set(format!("{id}：已回籠")),
+                                                Ok(false) => set_new_pet_feedback.set(format!("{id}：已出籠")),
+                                                Err(error) => set_new_pet_feedback.set(format!("查詢回籠狀態失敗：{error}")),
+                                            }
+                                            set_pets_busy.set(false);
+                                        });
+                                    }>"查詢回籠狀態"</button>
                                 <button type="button" disabled=move || pets_busy.get()
                                     on:click=move |_| {
                                         if pets_busy.get_untracked() { return; }

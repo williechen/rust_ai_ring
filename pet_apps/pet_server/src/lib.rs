@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex};
 use tauri::{Emitter, Manager, State};
 
 use crate::chat::AiState;
+use crate::roam::roam_enabled_value;
 
 // 派發寵物指令並更新狀態
 fn dispatch_pet_command(
@@ -36,11 +37,6 @@ fn authorized_root() -> Result<file_organizer::AuthorizedRoot, String> {
     let path =
         std::env::var("PET_AUTHORIZED_ROOT").map_err(|_| "尚未設定授權掃描目錄".to_string())?;
     file_organizer::AuthorizedRoot::new(path).map_err(|e| format!("無法使用授權掃描目錄：{e}"))
-}
-
-// 只接受明確的 true 或 1；其他值均維持不移動。
-fn roam_enabled_value(value: Option<&str>) -> bool {
-    matches!(value, Some("true" | "1"))
 }
 
 fn roam_enabled() -> bool {
@@ -123,6 +119,14 @@ async fn create_pet(
     store: State<'_, pet_store::PetStore>,
 ) -> Result<pet_store::SavedPet, String> {
     store.create(&name).await
+}
+
+#[tauri::command]
+async fn pet_cage_status_by_id(
+    id: String,
+    store: State<'_, pet_store::PetStore>,
+) -> Result<bool, String> {
+    store.read_caged(&id).await
 }
 
 #[tauri::command]
@@ -309,6 +313,7 @@ pub fn application(db: sqlx::SqlitePool) {
             validate_new_pet_name,
             create_pet,
             list_pets,
+            pet_cage_status_by_id,
             active_pet,
             select_pet,
             pet_windows::saved_pet_profile,

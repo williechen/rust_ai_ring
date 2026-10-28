@@ -2,24 +2,14 @@ use leptos::prelude::*;
 
 use analytics_persistence::EventSummary;
 
+use crate::dashboard_url::encode_query_component;
+
 fn summary_count_label(source_label: &str, event_type: &str, total: i64) -> String {
     if event_type.is_empty() {
         format!("{source_label} 全部事件類型：{total} 筆已提交事件")
     } else {
         format!("{source_label} 事件類型「{event_type}」：{total} 筆已提交事件")
     }
-}
-
-fn encode_query_component(value: &str) -> String {
-    let mut result = String::new();
-    for byte in value.bytes() {
-        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
-            result.push(char::from(byte));
-        } else {
-            result.push_str(&format!("%{byte:02X}"));
-        }
-    }
-    result
 }
 
 #[component]
@@ -48,6 +38,7 @@ fn DashboardView(
     };
 
     let count_label = summary_count_label(source_label, &event_type, total);
+    let filter_source = source.clone();
 
     view! {
         <html lang="zh-Hant">
@@ -87,8 +78,18 @@ fn DashboardView(
                         <caption>"已提交事件類型明細"</caption>
                         <thead><tr><th scope="col">"事件類型"</th><th scope="col">"已提交筆數"</th></tr></thead>
                         <tbody>
-                            {rows.into_iter().map(|(kind, count)| view! {
-                                <tr><td>{kind}</td><td>{count}</td></tr>
+                            {rows.into_iter().map(|(kind, count)| {
+                                let detail_url = format!(
+                                    "/dashboard?source={}&event_type={}",
+                                    filter_source,
+                                    encode_query_component(&kind)
+                                );
+                                view! { <tr>
+                                    <td>
+                                        <a href=detail_url>{kind}</a>
+                                    </td>
+                                    <td>{count}</td>
+                                </tr> }
                             }).collect_view()}
                         </tbody>
                     </table>
@@ -242,6 +243,29 @@ pub fn render_change_password(restricted: bool, csrf: String) -> String {
         }
         .to_html()
     )
+}
+
+#[cfg(test)]
+mod day42_kind_navigation_tests {
+    use super::*;
+    #[test]
+    fn kind_row_links_to_real_exact_filter_and_escapes_html() {
+        let html = render_dashboard_with_rows(
+            "Chat",
+            1,
+            "web_chat",
+            "",
+            &[EventSummary {
+                source_app: "web_chat".into(),
+                event_type: "chat.中文 &".into(),
+                total: 1,
+            }],
+        );
+        assert!(html.contains("event_type=chat.%E4%B8%AD%E6%96%87%20%26"));
+        assert!(html.contains("href="));
+        assert!(html.contains("chat.中文 &amp;"));
+        assert!(!html.contains("event_type=chat.中文 &"));
+    }
 }
 
 #[cfg(test)]

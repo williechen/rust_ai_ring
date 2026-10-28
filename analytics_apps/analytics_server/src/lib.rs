@@ -2,6 +2,7 @@ pub mod admin;
 pub mod bootstrap;
 mod csv;
 pub mod dashboard_ui;
+mod dashboard_url;
 pub mod export;
 pub mod password_login;
 pub mod pg_store;

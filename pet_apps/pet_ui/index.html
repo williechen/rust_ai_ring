@@ -39,6 +39,8 @@
 
     window.cageSavedPetById = (id) => invoke("cage_saved_pet", { id });
 
+    window.petCageStatusById = (id) => invoke("pet_cage_status_by_id", { id });
+
     window.findSavedPet = (id) => invoke("find_saved_pet", { id });
 
     window.chatWithPet = (message) => {

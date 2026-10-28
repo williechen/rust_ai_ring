@@ -81,6 +81,9 @@ extern "C" {
     #[wasm_bindgen(js_namespace=window, js_name=cageSavedPetById)]
     fn cage_saved_pet_by_id_js(id: &str) -> Promise;
 
+    #[wasm_bindgen(js_namespace=window, js_name=petCageStatusById)]
+    fn pet_cage_status_by_id_js(id: &str) -> Promise;
+
     #[wasm_bindgen(js_namespace=window, js_name=findSavedPet)]
     fn find_saved_pet_js(id: &str) -> Promise;
 
@@ -251,6 +254,14 @@ pub async fn cage_saved_pet_by_id(id: &str) -> Result<(), String> {
         .await
         .map_err(js_error)?;
     Ok(())
+}
+
+/// Query the existing SQLite cage flag through the registered Tauri IPC command.
+pub async fn pet_cage_status_by_id(id: &str) -> Result<bool, String> {
+    let value = JsFuture::from(pet_cage_status_by_id_js(id))
+        .await
+        .map_err(js_error)?;
+    value.as_bool().ok_or_else(|| "回籠狀態回應格式錯誤".into())
 }
 
 pub async fn find_saved_pet(id: &str) -> Result<(), String> {

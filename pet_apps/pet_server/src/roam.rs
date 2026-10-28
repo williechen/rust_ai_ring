@@ -218,6 +218,25 @@ async fn roam_desktop(app: tauri::AppHandle, label: &str, active: &AtomicBool) {
     }
 }
 
+/// The native roam opt-in policy belongs to the Pet roam module.
+pub(crate) fn roam_enabled_value(value: Option<&str>) -> bool {
+    matches!(value, Some("true" | "1"))
+}
+
+#[cfg(test)]
+mod day42_roam_policy_refactor_tests {
+    use super::roam_enabled_value;
+    #[test]
+    fn explicit_opt_in_and_fail_closed_inputs_remain_stable() {
+        for value in [None, Some(""), Some("false"), Some("TRUE"), Some("0")] {
+            assert!(!roam_enabled_value(value));
+        }
+        for value in [Some("true"), Some("1")] {
+            assert!(roam_enabled_value(value));
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
