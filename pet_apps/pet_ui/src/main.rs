@@ -230,10 +230,10 @@ fn App() -> impl IntoView {
                 <ul>
                     <For each=move || saved_pets.get() key=|pet| pet.id.clone()
                         children=move |pet| {
-                            let id=pet.id.clone(); 
-                            let open_id=id.clone(); 
-                            let cage_id=id.clone(); 
-                            let find_id=id.clone(); 
+                            let id=pet.id.clone();
+                            let open_id=id.clone();
+                            let cage_id=id.clone();
+                            let find_id=id.clone();
                             let status_id=id.clone();
                             view! { <li>{format!("{}／{}（{}）", pet.name, pet.species, pet.id)}
                                 <button type="button" disabled=move || pets_busy.get()

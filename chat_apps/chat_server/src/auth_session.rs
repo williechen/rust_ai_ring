@@ -51,10 +51,19 @@ mod tests {
         headers.insert(header::COOKIE, "chat_session=bad".parse().unwrap());
         assert_eq!(session_cookie(&headers), Err(StatusCode::UNAUTHORIZED));
         let raw = "b".repeat(64);
-        headers.insert(header::COOKIE, format!("x=1; chat_session={raw}").parse().unwrap());
+        headers.insert(
+            header::COOKIE,
+            format!("x=1; chat_session={raw}").parse().unwrap(),
+        );
         assert_eq!(session_cookie(&headers).unwrap(), raw);
-        assert_eq!(csrf_for_logout(&headers).unwrap(), token_digest(&format!("logout:{raw}")));
-        assert_eq!(csrf_for_create_room(&headers).unwrap(), token_digest(&format!("create-room:{raw}")));
+        assert_eq!(
+            csrf_for_logout(&headers).unwrap(),
+            token_digest(&format!("logout:{raw}"))
+        );
+        assert_eq!(
+            csrf_for_create_room(&headers).unwrap(),
+            token_digest(&format!("create-room:{raw}"))
+        );
     }
 
     #[tokio::test]

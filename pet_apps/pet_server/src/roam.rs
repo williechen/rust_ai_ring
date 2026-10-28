@@ -31,21 +31,20 @@ fn register_task(label: &str) -> Option<Arc<AtomicBool>> {
 }
 
 fn finish_task(label: &str, active: &Arc<AtomicBool>) {
-    if let Ok(mut tasks) = roam_tasks().lock() {
-        if tasks
+    if let Ok(mut tasks) = roam_tasks().lock()
+        && tasks
             .get(label)
             .is_some_and(|current| Arc::ptr_eq(current, active))
-        {
-            tasks.remove(label);
-        }
+    {
+        tasks.remove(label);
     }
 }
 
 pub(crate) fn stop_for_pet(label: &str) {
-    if let Ok(tasks) = roam_tasks().lock() {
-        if let Some(active) = tasks.get(label) {
-            active.store(false, Ordering::Release);
-        }
+    if let Ok(tasks) = roam_tasks().lock()
+        && let Some(active) = tasks.get(label)
+    {
+        active.store(false, Ordering::Release);
     }
 }
 

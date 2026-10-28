@@ -26,7 +26,7 @@ use room_list_state::{filter_rooms, room_status_text};
 #[cfg(any(target_arch = "wasm32", test))]
 use room_list_state::refresh_result_view;
 
-#[cfg(any(target_arch = "wasm32"))]
+#[cfg(target_arch = "wasm32")]
 use room_list_state::should_auto_load;
 
 use shared::ClientEvent;

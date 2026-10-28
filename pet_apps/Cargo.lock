@@ -19,7 +19,7 @@ dependencies = [
 
 [[package]]
 name = "ai-core"
-version = "0.2.41"
+version = "0.2.42"
 dependencies = [
  "async-trait",
  "thiserror 2.0.21",
@@ -256,9 +256,9 @@ dependencies = [
 
 [[package]]
 name = "brotli"
-version = "9.0.0"
+version = "9.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8b851b75c23ca7873623d612fe49bd1989aeb03d08fb9432187eb253d3d4c6b"
+checksum = "627b7cfb0578f0eafce087a90fcd40add1231900b69e4d4de2d456260a4f5d81"
 dependencies = [
  "alloc-no-stdlib",
  "alloc-stdlib",
@@ -267,9 +267,9 @@ dependencies = [
 
 [[package]]
 name = "brotli-decompressor"
-version = "6.0.1"
+version = "6.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "941cd9bd4ddab83cb46fa5a2d428f1c857b24ac78cb876cf7beb710840934bd7"
+checksum = "34c6783f42c21c952ad7112b354f0ba2f10760e9decea5b1b60523d6e270faaf"
 dependencies = [
  "alloc-no-stdlib",
  "alloc-stdlib",
@@ -723,9 +723,9 @@ checksum = "914a755b7c2d4af2bdcff7ce1739e2db9a1b81a9b07123d8015786ae03c0980d"
 
 [[package]]
 name = "ctutils"
-version = "0.4.5"
+version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "38d28fb6aa7dd680b3ffd1a3e64e115c177bdba63c0ae7f9cd48129ff05c4fa0"
+checksum = "fe3e9d21d39e6f39ff46e03d5b621424f88ee23d8a1672c6bfc9ccc7f2da4f6a"
 dependencies = [
  "cmov",
 ]
@@ -1058,9 +1058,9 @@ checksum = "a1731451909bde27714eacba19c2566362a7f35224f52b153d3f42cf60f72472"
 
 [[package]]
 name = "erased-serde"
-version = "0.4.10"
+version = "0.4.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2add8a07dd6a8d93ff627029c51de145e12686fbc36ecb298ac22e74cf02dec"
+checksum = "1e59b668157f32d3459d4bd634861a06ffa2503a461ca5f0916b9f0252605e66"
 dependencies = [
  "serde",
  "serde_core",
@@ -2923,7 +2923,7 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
 name = "pet-application"
-version = "0.2.41"
+version = "0.2.42"
 dependencies = [
  "serde",
  "serde_json",
@@ -2933,7 +2933,7 @@ dependencies = [
 
 [[package]]
 name = "pet-domain"
-version = "0.2.41"
+version = "0.2.42"
 dependencies = [
  "serde",
  "serde_json",
@@ -2943,7 +2943,7 @@ dependencies = [
 
 [[package]]
 name = "pet-persistence"
-version = "0.2.41"
+version = "0.2.42"
 dependencies = [
  "serde",
  "serde_json",
@@ -2954,7 +2954,7 @@ dependencies = [
 
 [[package]]
 name = "pet-server"
-version = "0.2.41"
+version = "0.2.42"
 dependencies = [
  "ai-core",
  "dotenv",
@@ -2975,7 +2975,7 @@ dependencies = [
 
 [[package]]
 name = "pet-ui"
-version = "0.2.41"
+version = "0.2.42"
 dependencies = [
  "gloo-timers",
  "js-sys",

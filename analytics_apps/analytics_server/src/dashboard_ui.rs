@@ -249,7 +249,7 @@ pub fn render_change_password(restricted: bool, csrf: String) -> String {
 mod day42_kind_navigation_tests {
     use super::*;
     #[test]
-    fn kind_row_links_to_real_exact_filter_and_escapes_html() {
+    fn kind_carow_links_to_real_exact_filter_and_escapes_html() {
         let html = render_dashboard_with_rows(
             "Chat",
             1,

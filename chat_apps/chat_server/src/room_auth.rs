@@ -26,7 +26,10 @@ pub async fn require_room_member(
     match active_member(&pool, request.headers()).await {
         Ok(_) => Ok(next.run(request).await),
         Err(StatusCode::UNAUTHORIZED) => {
-            let id = request.uri().path().strip_prefix("/room/")
+            let id = request
+                .uri()
+                .path()
+                .strip_prefix("/room/")
                 .and_then(|value| uuid::Uuid::parse_str(value).ok())
                 .ok_or(StatusCode::UNAUTHORIZED)?;
             Ok(Redirect::to(&format!("/signin?next=/room/{id}")).into_response())
@@ -38,23 +41,43 @@ pub async fn require_room_member(
 #[cfg(test)]
 mod day41_room_return_tests {
     use super::*;
-    use axum::{body::Body, http::Request, routing::get, Router};
+    use axum::{Router, body::Body, http::Request, routing::get};
     use tower::ServiceExt;
 
     #[tokio::test]
     async fn anonymous_room_link_redirects_but_invalid_room_id_is_rejected() {
         let pool = sqlx::sqlite::SqlitePoolOptions::new()
-            .connect_lazy("sqlite::memory:").unwrap();
+            .connect_lazy("sqlite::memory:")
+            .unwrap();
         let app = Router::new()
             .route("/room/{room_id}", get(|| async { StatusCode::OK }))
-            .route_layer(axum::middleware::from_fn_with_state(pool, require_room_member));
+            .route_layer(axum::middleware::from_fn_with_state(
+                pool,
+                require_room_member,
+            ));
         let id = uuid::Uuid::new_v4();
-        let response = app.clone().oneshot(Request::get(format!("/room/{id}"))
-            .body(Body::empty()).unwrap()).await.unwrap();
+        let response = app
+            .clone()
+            .oneshot(
+                Request::get(format!("/room/{id}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(response.status(), StatusCode::SEE_OTHER);
-        assert_eq!(response.headers()["location"], format!("/signin?next=/room/{id}"));
-        let bad = app.oneshot(Request::get("/room/not-a-uuid")
-            .body(Body::empty()).unwrap()).await.unwrap();
+        assert_eq!(
+            response.headers()["location"],
+            format!("/signin?next=/room/{id}")
+        );
+        let bad = app
+            .oneshot(
+                Request::get("/room/not-a-uuid")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(bad.status(), StatusCode::UNAUTHORIZED);
     }
 }

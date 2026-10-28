@@ -287,7 +287,8 @@ mod day23_tests {
             .unwrap()
             .to_owned();
 
-        let allowed = app.clone()
+        let allowed = app
+            .clone()
             .oneshot(
                 Request::get("/account")
                     .header(axum::http::header::COOKIE, cookie)
@@ -306,11 +307,19 @@ mod day23_tests {
         // The no-next /account, wrong-password, Cookie and persistence assertions remain.
         let id = uuid::Uuid::new_v4();
         let next = format!("%2Froom%2F{id}");
-        let return_login = app.clone().oneshot(Request::post("/login")
-            .header("origin", "http://127.0.0.1:3000")
-            .header("content-type", "application/x-www-form-urlencoded")
-            .body(Body::from(format!("username=LEARNER&password=lesson-only-password&next={next}")))
-            .unwrap()).await.unwrap();
+        let return_login = app
+            .clone()
+            .oneshot(
+                Request::post("/login")
+                    .header("origin", "http://127.0.0.1:3000")
+                    .header("content-type", "application/x-www-form-urlencoded")
+                    .body(Body::from(format!(
+                        "username=LEARNER&password=lesson-only-password&next={next}"
+                    )))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(return_login.status(), StatusCode::SEE_OTHER);
         assert_eq!(return_login.headers()["location"], format!("/room/{id}"));
         let hostile = app.oneshot(Request::post("/login")
