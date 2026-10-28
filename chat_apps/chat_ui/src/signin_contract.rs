@@ -1,9 +1,22 @@
 use crate::SignInPage;
 use leptos::prelude::*;
 
+use leptos_router::{components::Router, location::RequestUrl};
+
+fn render_signin() -> String {
+    let owner = Owner::new();
+    owner.with(|| {
+        provide_context(RequestUrl::new("http://localhost/signin"));
+        view! { <Router>
+            <SignInPage />
+        </Router> }
+        .to_html()
+    })
+}
+
 #[test]
 fn day28_leptos_signin_posts_to_existing_login_handler() {
-    let html = view! { <SignInPage /> }.to_html();
+    let html = render_signin();
     assert!(html.contains("<form"));
     assert!(html.contains("method=\"post\""));
     assert!(html.contains("action=\"/login\""));
@@ -16,7 +29,7 @@ fn day28_leptos_signin_posts_to_existing_login_handler() {
 
 #[test]
 fn existing_signin_is_the_single_login_form() {
-    let html = view! { <SignInPage/> }.to_html();
+    let html = render_signin();
     assert_eq!(html.matches("<form").count(), 1);
     for marker in [
         "method=\"post\"",

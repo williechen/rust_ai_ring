@@ -169,7 +169,7 @@ fn App() -> impl IntoView {
                         on:input=move |ev| set_new_pet_name.set(event_target_value(&ev)) />
                 </label>
                 <button
-                    type="button" 
+                    type="button"
                     disabled=move || pets_busy.get()
                     on:click=move |_| {
                         if pets_busy.get_untracked() { return; }
@@ -219,7 +219,7 @@ fn App() -> impl IntoView {
                             match bridge::list_pets().await {
                                 Ok(rows) => {
                                     set_saved_pets.set(rows);
-                                    set_new_pet_feedback.set("已重新載入清單".into()); 
+                                    set_new_pet_feedback.set("已重新載入清單".into());
                                 }
                                 Err(error) => set_new_pet_feedback.set(format!("讀取清單失敗：{error}")),
                             }

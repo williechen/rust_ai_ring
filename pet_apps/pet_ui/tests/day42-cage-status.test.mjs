@@ -10,12 +10,12 @@ function boot() {
   const calls = [];
   const window = { location: { search: "" }, __TAURI__: {
     core: { invoke: async (name, args) => {
-      calls.push([name, args]);
+      calls.push([name, structuredClone(args)]);
       if (args?.id === "broken") throw Error("SQLite read failed");
       return args?.id === "pet-b";
     } }, event: { listen: async () => () => {} }
   } };
-  vm.runInNewContext(script, { window, URLSearchParams });
+  vm.runInNewContext(script, { window, location: window.location, URLSearchParams });
   return { window, calls };
 }
 test("each status query reaches the correct saved UUID and native result", async () => {

@@ -13,13 +13,13 @@ function boot() {
     location: { search: "" },
     __TAURI__: {
       core: { invoke: async (name, args) => {
-        calls.push([name, args]);
+        calls.push([name, structuredClone(args)]);
         if (args?.id === "broken") throw Error("native cage failed");
       } },
       event: { listen: async () => () => {} }
     }
   };
-  vm.runInNewContext(script, { window, URLSearchParams });
+  vm.runInNewContext(script, { window, location: window.location, URLSearchParams });
   return { window, calls };
 }
 
