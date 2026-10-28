@@ -105,3 +105,21 @@ pub async fn session_status() -> Result<bool, String> {
         code => Err(format!("Session 查詢失敗：HTTP {code}")),
     }
 }
+
+/// Uses the existing public room-detail endpoint; no new server or database API.
+pub async fn room_name(id: &str) -> Result<String, String> {
+    if id.is_empty() || !id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_') {
+        return Err("無效房間 ID".into());
+    }
+    let window = web_sys::window().ok_or("無法取得瀏覽器")?;
+    let value = JsFuture::from(window.fetch_with_str(&format!("/api/rooms/{id}")))
+        .await.map_err(|_| "房間資料讀取失敗")?;
+    let response: web_sys::Response = value.dyn_into().map_err(|_| "無效房間回應")?;
+    if !response.ok() { return Err(format!("房間資料 HTTP {}", response.status())); }
+    let text = JsFuture::from(response.text().map_err(|_| "無法讀取房間資料")?)
+        .await.map_err(|_| "無法讀取房間資料")?
+        .as_string().ok_or("房間資料不是文字")?;
+    let row: serde_json::Value = serde_json::from_str(&text).map_err(|_| "房間資料格式錯誤")?;
+    if row["id"].as_str() != Some(id) { return Err("房間資料 ID 不一致".into()); }
+    row["name"].as_str().map(str::to_owned).ok_or_else(|| "房間名稱缺失".into())
+}

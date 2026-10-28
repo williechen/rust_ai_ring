@@ -219,6 +219,13 @@ fn RoomPage() -> impl IntoView {
     }
 }
 
+fn room_heading(id: &str, result: Result<String, String>) -> String {
+    match result {
+        Ok(name) => format!("房間 {name}"),
+        Err(_) => format!("房間 {id}（無法取得房間名稱）"),
+    }
+}
+
 #[component]
 pub fn ChatPage(room_id: String) -> impl IntoView {
     let (draft, set_draft) = signal(String::new());
@@ -226,7 +233,17 @@ pub fn ChatPage(room_id: String) -> impl IntoView {
     let (connection, set_connection) = signal(String::from("尚未連線"));
     let (messages, set_messages) = signal(Vec::<ChatMessage>::new());
 
-    let heading = room_id.clone();
+    let (room_title, set_room_title) = signal(format!("房間 {room_id}"));
+    #[cfg(target_arch = "wasm32")]
+    {
+        let requested = room_id.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            let result = room_api::room_name(&requested).await;
+            set_room_title.set(room_heading(&requested, result));
+        });
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    let _ = set_room_title;
 
     #[cfg(not(target_arch = "wasm32"))]
     let _ = set_messages;
@@ -291,7 +308,7 @@ pub fn ChatPage(room_id: String) -> impl IntoView {
     view! {
         <section class="conversation">
             <header>
-                <h2>{format!("房間 {heading}")}</h2>
+                <h2>{move || room_title.get()}</h2>
                 <p role="status">{move || connection.get()}</p>
             </header>
             <p class="history-disclosure" role="note">
@@ -457,6 +474,16 @@ fn RoomList() -> impl IntoView {
             }}
             </div>
         </section>
+    }
+}
+
+#[cfg(test)]
+mod day42_room_heading_tests {
+    use super::room_heading;
+    #[test]
+    fn real_name_and_failed_detail_have_distinct_visible_states() {
+        assert_eq!(room_heading("room-1", Ok("技術討論".into())), "房間 技術討論");
+        assert_eq!(room_heading("room-1", Err("404".into())), "房間 room-1（無法取得房間名稱）");
     }
 }
 
