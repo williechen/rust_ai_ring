@@ -43,6 +43,14 @@ pub(super) fn should_auto_load(has_snapshot: bool, loading: bool) -> bool {
     !has_snapshot && !loading
 }
 
+/// Retains loading/error messages while deriving settled list feedback.
+pub(super) fn room_status_text(status: &str, loaded: bool, total: usize, visible: usize) -> String {
+    if matches!(status, "查詢中…" | "載入中…") || status.ends_with("，請重試") {
+        return status.to_owned();
+    }
+    room_list_feedback(loaded, total, visible).to_owned()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -138,5 +146,18 @@ mod tests {
         assert!(!should_auto_load(false, true));
         assert!(!should_auto_load(true, false));
         assert!(!should_auto_load(true, true));
+    }
+}
+
+#[cfg(test)]
+mod day42_status_refactor_tests {
+    use super::room_status_text;
+    #[test]
+    fn loading_error_empty_and_found_contract_survives_move() {
+        assert_eq!(room_status_text("載入中…", false, 0, 0), "載入中…");
+        assert_eq!(room_status_text("503，請重試", true, 3, 1), "503，請重試");
+        assert_eq!(room_status_text("", true, 0, 0), "尚無房間");
+        assert_eq!(room_status_text("", true, 3, 0), "沒有符合條件的房間");
+        assert_eq!(room_status_text("", true, 3, 2), "請選擇房間");
     }
 }

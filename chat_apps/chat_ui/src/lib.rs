@@ -21,7 +21,7 @@ use leptos_router::{
     path,
 };
 
-use room_list_state::{filter_rooms, room_list_feedback};
+use room_list_state::{filter_rooms, room_status_text};
 
 #[cfg(any(target_arch = "wasm32", test))]
 use room_list_state::refresh_result_view;
@@ -33,13 +33,6 @@ use shared::ClientEvent;
 
 #[cfg(target_arch = "wasm32")]
 use shared::ServerEvent;
-
-fn room_status_text(status: &str, loaded: bool, total: usize, visible: usize) -> String {
-    if matches!(status, "查詢中…" | "載入中…") || status.ends_with("，請重試") {
-        return status.to_owned();
-    }
-    room_list_feedback(loaded, total, visible).to_owned()
-}
 
 fn author_label(author: &MessageAuthor) -> String {
     match author {
