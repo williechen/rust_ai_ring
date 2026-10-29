@@ -3,7 +3,7 @@ use leptos::prelude::*;
 use analytics_persistence::EventSummary;
 
 use crate::dashboard_summary::summary_count_label;
-use crate::dashboard_url::encode_query_component;
+use crate::dashboard_url::{encode_query_component, source_switch_url};
 
 #[component]
 fn DashboardView(
@@ -15,6 +15,8 @@ fn DashboardView(
 ) -> impl IntoView {
     let chat_current = (source_label == "Chat").then_some("page");
     let pet_current = (source_label == "Pet").then_some("page");
+    let chat_source_url = source_switch_url("web_chat", &event_type);
+    let pet_source_url = source_switch_url("desktop_pet", &event_type);
     let clear_url = format!("/dashboard?source={source}");
     let export_url = if event_type.is_empty() {
         format!("/api/v1/events/{source}/export.csv")
@@ -43,10 +45,10 @@ fn DashboardView(
                 <main>
                     <h1>"Analytics 管理後台"</h1>
                     <nav aria-label="事件來源">
-                        <a href="/dashboard?source=web_chat" aria-current=chat_current>
+                        <a href=chat_source_url aria-current=chat_current>
                             "Chat 事件"
                         </a>
-                        <a href="/dashboard?source=desktop_pet" aria-current=pet_current>
+                        <a href=pet_source_url aria-current=pet_current>
                             "Pet 事件"
                         </a>
                     </nav>
@@ -236,6 +238,20 @@ pub fn render_change_password(restricted: bool, csrf: String) -> String {
         }
         .to_html()
     )
+}
+
+#[cfg(test)]
+mod day43_source_switch_tests {
+    use super::*;
+    #[test]
+    fn source_navigation_preserves_exact_utf8_filter_and_escapes_markup() {
+        let html = render_dashboard_filtered("Chat", 1, "web_chat", "chat.中文 &");
+        assert!(html.contains("source=desktop_pet&amp;event_type=chat.%E4%B8%AD%E6%96%87%20%26"));
+        assert!(html.contains("source=web_chat&amp;event_type=chat.%E4%B8%AD%E6%96%87%20%26"));
+        assert!(!html.contains("event_type=chat.中文 &"));
+        let all = render_dashboard_filtered("Chat", 0, "web_chat", "");
+        assert!(all.contains("/dashboard?source=desktop_pet"));
+    }
 }
 
 #[cfg(test)]
