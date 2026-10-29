@@ -2,12 +2,18 @@ mod bridge;
 mod component;
 mod duplicate_preview;
 mod file_scan_view;
+mod cage_status;
+
+
 
 pub use component::*;
 
 use leptos::mount::mount_to_body;
 use leptos::{prelude::*, task::spawn_local};
 use pet_domain::PetSnapshot;
+use std::collections::HashMap;
+
+use crate::cage_status::record_cage_status;
 
 fn accept_scan_result(request_generation: u64, current_generation: u64) -> bool {
     request_generation == current_generation
@@ -53,6 +59,7 @@ fn App() -> impl IntoView {
 
     let (saved_pets, set_saved_pets) = signal(Vec::<bridge::SavedPet>::new());
     let (pets_busy, set_pets_busy) = signal(false);
+    let cage_status = RwSignal::new(HashMap::<String, String>::new());
 
     let (active_pet, set_active_pet) = signal::<Option<bridge::SavedPet>>(None);
     let profile_events = RwSignal::new(0_u64);
@@ -86,6 +93,7 @@ fn App() -> impl IntoView {
             match bridge::list_pets().await {
                 Ok(rows) => {
                     set_saved_pets.set(rows);
+                    cage_status.set(HashMap::new());
                     set_new_pet_feedback.set("已載入儲存清單".into());
                 }
                 Err(error) => set_new_pet_feedback.set(error),
@@ -235,6 +243,7 @@ fn App() -> impl IntoView {
                             let cage_id=id.clone();
                             let find_id=id.clone();
                             let status_id=id.clone();
+                            let display_id=id.clone();
                             view! { <li>{format!("{}／{}（{}）", pet.name, pet.species, pet.id)}
                                 <button type="button" disabled=move || pets_busy.get()
                                     on:click=move |_| {
@@ -242,7 +251,13 @@ fn App() -> impl IntoView {
                                         set_pets_busy.set(true); let id=id.clone();
                                         spawn_local(async move {
                                             match bridge::select_pet(&id).await {
-                                                Ok(pet) => { set_active_pet.set(Some(pet)); set_new_pet_feedback.set("生活窗選取已儲存".into()); },
+                                                Ok(pet) => { 
+                                                    cage_status.update(|statuses| { 
+                                                        statuses.remove(&id); 
+                                                    }); 
+                                                    set_active_pet.set(Some(pet)); 
+                                                    set_new_pet_feedback.set("生活窗選取已儲存".into()); 
+                                                },
                                                 Err(message) => set_new_pet_feedback.set(message),
                                             }
                                             set_pets_busy.set(false);
@@ -253,7 +268,15 @@ fn App() -> impl IntoView {
                                         if pets_busy.get_untracked() {return;}
                                         set_pets_busy.set(true);let id=open_id.clone();
                                         spawn_local(async move {
-                                            match bridge::open_saved_pet(&id).await {Ok(())=>set_new_pet_feedback.set("已出籠；重複操作只聚焦既有生活窗".into()),Err(e)=>set_new_pet_feedback.set(e)}
+                                            match bridge::open_saved_pet(&id).await {
+                                                Ok(())=>{ 
+                                                    cage_status.update(|statuses| { 
+                                                        statuses.remove(&id); 
+                                                    }); 
+                                                    set_new_pet_feedback.set("已出籠；重複操作只聚焦既有生活窗".into()); 
+                                                }
+                                                ,Err(e)=>set_new_pet_feedback.set(e)
+                                            }
                                             set_pets_busy.set(false);
                                         });
                                     }>"出籠"</button>
@@ -263,14 +286,12 @@ fn App() -> impl IntoView {
                                         set_pets_busy.set(true);
                                         let id = status_id.clone();
                                         spawn_local(async move {
-                                            match bridge::pet_cage_status_by_id(&id).await {
-                                                Ok(true) => set_new_pet_feedback.set(format!("{id}：已回籠")),
-                                                Ok(false) => set_new_pet_feedback.set(format!("{id}：已出籠")),
-                                                Err(error) => set_new_pet_feedback.set(format!("查詢回籠狀態失敗：{error}")),
-                                            }
+                                            let result = bridge::pet_cage_status_by_id(&id).await;
+                                            cage_status.update(|statuses| record_cage_status(statuses, &id, result));
                                             set_pets_busy.set(false);
                                         });
                                     }>"查詢回籠狀態"</button>
+                                <p role="status" aria-live="polite">{move || cage_status.get().get(&display_id).cloned().unwrap_or_default()}</p>
                                 <button type="button" disabled=move || pets_busy.get()
                                     on:click=move |_| {
                                         if pets_busy.get_untracked() { return; }
@@ -279,6 +300,7 @@ fn App() -> impl IntoView {
                                         spawn_local(async move {
                                             match bridge::cage_saved_pet_by_id(&id).await {
                                                 Ok(()) => {
+                                                    cage_status.update(|statuses| { statuses.remove(&id); });
                                                     if active_pet.get_untracked().as_ref()
                                                         .is_some_and(|pet| pet.id == id) {
                                                         set_active_pet.set(None);

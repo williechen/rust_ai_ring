@@ -28,6 +28,17 @@ fn day28_leptos_signin_posts_to_existing_login_handler() {
 }
 
 #[test]
+fn day43_room_list_has_clear_search_control() {
+    let owner = Owner::new();
+    let html = owner.with(|| {
+        provide_context(RequestUrl::new("http://localhost/"));
+        view! { <Router><crate::RoomList /></Router> }.to_html()
+    });
+    assert!(html.contains("清除搜尋"));
+    assert!(html.contains("aria-label=\"搜尋房間\""));
+}
+
+#[test]
 fn existing_signin_is_the_single_login_form() {
     let html = render_signin();
     assert_eq!(html.matches("<form").count(), 1);

@@ -51,6 +51,14 @@ pub(super) fn room_status_text(status: &str, loaded: bool, total: usize, visible
     room_list_feedback(loaded, total, visible).to_owned()
 }
 
+/// Reset the local search without discarding the last successful room snapshot.
+pub(super) fn clear_room_search(loaded: bool, rows: &[(String, String)]) -> (String, String) {
+    (
+        String::new(),
+        room_list_feedback(loaded, rows.len(), rows.len()).to_owned(),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -146,6 +154,21 @@ mod tests {
         assert!(!should_auto_load(false, true));
         assert!(!should_auto_load(true, false));
         assert!(!should_auto_load(true, true));
+    }
+}
+
+#[cfg(test)]
+mod day43_clear_room_search_tests {
+    use super::*;
+    #[test]
+    fn clear_restores_all_visible_rooms_without_discarding_snapshot() {
+        let rows = vec![("a".into(), "Rust".into()), ("b".into(), "Pet".into())];
+        assert_eq!(filter_rooms(&rows, "Rust").len(), 1);
+        let (query, feedback) = clear_room_search(true, &rows);
+        assert_eq!(query, "");
+        assert_eq!(feedback, "請選擇房間");
+        assert_eq!(filter_rooms(&rows, &query), rows);
+        assert_eq!(clear_room_search(false, &[]).1, "請先讀取房間列表");
     }
 }
 

@@ -1,5 +1,6 @@
 mod chat;
 mod file_organizer;
+mod menu_scope;
 pub mod pet_store;
 pub mod pet_windows;
 mod roam;
@@ -11,6 +12,7 @@ use std::sync::{Arc, Mutex};
 use tauri::{Emitter, Manager, State};
 
 use crate::chat::AiState;
+use crate::menu_scope::control_menu_pet_id;
 use crate::roam::roam_enabled_value;
 
 // 派發寵物指令並更新狀態
@@ -42,13 +44,6 @@ fn authorized_root() -> Result<file_organizer::AuthorizedRoot, String> {
 fn roam_enabled() -> bool {
     let value = std::env::var("PET_ENABLE_ROAM").ok();
     roam_enabled_value(value.as_deref())
-}
-
-fn control_menu_pet_id(menu_id: &str) -> Option<String> {
-    let id = menu_id
-        .strip_prefix("pet:")?
-        .strip_suffix(":open_control")?;
-    uuid::Uuid::parse_str(id).ok().map(|id| id.to_string())
 }
 
 // 取得寵物狀態

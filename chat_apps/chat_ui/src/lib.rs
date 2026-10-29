@@ -6,6 +6,7 @@ mod chat_socket;
 mod room_api;
 
 mod room_list_state;
+mod session_entry;
 
 #[cfg(all(test, feature = "ssr"))]
 mod signin_contract;
@@ -22,6 +23,7 @@ use leptos_router::{
 };
 
 use room_list_state::{filter_rooms, room_status_text};
+use session_entry::{SessionEntry, session_entry_display};
 
 #[cfg(any(target_arch = "wasm32", test))]
 use room_list_state::refresh_result_view;
@@ -33,6 +35,8 @@ use shared::ClientEvent;
 
 #[cfg(target_arch = "wasm32")]
 use shared::ServerEvent;
+
+use crate::room_list_state::clear_room_search;
 
 fn author_label(author: &MessageAuthor) -> String {
     match author {
@@ -104,23 +108,6 @@ pub fn App() -> impl IntoView {
                 </Routes>
             </main>
         </Router>
-    }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum SessionEntry {
-    Checking,
-    SignedOut,
-    SignedIn,
-    Unavailable,
-}
-
-fn session_entry_display(state: SessionEntry) -> (&'static str, &'static str, &'static str) {
-    match state {
-        SessionEntry::Checking => ("/signin", "登入", "確認登入狀態中"),
-        SessionEntry::SignedOut => ("/signin", "登入", ""),
-        SessionEntry::SignedIn => ("/account", "管理", ""),
-        SessionEntry::Unavailable => ("/signin", "登入", "無法確認登入狀態；可使用登入入口"),
     }
 }
 
@@ -447,6 +434,16 @@ fn RoomList() -> impl IntoView {
                     { set_loading.set(false); }
 
             }>"讀取／重新整理房間"</button>
+            <button
+                type="button"
+                disabled=move || loading.get() || query.get().is_empty()
+                on:click=move |_| {
+                    let (cleared, feedback) =
+                        clear_room_search(has_snapshot.get_untracked(), &rows.get_untracked());
+                    set_query.set(cleared);
+                    set_status.set(feedback);
+                }
+            >"清除搜尋"</button>
             <div class="room-results" aria-live="polite">
             {move || {
                 let all = rows.get();

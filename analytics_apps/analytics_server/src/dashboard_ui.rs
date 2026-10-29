@@ -2,15 +2,8 @@ use leptos::prelude::*;
 
 use analytics_persistence::EventSummary;
 
+use crate::dashboard_summary::summary_count_label;
 use crate::dashboard_url::encode_query_component;
-
-fn summary_count_label(source_label: &str, event_type: &str, total: i64) -> String {
-    if event_type.is_empty() {
-        format!("{source_label} 全部事件類型：{total} 筆已提交事件")
-    } else {
-        format!("{source_label} 事件類型「{event_type}」：{total} 筆已提交事件")
-    }
-}
 
 #[component]
 fn DashboardView(
