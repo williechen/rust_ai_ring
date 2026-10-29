@@ -1,7 +1,11 @@
 use crate::SignInPage;
 use leptos::prelude::*;
 
-use leptos_router::{components::Router, location::RequestUrl};
+use leptos_router::{
+    components::{Route, Router, Routes},
+    location::RequestUrl,
+    path,
+};
 
 fn render_signin() -> String {
     let owner = Owner::new();
