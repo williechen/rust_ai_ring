@@ -32,7 +32,14 @@ fn day43_room_list_has_clear_search_control() {
     let owner = Owner::new();
     let html = owner.with(|| {
         provide_context(RequestUrl::new("http://localhost/"));
-        view! { <Router><crate::RoomList /></Router> }.to_html()
+        view! {
+            <Router>
+                <Routes fallback=|| ()>
+                    <Route path=path!("/") view=crate::RoomList />
+                </Routes>
+            </Router>
+        }
+        .to_html()
     });
     assert!(html.contains("清除搜尋"));
     assert!(html.contains("aria-label=\"搜尋房間\""));

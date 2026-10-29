@@ -1,10 +1,8 @@
 mod bridge;
+mod cage_status;
 mod component;
 mod duplicate_preview;
 mod file_scan_view;
-mod cage_status;
-
-
 
 pub use component::*;
 
@@ -251,12 +249,12 @@ fn App() -> impl IntoView {
                                         set_pets_busy.set(true); let id=id.clone();
                                         spawn_local(async move {
                                             match bridge::select_pet(&id).await {
-                                                Ok(pet) => { 
-                                                    cage_status.update(|statuses| { 
-                                                        statuses.remove(&id); 
-                                                    }); 
-                                                    set_active_pet.set(Some(pet)); 
-                                                    set_new_pet_feedback.set("生活窗選取已儲存".into()); 
+                                                Ok(pet) => {
+                                                    cage_status.update(|statuses| {
+                                                        statuses.remove(&id);
+                                                    });
+                                                    set_active_pet.set(Some(pet));
+                                                    set_new_pet_feedback.set("生活窗選取已儲存".into());
                                                 },
                                                 Err(message) => set_new_pet_feedback.set(message),
                                             }
@@ -269,11 +267,11 @@ fn App() -> impl IntoView {
                                         set_pets_busy.set(true);let id=open_id.clone();
                                         spawn_local(async move {
                                             match bridge::open_saved_pet(&id).await {
-                                                Ok(())=>{ 
-                                                    cage_status.update(|statuses| { 
-                                                        statuses.remove(&id); 
-                                                    }); 
-                                                    set_new_pet_feedback.set("已出籠；重複操作只聚焦既有生活窗".into()); 
+                                                Ok(())=>{
+                                                    cage_status.update(|statuses| {
+                                                        statuses.remove(&id);
+                                                    });
+                                                    set_new_pet_feedback.set("已出籠；重複操作只聚焦既有生活窗".into());
                                                 }
                                                 ,Err(e)=>set_new_pet_feedback.set(e)
                                             }

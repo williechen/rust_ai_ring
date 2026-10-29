@@ -388,6 +388,39 @@ fn RoomList() -> impl IntoView {
         }
     });
 
+    // Refresh the authoritative complete snapshot; clearing a server-side search
+    // cannot recover rows discarded by the filtered response locally.
+    let refresh_rooms = move || {
+        if loading.get_untracked() {
+            return;
+        }
+        set_loading.set(true);
+        set_status.set("載入中…".into());
+
+        #[cfg(target_arch = "wasm32")]
+        wasm_bindgen_futures::spawn_local(async move {
+            let previous = rows.get_untracked();
+            let previous_query = query.get_untracked();
+            let result = room_api::list_rooms().await;
+            let succeeded = result.is_ok();
+            let (next_rows, mut next_query, mut next_status) =
+                refresh_result_view(previous, previous_query, result);
+            if succeeded {
+                (next_query, next_status) = clear_room_search(true, &next_rows);
+                set_has_snapshot.set(true);
+            }
+            set_rows.set(next_rows);
+            set_query.set(next_query);
+            set_status.set(next_status);
+            set_loading.set(false);
+        });
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            set_loading.set(false);
+        }
+    };
+
     view! {
         <section>
             <h2>"房間列表"</h2>
@@ -408,41 +441,12 @@ fn RoomList() -> impl IntoView {
             <button
                 type="button"
                 disabled=move || loading.get()
-                on:click=move |_| {
-                    if loading.get_untracked() { return; }
-                    set_loading.set(true);
-                    set_status.set("載入中…".into());
-
-                    #[cfg(target_arch = "wasm32")]
-                    wasm_bindgen_futures::spawn_local(async move {
-                        let previous = rows.get_untracked();
-                        let previous_query = query.get_untracked();
-                        let result = room_api::list_rooms().await;
-                        let succeeded = result.is_ok();
-                        let (next_rows, next_query, next_status) =
-                            refresh_result_view(previous, previous_query, result);
-                        if succeeded {
-                            set_has_snapshot.set(true);
-                        }
-                        set_rows.set(next_rows);
-                        set_query.set(next_query);
-                        set_status.set(next_status);
-                        set_loading.set(false);
-                    });
-
-                    #[cfg(not(target_arch = "wasm32"))]
-                    { set_loading.set(false); }
-
-            }>"讀取／重新整理房間"</button>
+                on:click=move |_| refresh_rooms()
+            >"讀取／重新整理房間"</button>
             <button
                 type="button"
                 disabled=move || loading.get() || query.get().is_empty()
-                on:click=move |_| {
-                    let (cleared, feedback) =
-                        clear_room_search(has_snapshot.get_untracked(), &rows.get_untracked());
-                    set_query.set(cleared);
-                    set_status.set(feedback);
-                }
+                on:click=move |_| refresh_rooms()
             >"清除搜尋"</button>
             <div class="room-results" aria-live="polite">
             {move || {
