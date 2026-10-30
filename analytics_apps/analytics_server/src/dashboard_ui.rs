@@ -12,6 +12,7 @@ fn DashboardView(
     source: String,
     event_type: String,
     rows: Vec<(String, i64)>,
+    logout_csrf: String,
 ) -> impl IntoView {
     let chat_current = (source_label == "Chat").then_some("page");
     let pet_current = (source_label == "Pet").then_some("page");
@@ -90,6 +91,7 @@ fn DashboardView(
                     </p>
                     <p>"目前僅支援管理員；角色與來源 ACL 尚待接通。"</p>
                     <form method="post" action="/logout">
+                        <input type="hidden" name="csrf" value=logout_csrf/>
                         <button type="submit">"登出"</button>
                     </form>
                 </main>
@@ -115,6 +117,19 @@ pub fn render_dashboard_with_rows(
     event_type: &str,
     rows: &[EventSummary],
 ) -> String {
+    render_dashboard_with_rows_csrf(source_label, total, source, event_type, rows, "")
+}
+
+/// Real authenticated dashboard caller passes a Session-derived logout CSRF.
+/// The old renderer remains for SSR snapshot tests, never as an auth decision.
+pub fn render_dashboard_with_rows_csrf(
+    source_label: &'static str,
+    total: i64,
+    source: &str,
+    event_type: &str,
+    rows: &[EventSummary],
+    logout_csrf: &str,
+) -> String {
     let rows: Vec<(String, i64)> = rows
         .iter()
         .map(|row| (row.event_type.clone(), row.total))
@@ -128,6 +143,7 @@ pub fn render_dashboard_with_rows(
                 source=source.to_string()
                 event_type=event_type.to_string()
                 rows
+                logout_csrf=logout_csrf.to_string()
             />
         }
         .to_html()
@@ -179,7 +195,7 @@ pub fn render_login() -> String {
 }
 
 #[component]
-fn ChangePasswordView(restricted: bool, csrf: String) -> impl IntoView {
+fn ChangePasswordView(restricted: bool, csrf: String, logout_csrf: String) -> impl IntoView {
     let heading = if restricted {
         "首次登入須更換密碼與Email"
     } else {
@@ -216,6 +232,7 @@ fn ChangePasswordView(restricted: bool, csrf: String) -> impl IntoView {
                 </form>
                 <p>"成功後所有裝置都須重新登入。Email不驗證；寄信重設尚未接通。"</p>
                 <form method="post" action="/logout">
+                    <input type="hidden" name="csrf" value=logout_csrf/>
                     <button type="submit">"登出"</button>
                 </form>
             </main></body>
@@ -224,10 +241,18 @@ fn ChangePasswordView(restricted: bool, csrf: String) -> impl IntoView {
 }
 
 pub fn render_change_password(restricted: bool, csrf: String) -> String {
+    render_change_password_with_logout(restricted, csrf, String::new())
+}
+
+pub fn render_change_password_with_logout(
+    restricted: bool,
+    csrf: String,
+    logout_csrf: String,
+) -> String {
     format!(
         "<!doctype html>{}",
         view! {
-            <ChangePasswordView restricted csrf/>
+            <ChangePasswordView restricted csrf logout_csrf/>
         }
         .to_html()
     )
@@ -415,5 +440,21 @@ mod day41_event_table_tests {
         assert!(html.contains("&lt;script&gt;bad&lt;/script&gt;"));
         assert!(!html.contains("<script>bad</script>"));
         assert!(html.contains("全部事件類型：3 筆已提交事件"));
+    }
+}
+
+#[cfg(test)]
+mod day44_logout_csrf_ssr_tests {
+    use super::*;
+    #[test]
+    fn both_leptos_forms_include_distinct_logout_csrf_without_leaking_raw_cookie() {
+        let html = render_dashboard_with_rows_csrf("Chat", 0, "web_chat", "", &[], "logout-hex");
+        let logout = html.split("action=\"/logout\"").nth(1).unwrap();
+        assert!(logout.contains("name=\"csrf\" value=\"logout-hex\""));
+        let change =
+            render_change_password_with_logout(true, "change-hex".into(), "logout-hex".into());
+        assert!(change.contains("name=\"csrf\" value=\"change-hex\""));
+        let logout = change.split("action=\"/logout\"").nth(1).unwrap();
+        assert!(logout.contains("name=\"csrf\" value=\"logout-hex\""));
     }
 }

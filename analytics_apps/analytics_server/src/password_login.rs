@@ -208,8 +208,10 @@ async fn change_page(
     let (restricted, raw) = session(&state, &headers).await?;
     let csrf = digest(&format!("change-password:{raw}"));
     Ok(renewed(
-        Html(crate::dashboard_ui::render_change_password(
-            restricted, csrf,
+        Html(crate::dashboard_ui::render_change_password_with_logout(
+            restricted,
+            csrf,
+            digest(&format!("logout:{raw}")),
         )),
         &raw,
     ))
@@ -378,12 +380,13 @@ async fn dashboard(
     };
 
     renewed(
-        Html(crate::dashboard_ui::render_dashboard_with_rows(
+        Html(crate::dashboard_ui::render_dashboard_with_rows_csrf(
             source_label,
             total,
             source,
             kind,
             &rows,
+            &digest(&format!("logout:{raw}")),
         )),
         &raw,
     )
@@ -404,14 +407,23 @@ async fn summary(
     Ok(renewed(Json(rows), &raw))
 }
 
+#[derive(Deserialize)]
+struct LogoutForm {
+    csrf: String,
+}
+
 async fn logout(
     State(state): State<IngestState>,
     headers: HeaderMap,
+    Form(form): Form<LogoutForm>,
 ) -> Result<Response, StatusCode> {
     if headers.get(header::ORIGIN).and_then(|h| h.to_str().ok()) != Some(ORIGIN) {
         return Err(StatusCode::FORBIDDEN);
     }
     let raw = raw_cookie(&headers).ok_or(StatusCode::UNAUTHORIZED)?;
+    if form.csrf != digest(&format!("logout:{raw}")) {
+        return Err(StatusCode::FORBIDDEN);
+    }
     sqlx::query("DELETE FROM uac_login_session WHERE token_hash=$1")
         .bind(digest(&raw))
         .execute(&state.pool)
