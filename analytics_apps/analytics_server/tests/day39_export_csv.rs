@@ -138,13 +138,26 @@ async fn day39_authenticated_admin_exports_only_selected_source_csv(pool: sqlx::
     )
     .await;
     assert_eq!(page.status(), StatusCode::OK);
-    assert!(
-        body_text(page)
-            .await
-            .contains("/api/v1/events/web_chat/export.csv?event_type=chat.message.persisted")
-    );
+    let html = body_text(page).await;
+    assert!(html.contains("/api/v1/events/web_chat/export.csv?event_type=chat.message.persisted"));
+    let csrf = html
+        .split("action=\"/logout\"")
+        .nth(1)
+        .unwrap()
+        .split("name=\"csrf\" value=\"")
+        .nth(1)
+        .unwrap()
+        .split('"')
+        .next()
+        .unwrap();
 
-    let logout = post_form(app.clone(), "/logout", String::new(), Some(&cookie)).await;
+    let logout = post_form(
+        app.clone(),
+        "/logout",
+        format!("csrf={csrf}"),
+        Some(&cookie),
+    )
+    .await;
     assert_eq!(logout.status(), StatusCode::SEE_OTHER);
     assert_eq!(
         get(app, url, Some(&cookie)).await.status(),

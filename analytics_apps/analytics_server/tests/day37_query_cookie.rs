@@ -114,13 +114,27 @@ async fn day37_real_query_routes_reject_ambiguous_session_cookies(pool: sqlx::Pg
         .execute(&pool)
         .await
         .unwrap();
+    let dashboard = query(&app, "/dashboard", &[cookie.clone()], false).await;
+    assert_eq!(dashboard.status(), StatusCode::OK);
+    let html = support::http::body_text(dashboard).await;
+    let csrf = html
+        .split("action=\"/logout\"")
+        .nth(1)
+        .unwrap()
+        .split("name=\"csrf\" value=\"")
+        .nth(1)
+        .unwrap()
+        .split('"')
+        .next()
+        .unwrap();
     let logout = app
         .clone()
         .oneshot(
             Request::post("/logout")
                 .header(header::ORIGIN, "http://127.0.0.1:3100")
                 .header(header::COOKIE, &cookie)
-                .body(Body::empty())
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(Body::from(format!("csrf={csrf}")))
                 .unwrap(),
         )
         .await
