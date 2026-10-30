@@ -1,4 +1,4 @@
-use crate::auth_session::active_member;
+use crate::{auth_session::active_member, room_patch::canonical_room_id};
 use axum::{
     extract::{Request, State},
     http::StatusCode,
@@ -24,14 +24,23 @@ pub async fn require_room_member(
     next: Next,
 ) -> Result<Response, StatusCode> {
     match active_member(&pool, request.headers()).await {
-        Ok(_) => Ok(next.run(request).await),
+        Ok(_) => {
+            // 登入成功也不能讓不存在的房間進入 SSR／WebSocket 畫面。
+            // 沿用正式 SQLite RoomRepository，而不是在 middleware 複製 SQL。
+            use chat_application::repository::RoomRepository;
+            let id = canonical_room_id(request.uri().path()).ok_or(StatusCode::NOT_FOUND)?;
+            let repo = chat_persistence::SqliteRoomRepository::new(pool.clone());
+            let room = repo
+                .find_by_id(&id)
+                .await
+                .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+            if !room.is_some_and(|room| room.id == id) {
+                return Err(StatusCode::NOT_FOUND);
+            }
+            Ok(next.run(request).await)
+        }
         Err(StatusCode::UNAUTHORIZED) => {
-            let id = request
-                .uri()
-                .path()
-                .strip_prefix("/room/")
-                .and_then(|value| uuid::Uuid::parse_str(value).ok())
-                .ok_or(StatusCode::UNAUTHORIZED)?;
+            let id = canonical_room_id(request.uri().path()).ok_or(StatusCode::UNAUTHORIZED)?;
             Ok(Redirect::to(&format!("/signin?next=/room/{id}")).into_response())
         }
         Err(error) => Err(error),
@@ -209,6 +218,83 @@ mod day25_tests {
             .await
             .unwrap();
         assert_eq!(public.status(), StatusCode::OK);
+        db.close().await;
+    }
+}
+
+#[cfg(test)]
+mod day44_existing_room_gate_tests {
+    use super::*;
+    use axum::{Router, body::Body, http::Request, routing::get};
+    use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn signed_in_room_navigation_rejects_missing_and_allows_saved_room() {
+        let db = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        chat_persistence::migrate(&db).await.unwrap();
+        let room_id = uuid::Uuid::new_v4().to_string();
+        let missing_id = uuid::Uuid::new_v4().to_string();
+        sqlx::query(
+            "INSERT INTO rooms(id,category_room_id,name,desc,created_at,updated_at)
+            VALUES(?1,'default-category','實際房間','',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)",
+        )
+        .bind(&room_id)
+        .execute(&db)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO mbr_user
+            (id,user_acnt,user_pd,user_email,user_name,user_status,is_init_pd,created_at,updated_at)
+            VALUES('day44-user','day44','hash','day44@example.invalid','Member','active',FALSE,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)")
+            .execute(&db).await.unwrap();
+        let token = "a".repeat(64);
+        sqlx::query(
+            "INSERT INTO mbr_session(id,mbr_user_id,token_hash,expires_at)
+            VALUES('day44-session','day44-user',?1,unixepoch()+60)",
+        )
+        .bind(shared::auth::token_digest(&token))
+        .execute(&db)
+        .await
+        .unwrap();
+        let app = Router::new()
+            .route("/room/{room_id}", get(|| async { StatusCode::OK }))
+            .route_layer(axum::middleware::from_fn_with_state(
+                db.clone(),
+                require_room_member,
+            ));
+        for (id, expected) in [
+            (&room_id, StatusCode::OK),
+            (&missing_id, StatusCode::NOT_FOUND),
+        ] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::get(format!("/room/{id}"))
+                        .header("cookie", format!("chat_session={token}"))
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), expected, "{id}");
+        }
+        let anonymous = app
+            .clone()
+            .oneshot(
+                Request::get(format!("/room/{room_id}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(anonymous.status(), StatusCode::SEE_OTHER);
+        assert_eq!(
+            anonymous.headers()["location"],
+            format!("/signin?next=/room/{room_id}")
+        );
         db.close().await;
     }
 }

@@ -3,6 +3,7 @@ pub mod http;
 pub mod hub;
 pub mod logout;
 pub mod room_auth;
+mod room_patch;
 pub mod signin;
 pub mod signup;
 pub mod ssr;
