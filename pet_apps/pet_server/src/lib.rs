@@ -4,6 +4,7 @@ mod menu_scope;
 pub mod pet_store;
 pub mod pet_windows;
 mod roam;
+mod window_position;
 use pet_application::normalize_new_pet_name;
 
 use ai_core::{ChatRequest, MockChatModel};

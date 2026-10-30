@@ -3,7 +3,7 @@ use leptos::prelude::*;
 use analytics_persistence::EventSummary;
 
 use crate::dashboard_summary::summary_count_label;
-use crate::dashboard_url::{encode_query_component, source_switch_url};
+use crate::dashboard_url::{encode_query_component, export_csv_url, source_switch_url};
 
 #[component]
 fn DashboardView(
@@ -18,14 +18,7 @@ fn DashboardView(
     let chat_source_url = source_switch_url("web_chat", &event_type);
     let pet_source_url = source_switch_url("desktop_pet", &event_type);
     let clear_url = format!("/dashboard?source={source}");
-    let export_url = if event_type.is_empty() {
-        format!("/api/v1/events/{source}/export.csv")
-    } else {
-        format!(
-            "/api/v1/events/{source}/export.csv?event_type={}",
-            encode_query_component(&event_type)
-        )
-    };
+    let export_url = export_csv_url(&source, &event_type);
     let filter_description = if event_type.is_empty() {
         "全部事件類型".to_string()
     } else {

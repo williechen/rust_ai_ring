@@ -22,6 +22,18 @@ pub(crate) fn source_switch_url(source: &str, event_type: &str) -> String {
     }
 }
 
+/// Reuse the exact-kind encoder for the authenticated CSV export link.
+pub(crate) fn export_csv_url(source: &str, event_type: &str) -> String {
+    if event_type.is_empty() {
+        format!("/api/v1/events/{source}/export.csv")
+    } else {
+        format!(
+            "/api/v1/events/{source}/export.csv?event_type={}",
+            encode_query_component(event_type)
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::encode_query_component;
@@ -45,6 +57,22 @@ mod tests {
         assert_eq!(
             super::source_switch_url("web_chat", ""),
             "/dashboard?source=web_chat"
+        );
+    }
+}
+
+#[cfg(test)]
+mod export_url_refactor_tests {
+    use super::*;
+    #[test]
+    fn csv_url_keeps_exact_kind_and_no_filter_contract() {
+        assert_eq!(
+            export_csv_url("web_chat", ""),
+            "/api/v1/events/web_chat/export.csv"
+        );
+        assert_eq!(
+            export_csv_url("desktop_pet", "pet.中文 &"),
+            "/api/v1/events/desktop_pet/export.csv?event_type=pet.%E4%B8%AD%E6%96%87%20%26"
         );
     }
 }

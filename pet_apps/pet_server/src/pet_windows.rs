@@ -1,4 +1,5 @@
 use crate::pet_store::{PetStore, SavedPet};
+use crate::window_position::centered_position;
 use pet_application::lifecycle::persist_then_open;
 use pet_domain::{PetCommand, PetMachine, PetSnapshot};
 use std::{collections::HashMap, sync::Mutex};
@@ -161,20 +162,6 @@ pub async fn cage_saved_pet(
     .await?;
     app.state::<Runtime>().remove(&id);
     Ok(())
-}
-
-/// Place one existing pet window inside the primary monitor's work area.
-fn centered_position(
-    area: &PhysicalRect<i32, u32>,
-    size: PhysicalSize<u32>,
-) -> PhysicalPosition<i32> {
-    let x = i64::from(area.position.x) + i64::from(area.size.width.saturating_sub(size.width) / 2);
-    let y =
-        i64::from(area.position.y) + i64::from(area.size.height.saturating_sub(size.height) / 2);
-    PhysicalPosition {
-        x: x.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32,
-        y: y.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32,
-    }
 }
 
 #[tauri::command]
