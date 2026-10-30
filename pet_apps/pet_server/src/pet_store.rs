@@ -24,6 +24,7 @@ impl PetStore {
         .fetch_optional(&self.pool)
         .await
         .map_err(|_| "無法讀取寵物")?;
+
         row.map(|(id, name, species)| SavedPet { id, name, species })
             .ok_or_else(|| "找不到寵物".into())
     }
@@ -49,6 +50,7 @@ impl PetStore {
         .fetch_optional(&self.pool)
         .await
         .map_err(|_| "無法讀取生活窗寵物".to_owned())?;
+
         Ok(row.map(|(id, name, species)| SavedPet { id, name, species }))
     }
     pub async fn select(&self, id: &str) -> Result<SavedPet, String> {
@@ -57,6 +59,7 @@ impl PetStore {
             .begin()
             .await
             .map_err(|_| "無法開始選取".to_owned())?;
+
         let row: (String, String, String) = sqlx::query_as(
             r#"SELECT id
                 ,name
@@ -70,6 +73,7 @@ impl PetStore {
         .await
         .map_err(|_| "無法查詢寵物".to_owned())?
         .ok_or_else(|| "找不到可選的寵物".to_owned())?;
+
         sqlx::query(
             r#"INSERT INTO local_pet_selection(
                     slot
@@ -106,6 +110,7 @@ impl PetStore {
         .fetch_all(&self.pool)
         .await
         .map_err(|_| "無法讀取已儲存寵物".to_owned())?;
+
         Ok(rows
             .into_iter()
             .map(|(id, name, species)| SavedPet { id, name, species })
@@ -117,17 +122,24 @@ impl PetStore {
     // INSERT/transaction/提交後 SELECT id,name/錯誤分支完整保留。
     pub async fn create(&self, input: &str) -> Result<SavedPet, String> {
         let name = pet_application::normalize_new_pet_name(input)?;
+
         let id = uuid::Uuid::new_v4().to_string();
+
         let mut tx = self.pool.begin().await.map_err(|_| "無法開始儲存")?;
+
         sqlx::query(
         r#"INSERT INTO pet_owner(id,name) VALUES('local-owner','本機使用者') ON CONFLICT(id) DO NOTHING"#
-    ).execute(&mut *tx).await.map_err(|_| "無法儲存主人")?;
+        ).execute(&mut *tx).await.map_err(|_| "無法儲存主人")?;
+
         sqlx::query(
          r#"INSERT INTO pet_profile(id,name,species,owner_id,is_default_closure) VALUES(?1,?2,'tortoise','local-owner',1)"#
-    ).bind(&id).bind(&name)
-      .execute(&mut *tx).await.map_err(|_| "無法儲存寵物")?;
+        ).bind(&id).bind(&name)
+        .execute(&mut *tx).await.map_err(|_| "無法儲存寵物")?;
+
         pet_persistence::activity::ensure_pair(&mut tx, &id).await?;
+
         tx.commit().await.map_err(|_| "寵物提交失敗")?;
+
         let (saved_id, saved_name, species): (String, String, String) = sqlx::query_as(
             r#"SELECT id
                 ,name
@@ -140,6 +152,7 @@ impl PetStore {
         .fetch_one(&self.pool)
         .await
         .map_err(|_| "已提交但讀回失敗，請先查核資料，勿立即重送")?;
+
         Ok(SavedPet {
             id: saved_id,
             name: saved_name,

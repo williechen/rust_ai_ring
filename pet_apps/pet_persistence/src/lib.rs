@@ -14,8 +14,25 @@ pub struct UncagedPet {
 }
 
 pub async fn list_uncaged(pool: &sqlx::SqlitePool) -> Result<Vec<UncagedPet>, String> {
-    let rows:Vec<(String,String,String)>=sqlx::query_as("SELECT p.id,p.name,p.species FROM pet_profile p WHERE p.owner_id='local-owner' AND EXISTS(SELECT 1 FROM pet_activity a WHERE a.pet_id=p.id AND a.owner_id=p.owner_id AND a.is_activity=1) ORDER BY p.name,p.id")
-        .fetch_all(pool).await.map_err(|_| "無法讀取出籠寵物".to_owned())?;
+    let rows: Vec<(String, String, String)> = sqlx::query_as(
+        r#"SELECT p.id
+            ,p.name
+            ,p.species 
+        FROM pet_profile p 
+        WHERE p.owner_id='local-owner' 
+            AND EXISTS(
+                SELECT 1 
+                FROM pet_activity a 
+                WHERE a.pet_id=p.id 
+                    AND a.owner_id=p.owner_id 
+                    AND a.is_activity=1
+            ) 
+        ORDER BY p.name
+            ,p.id"#,
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|_| "無法讀取出籠寵物".to_owned())?;
     Ok(rows
         .into_iter()
         .map(|(id, name, species)| UncagedPet { id, name, species })
@@ -32,28 +49,51 @@ mod day35_cage_adapter_tests {
             .execute(&pool)
             .await
             .unwrap();
+
         for id in ["pet-a", "pet-b", "pet-c"] {
             sqlx::query("INSERT INTO pet_profile(id,name,species,owner_id) VALUES(?1,?2,'tortoise','local-owner')")
                 .bind(id).bind(id).execute(&pool).await.unwrap();
             set_caged(&pool, id, false).await.unwrap();
         }
+
         set_caged(&pool, "pet-b", true).await.unwrap();
+
         for (id, expected) in [("pet-a", 0_i64), ("pet-b", 1), ("pet-c", 0)] {
-            let flag: i64 =
-                 sqlx::query_scalar("SELECT NOT EXISTS(SELECT 1 FROM pet_activity a WHERE a.pet_id=pet_profile.id AND a.owner_id=pet_profile.owner_id AND a.is_activity=1) FROM pet_profile WHERE id=?1")
-                    .bind(id)
-                    .fetch_one(&pool)
-                    .await
-                    .unwrap();
+            let flag: i64 = sqlx::query_scalar(
+                r#"SELECT NOT EXISTS(
+                    SELECT 1 
+                     FROM pet_activity a 
+                    WHERE a.pet_id=pet_profile.id 
+                        AND a.owner_id=pet_profile.owner_id 
+                        AND a.is_activity=1
+                ) 
+                FROM pet_profile 
+                WHERE id=?1"#,
+            )
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
             assert_eq!(flag, expected, "{id}");
         }
+
         assert!(set_caged(&pool, "missing-id", true).await.is_err());
+
         set_caged(&pool, "pet-b", false).await.unwrap();
-        let flag: i64 =
-            sqlx::query_scalar("SELECT NOT EXISTS(SELECT 1 FROM pet_activity a WHERE a.pet_id='pet-b' AND a.owner_id='local-owner' AND a.is_activity=1)")
-                .fetch_one(&pool)
-                .await
-                .unwrap();
+
+        let flag: i64 = sqlx::query_scalar(
+            r#"SELECT NOT EXISTS(
+                SELECT 1 
+                FROM pet_activity a 
+                WHERE a.pet_id='pet-b' 
+                    AND a.owner_id='local-owner' 
+                    AND a.is_activity=1
+            )"#,
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
         assert_eq!(flag, 0);
     }
 
@@ -73,6 +113,7 @@ mod day36_restore_adapter_tests {
             .execute(&pool)
             .await
             .unwrap();
+
         for (id, caged) in [("pet-a", false), ("pet-b", true), ("pet-c", false)] {
             sqlx::query(
                 "INSERT INTO pet_profile(id,name,species,owner_id,is_default_closure)
@@ -85,15 +126,20 @@ mod day36_restore_adapter_tests {
             .await
             .unwrap();
         }
+
         for id in ["pet-a", "pet-c"] {
             super::set_caged(&pool, id, false).await.unwrap();
         }
+
         let rows = list_uncaged(&pool).await.unwrap();
+
         assert_eq!(
             rows.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(),
             vec!["pet-a", "pet-c"]
         );
+
         pool.close().await;
+
         assert!(list_uncaged(&pool).await.is_err());
     }
 }
@@ -107,6 +153,7 @@ mod day37_open_state_tests {
             .execute(&pool)
             .await
             .unwrap();
+
         sqlx::query(
             "INSERT INTO pet_profile(id,name,species,owner_id,is_default_closure)
             VALUES('a','A','tortoise','local-owner',1)",
@@ -114,11 +161,16 @@ mod day37_open_state_tests {
         .execute(&pool)
         .await
         .unwrap();
+
         assert!(read_caged(&pool, "a").await.unwrap());
+
         set_caged(&pool, "a", false).await.unwrap();
+
         assert!(!read_caged(&pool, "a").await.unwrap());
         assert!(read_caged(&pool, "missing").await.is_err());
+
         pool.close().await;
+
         assert!(read_caged(&pool, "a").await.is_err());
     }
 }
