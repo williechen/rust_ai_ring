@@ -242,6 +242,7 @@ fn App() -> impl IntoView {
                             let find_id=id.clone();
                             let status_id=id.clone();
                             let display_id=id.clone();
+                            let activity_id=id.clone();
                             view! { <li>{format!("{}／{}（{}）", pet.name, pet.species, pet.id)}
                                 <button type="button" disabled=move || pets_busy.get()
                                     on:click=move |_| {
@@ -324,6 +325,7 @@ fn App() -> impl IntoView {
                                                 set_pets_busy.set(false);
                                             });
                                         }>"找回寵物"</button>
+                                        <ActivityControls id=activity_id busy=pets_busy set_busy=set_pets_busy statuses=cage_status />
                             </li> }
                         } />
                 </ul>
@@ -459,6 +461,54 @@ fn App() -> impl IntoView {
             >"寵物回寵了"</button>
         </main>
     }.into_any()
+}
+
+#[component]
+fn ActivityControls(
+    id: String,
+    busy: ReadSignal<bool>,
+    set_busy: WriteSignal<bool>,
+    statuses: RwSignal<HashMap<String, String>>,
+) -> impl IntoView {
+    let id = StoredValue::new(id);
+    let action = move |choice: i8| {
+        if busy.get_untracked() {
+            return;
+        }
+        set_busy.set(true);
+        let id = id.get_value();
+        spawn_local(async move {
+            let text = match bridge::activity_action(&id, choice).await {
+                Ok(s) => format!(
+                    "{}；{}；啟動預設{}",
+                    if s.outside { "已出籠" } else { "已回籠" },
+                    if s.roaming {
+                        "散步，可漫遊"
+                    } else {
+                        "不漫遊"
+                    },
+                    if s.default_caged {
+                        "留在籠內"
+                    } else {
+                        "出籠"
+                    }
+                ),
+                Err(error) => format!("活動操作失敗：{error}"),
+            };
+            statuses.update(|values| {
+                values.insert(id, text);
+            });
+            set_busy.set(false);
+        });
+    };
+    view! {<div>
+        <button type="button" disabled=move||busy.get() on:click=move |_|action(0)>"查詢活動與預設"</button>
+        <button type="button" disabled=move||busy.get() on:click=move |_|action(1)>"散步（可漫遊）"</button>
+        <button type="button" disabled=move||busy.get() on:click=move |_|action(2)>"坐下（停止漫遊）"</button>
+        <button type="button" disabled=move||busy.get() on:click=move |_|action(3)>"啟動時預設出籠"</button>
+        <button type="button" disabled=move||busy.get() on:click=move |_|action(4)>"啟動時預設留籠"</button>
+
+    </div>}
 }
 
 #[component]

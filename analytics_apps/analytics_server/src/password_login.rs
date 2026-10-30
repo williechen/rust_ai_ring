@@ -138,6 +138,7 @@ async fn login(
         &raw,
     ))
 }
+
 // Recheck account status, mandatory-change state and password fingerprint on each protected request.
 async fn session(state: &IngestState, headers: &HeaderMap) -> Result<(bool, String), StatusCode> {
     let raw = raw_cookie(headers).ok_or(StatusCode::UNAUTHORIZED)?;

@@ -84,6 +84,15 @@ extern "C" {
     #[wasm_bindgen(js_namespace=window, js_name=petCageStatusById)]
     fn pet_cage_status_by_id_js(id: &str) -> Promise;
 
+    #[wasm_bindgen(js_namespace=window,js_name=petActivityStatus)]
+    fn pet_activity_status_js(id: &str) -> Promise;
+
+    #[wasm_bindgen(js_namespace=window,js_name=setPetWalk)]
+    fn set_pet_walk_js(id: &str, walking: bool) -> Promise;
+
+    #[wasm_bindgen(js_namespace=window,js_name=setPetDefaultCaged)]
+    fn set_pet_default_caged_js(id: &str, caged: bool) -> Promise;
+
     #[wasm_bindgen(js_namespace=window, js_name=findSavedPet)]
     fn find_saved_pet_js(id: &str) -> Promise;
 
@@ -269,4 +278,23 @@ pub async fn find_saved_pet(id: &str) -> Result<(), String> {
         .await
         .map_err(js_error)?;
     Ok(())
+}
+
+#[derive(serde::Deserialize)]
+pub struct ActivityStatus {
+    pub outside: bool,
+    pub roaming: bool,
+    pub default_caged: bool,
+}
+
+pub async fn activity_action(id: &str, choice: i8) -> Result<ActivityStatus, String> {
+    let promise = match choice {
+        1 => set_pet_walk_js(id, true),
+        2 => set_pet_walk_js(id, false),
+        3 => set_pet_default_caged_js(id, false),
+        4 => set_pet_default_caged_js(id, true),
+        _ => pet_activity_status_js(id),
+    };
+    let value = JsFuture::from(promise).await.map_err(js_error)?;
+    serde_wasm_bindgen::from_value(value).map_err(|_| "活動資料格式錯誤".into())
 }

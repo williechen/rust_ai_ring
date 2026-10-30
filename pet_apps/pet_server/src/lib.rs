@@ -146,8 +146,14 @@ async fn select_pet(
     store: State<'_, pet_store::PetStore>,
 ) -> Result<pet_store::SavedPet, String> {
     let _operation = pet_windows::lifecycle_guard().await;
-    let saved = store.select(&id).await?;
-    pet_windows::open(&app, &saved)?;
+    let saved = store.profile(&id).await?;
+    let snapshot = store.snapshot(&id).await?;
+    pet_application::lifecycle::persist_then_apply(
+        || async { store.select(&id).await.map(|_| ()) },
+        || pet_windows::open(&app, &saved),
+        || store.restore(&id, &snapshot),
+    )
+    .await?;
     app.emit("pet-profile-changed", &saved)
         .map_err(|_| "選取已儲存，通知失敗，請重新載入生活窗".to_owned())?;
     Ok(saved)
@@ -181,12 +187,8 @@ pub fn application(db: sqlx::SqlitePool) {
                             .inner()
                             .clone();
                         tauri::async_runtime::spawn(async move {
-                            let _operation = pet_windows::lifecycle_guard().await;
-                            if let Err(error) = pet_application::lifecycle::persist_then_close(
-                                |flag| store.set_caged(&id, flag),
-                                || window.destroy().map_err(|e| e.to_string()),
-                            )
-                            .await
+                            if let Err(error) =
+                                pet_windows::cage_with_store(window.app_handle(), &store, &id).await
                             {
                                 // DB failure must leave the window alive; never silently claim cage.
                                 eprintln!("生活窗直接關閉／回籠失敗：{error}");
@@ -212,12 +214,22 @@ pub fn application(db: sqlx::SqlitePool) {
             let store = app.state::<pet_store::PetStore>().inner().clone();
             tauri::async_runtime::spawn(async move {
                 let _operation = pet_windows::lifecycle_guard().await;
-                match store.uncaged().await {
+                match store.prepare_startup().await {
                     Ok(pets) => {
                         for pet in pets {
                             // 每個 UUID 由既有 open() 建立獨立原生視窗與 Runtime。
                             // 單隻失敗不應讓其他未回籠寵物無法恢復。
-                            if let Err(error) = pet_windows::open(&handle, &pet) {
+                            let result = async {
+                                let snapshot = store.snapshot(&pet.id).await?;
+                                pet_application::lifecycle::persist_then_apply(
+                                    || store.set_caged(&pet.id, false),
+                                    || pet_windows::open(&handle, &pet),
+                                    || store.restore(&pet.id, &snapshot),
+                                )
+                                .await
+                            }
+                            .await;
+                            if let Err(error) = result {
                                 eprintln!("重啟恢復寵物 {} 失敗：{error}", pet.id);
                             }
                         }
@@ -266,6 +278,30 @@ pub fn application(db: sqlx::SqlitePool) {
 
                 if let Some(scoped) = event.id().0.strip_prefix("pet:") {
                     if let Some((id, action)) = scoped.split_once(':') {
+                        if matches!(action, "walk" | "sit" | "cage") {
+                            let handle = app_handle.clone();
+                            let id = id.to_owned();
+                            let action = action.to_owned();
+                            let store = handle.state::<pet_store::PetStore>().inner().clone();
+                            tauri::async_runtime::spawn(async move {
+                                let result = if action == "cage" {
+                                    pet_windows::cage_with_store(&handle, &store, &id).await
+                                } else {
+                                    pet_windows::switch_with_store(
+                                        &handle,
+                                        &store,
+                                        &id,
+                                        action == "walk",
+                                    )
+                                    .await
+                                    .map(|_| ())
+                                };
+                                if let Err(error) = result {
+                                    eprintln!("寵物活動操作失敗：{error}");
+                                }
+                            });
+                            return;
+                        }
                         let command = match action {
                             "sleep" => Some(PetCommand::Sleep),
                             "wake" => Some(PetCommand::Wake),
@@ -312,6 +348,9 @@ pub fn application(db: sqlx::SqlitePool) {
             pet_cage_status_by_id,
             active_pet,
             select_pet,
+            pet_windows::pet_activity_status,
+            pet_windows::set_pet_walk,
+            pet_windows::set_pet_default_caged,
             pet_windows::saved_pet_profile,
             pet_windows::open_saved_pet,
             pet_windows::get_saved_pet_state,

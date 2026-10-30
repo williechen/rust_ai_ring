@@ -135,6 +135,11 @@ async fn roam_desktop(app: tauri::AppHandle, label: &str, active: &AtomicBool) {
             break;
         }
 
+        let lifecycle = crate::pet_windows::lifecycle_guard().await;
+        if !active.load(Ordering::Acquire) {
+            break;
+        }
+
         let window = match app.get_webview_window(label) {
             Some(window) => window,
             None => {
@@ -142,6 +147,27 @@ async fn roam_desktop(app: tauri::AppHandle, label: &str, active: &AtomicBool) {
                 break;
             }
         };
+
+        let Some(id) = crate::pet_windows::pet_id_from_window_label(label) else {
+            break;
+        };
+        let store = app.state::<crate::pet_store::PetStore>().inner().clone();
+        let status = match store.activity_status(&id).await {
+            Ok(status) => status,
+            Err(error) => {
+                eprintln!("漫遊活動讀取失敗，停止位移：{error}");
+                break;
+            }
+        };
+        let sleeping = app
+            .state::<crate::pet_windows::Runtime>()
+            .snapshot(&id)
+            .is_ok_and(|s| s.state == pet_domain::PetState::Sleeping);
+        if !status.roaming || sleeping {
+            drop(lifecycle);
+            tokio::time::sleep(ROAM_INTERVAL).await;
+            continue;
+        }
 
         let before = match window.outer_position() {
             Ok(position) => position,
@@ -213,6 +239,7 @@ async fn roam_desktop(app: tauri::AppHandle, label: &str, active: &AtomicBool) {
             stalled_attempts = 0;
         }
 
+        drop(lifecycle);
         tokio::time::sleep(ROAM_INTERVAL).await;
     }
 }

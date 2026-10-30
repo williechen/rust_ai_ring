@@ -1,39 +1,11 @@
-/// 只負責逐寵物回籠標記；Tauri 視窗／Runtime 不屬於資料層。
-pub async fn set_caged(pool: &sqlx::SqlitePool, id: &str, caged: bool) -> Result<(), String> {
-    let result = sqlx::query(
-        "UPDATE pet_profile SET is_default_closure=?1,
-         updated_at=CURRENT_TIMESTAMP
-         WHERE id=?2 AND owner_id='local-owner'",
-    )
-    .bind(caged)
-    .bind(id)
-    .execute(pool)
-    .await
-    .map_err(|_| "無法保存回籠狀態".to_owned())?;
-    if result.rows_affected() != 1 {
-        return Err("找不到可回籠的寵物".into());
-    }
-    Ok(())
-}
+pub mod activity;
+pub use activity::set_caged;
+pub use activity::{ActivitySnapshot, ActivityStatus};
 
 pub async fn read_caged(pool: &sqlx::SqlitePool, id: &str) -> Result<bool, String> {
-    let value: Option<i64> = sqlx::query_scalar(
-        "SELECT is_default_closure FROM pet_profile
-         WHERE id=?1 AND owner_id='local-owner'",
-    )
-    .bind(id)
-    .fetch_optional(pool)
-    .await
-    .map_err(|_| "無法讀取回籠狀態".to_owned())?;
-    match value {
-        Some(0) => Ok(false),
-        Some(1) => Ok(true),
-        Some(_) => Err("回籠狀態資料不合法".into()),
-        None => Err("找不到寵物".into()),
-    }
+    Ok(!activity::status(pool, id).await?.outside)
 }
 
-/// 重啟查詢 DTO；不依賴 Tauri 或 server 的 SavedPet。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UncagedPet {
     pub id: String,
@@ -41,21 +13,9 @@ pub struct UncagedPet {
     pub species: String,
 }
 
-/// 只查本機 owner 的未回籠寵物；slot=1 不是出籠清單。
 pub async fn list_uncaged(pool: &sqlx::SqlitePool) -> Result<Vec<UncagedPet>, String> {
-    let rows: Vec<(String, String, String)> = sqlx::query_as(
-        r#"SELECT id
-            , name
-            , species
-        FROM pet_profile
-        WHERE owner_id='local-owner'
-            AND COALESCE(is_default_closure, 0)=0
-        ORDER BY name
-            , id"#,
-    )
-    .fetch_all(pool)
-    .await
-    .map_err(|_| "無法讀取出籠寵物".to_owned())?;
+    let rows:Vec<(String,String,String)>=sqlx::query_as("SELECT p.id,p.name,p.species FROM pet_profile p WHERE p.owner_id='local-owner' AND EXISTS(SELECT 1 FROM pet_activity a WHERE a.pet_id=p.id AND a.owner_id=p.owner_id AND a.is_activity=1) ORDER BY p.name,p.id")
+        .fetch_all(pool).await.map_err(|_| "無法讀取出籠寵物".to_owned())?;
     Ok(rows
         .into_iter()
         .map(|(id, name, species)| UncagedPet { id, name, species })
@@ -75,11 +35,12 @@ mod day35_cage_adapter_tests {
         for id in ["pet-a", "pet-b", "pet-c"] {
             sqlx::query("INSERT INTO pet_profile(id,name,species,owner_id) VALUES(?1,?2,'tortoise','local-owner')")
                 .bind(id).bind(id).execute(&pool).await.unwrap();
+            set_caged(&pool, id, false).await.unwrap();
         }
         set_caged(&pool, "pet-b", true).await.unwrap();
         for (id, expected) in [("pet-a", 0_i64), ("pet-b", 1), ("pet-c", 0)] {
             let flag: i64 =
-                sqlx::query_scalar("SELECT is_default_closure FROM pet_profile WHERE id=?1")
+                 sqlx::query_scalar("SELECT NOT EXISTS(SELECT 1 FROM pet_activity a WHERE a.pet_id=pet_profile.id AND a.owner_id=pet_profile.owner_id AND a.is_activity=1) FROM pet_profile WHERE id=?1")
                     .bind(id)
                     .fetch_one(&pool)
                     .await
@@ -89,7 +50,7 @@ mod day35_cage_adapter_tests {
         assert!(set_caged(&pool, "missing-id", true).await.is_err());
         set_caged(&pool, "pet-b", false).await.unwrap();
         let flag: i64 =
-            sqlx::query_scalar("SELECT is_default_closure FROM pet_profile WHERE id='pet-b'")
+            sqlx::query_scalar("SELECT NOT EXISTS(SELECT 1 FROM pet_activity a WHERE a.pet_id='pet-b' AND a.owner_id='local-owner' AND a.is_activity=1)")
                 .fetch_one(&pool)
                 .await
                 .unwrap();
@@ -123,6 +84,9 @@ mod day36_restore_adapter_tests {
             .execute(&pool)
             .await
             .unwrap();
+        }
+        for id in ["pet-a", "pet-c"] {
+            super::set_caged(&pool, id, false).await.unwrap();
         }
         let rows = list_uncaged(&pool).await.unwrap();
         assert_eq!(

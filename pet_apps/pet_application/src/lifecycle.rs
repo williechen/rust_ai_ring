@@ -37,6 +37,30 @@ where
     Ok(())
 }
 
+/// Preserve an exact activity snapshot on native failure; a single cage boolean
+/// cannot restore sitting or simultaneous non-walking activities.
+pub async fn persist_then_apply<W, WF, A, R, RF>(
+    write: W,
+    apply: A,
+    restore: R,
+) -> Result<(), String>
+where
+    W: FnOnce() -> WF,
+    WF: std::future::Future<Output = Result<(), String>>,
+    A: FnOnce() -> Result<(), String>,
+    R: FnOnce() -> RF,
+    RF: std::future::Future<Output = Result<(), String>>,
+{
+    write().await?;
+    if let Err(error) = apply() {
+        return match restore().await {
+            Ok(()) => Err(format!("原生操作失敗，已恢復活動狀態：{error}")),
+            Err(rollback) => Err(format!("原生操作失敗：{error}；活動補償失敗：{rollback}")),
+        };
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -41,6 +41,12 @@
 
     window.petCageStatusById = (id) => invoke("pet_cage_status_by_id", { id });
 
+    window.petActivityStatus = (id) => invoke("pet_activity_status", { id });
+    
+    window.setPetWalk = (id, walking) => invoke("set_pet_walk", { id, walking });
+    
+    window.setPetDefaultCaged = (id, caged) => invoke("set_pet_default_caged", { id, caged });
+
     window.findSavedPet = (id) => invoke("find_saved_pet", { id });
 
     window.chatWithPet = (message) => {
@@ -75,6 +81,9 @@
         items: [
           { id: `pet:${id}:open_control`, text: "開啟控制窗" },
           { id: `pet:${id}:interact`, text: "互動" },
+          { id: `pet:${id}:walk`, text: "散步（允許漫遊）" },
+          { id: `pet:${id}:sit`, text: "坐下（停止漫遊）" },
+          { id: `pet:${id}:cage`, text: "回籠子" },
           { id: `pet:${id}:sleep`, text: "睡覺" },
           { id: `pet:${id}:wake`, text: "醒來" },
         ],

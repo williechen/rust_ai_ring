@@ -1,4 +1,4 @@
-use crate::{auth_session::active_member, room_patch::canonical_room_id};
+use crate::{auth_session::active_member, room_path::canonical_room_id};
 use axum::{
     extract::{Request, State},
     http::StatusCode,

@@ -38,7 +38,13 @@ impl PetStore {
                     ON p.id=s.pet_id 
                 WHERE s.slot=1 
                     AND p.owner_id='local-owner'
-                    AND COALESCE(p.is_default_closure,0)=0"#,
+                    AND EXISTS(
+                        SELECT 1 
+                        FROM pet_activity a 
+                        WHERE a.pet_id=p.id 
+                            AND a.owner_id=p.owner_id 
+                            AND a.is_activity=1
+                    )"#,
         )
         .fetch_optional(&self.pool)
         .await
@@ -78,15 +84,7 @@ impl PetStore {
         .await
         .map_err(|_| "無法儲存選取".to_owned())?;
 
-        sqlx::query(
-            "UPDATE pet_profile SET is_default_closure=FALSE,
-     updated_at=CURRENT_TIMESTAMP
-     WHERE id=?1 AND owner_id='local-owner'",
-        )
-        .bind(id)
-        .execute(&mut *tx)
-        .await
-        .map_err(|_| "無法恢復出籠狀態".to_owned())?;
+        pet_persistence::activity::set_caged_in(&mut tx, id, false).await?;
 
         tx.commit().await.map_err(|_| "選取提交失敗".to_owned())?;
         Ok(SavedPet {
@@ -125,9 +123,10 @@ impl PetStore {
         r#"INSERT INTO pet_owner(id,name) VALUES('local-owner','本機使用者') ON CONFLICT(id) DO NOTHING"#
     ).execute(&mut *tx).await.map_err(|_| "無法儲存主人")?;
         sqlx::query(
-        r#"INSERT INTO pet_profile(id,name,species,owner_id) VALUES(?1,?2,'tortoise','local-owner')"#
+         r#"INSERT INTO pet_profile(id,name,species,owner_id,is_default_closure) VALUES(?1,?2,'tortoise','local-owner',1)"#
     ).bind(&id).bind(&name)
       .execute(&mut *tx).await.map_err(|_| "無法儲存寵物")?;
+        pet_persistence::activity::ensure_pair(&mut tx, &id).await?;
         tx.commit().await.map_err(|_| "寵物提交失敗")?;
         let (saved_id, saved_name, species): (String, String, String) = sqlx::query_as(
             r#"SELECT id
@@ -166,6 +165,72 @@ impl PetStore {
 
     pub async fn read_caged(&self, id: &str) -> Result<bool, String> {
         pet_persistence::read_caged(&self.pool, id).await
+    }
+
+    pub async fn activity_status(
+        &self,
+        id: &str,
+    ) -> Result<pet_persistence::ActivityStatus, String> {
+        pet_persistence::activity::status(&self.pool, id).await
+    }
+
+    pub async fn snapshot(&self, id: &str) -> Result<pet_persistence::ActivitySnapshot, String> {
+        pet_persistence::activity::snapshot(&self.pool, id).await
+    }
+
+    pub async fn restore(
+        &self,
+        id: &str,
+        s: &pet_persistence::ActivitySnapshot,
+    ) -> Result<(), String> {
+        pet_persistence::activity::restore(&self.pool, id, s).await
+    }
+
+    pub async fn switch_activity(
+        &self,
+        id: &str,
+        walking: bool,
+    ) -> Result<pet_persistence::ActivityStatus, String> {
+        pet_persistence::activity::switch(&self.pool, id, walking).await
+    }
+
+    pub async fn set_default_caged(
+        &self,
+        id: &str,
+        caged: bool,
+    ) -> Result<pet_persistence::ActivityStatus, String> {
+        pet_persistence::activity::set_default_caged(&self.pool, id, caged).await
+    }
+
+    pub async fn prepare_startup(&self) -> Result<Vec<SavedPet>, String> {
+        pet_persistence::activity::prepare_startup(&self.pool)
+            .await
+            .map(|rows| {
+                rows.into_iter()
+                    .map(|(id, name, species)| SavedPet { id, name, species })
+                    .collect()
+            })
+    }
+
+    pub async fn default_pets(&self) -> Result<Vec<SavedPet>, String> {
+        sqlx::query_as::<_, (String, String, String)>(
+            r#"SELECT id
+                ,name
+                ,species 
+            FROM pet_profile 
+            WHERE owner_id='local-owner' 
+                 AND COALESCE(is_default_closure,0)=0 
+            ORDER BY name
+                ,id"#,
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map(|r| {
+            r.into_iter()
+                .map(|(id, name, species)| SavedPet { id, name, species })
+                .collect()
+        })
+        .map_err(|_| "無法讀取啟動預設寵物".into())
     }
 }
 
@@ -289,15 +354,16 @@ mod day35_cage_caller_tests {
         let store = PetStore { pool: pool.clone() };
         let first = store.create("小橘").await.unwrap();
         let second = store.create("阿龜").await.unwrap();
+        store.set_caged(&first.id, false).await.unwrap();
         store.set_caged(&second.id, true).await.unwrap();
         let first_flag: i64 =
-            sqlx::query_scalar("SELECT is_default_closure FROM pet_profile WHERE id=?1")
+            sqlx::query_scalar(r#"SELECT NOT EXISTS(SELECT 1 FROM pet_activity a WHERE a.pet_id=pet_profile.id AND a.owner_id=pet_profile.owner_id AND a.is_activity=1) FROM pet_profile WHERE id=?1"#)
                 .bind(&first.id)
                 .fetch_one(&pool)
                 .await
                 .unwrap();
         let second_flag: i64 =
-            sqlx::query_scalar("SELECT is_default_closure FROM pet_profile WHERE id=?1")
+            sqlx::query_scalar(r#"SELECT NOT EXISTS(SELECT 1 FROM pet_activity a WHERE a.pet_id=pet_profile.id AND a.owner_id=pet_profile.owner_id AND a.is_activity=1) FROM pet_profile WHERE id=?1"#)
                 .bind(&second.id)
                 .fetch_one(&pool)
                 .await

@@ -1,9 +1,11 @@
 use crate::pet_store::{PetStore, SavedPet};
 use crate::window_position::centered_position;
-use pet_application::lifecycle::persist_then_open;
+use pet_application::lifecycle::persist_then_apply;
 use pet_domain::{PetCommand, PetMachine, PetSnapshot};
 use std::{collections::HashMap, sync::Mutex};
-use tauri::{Emitter, Manager, PhysicalPosition, PhysicalRect, PhysicalSize, State};
+use tauri::{Emitter, Manager, State};
+#[cfg(test)]
+use tauri::{PhysicalPosition, PhysicalRect, PhysicalSize};
 
 // 產品目前單程序；全域序列化所有出／入籠、選取與啟動恢復。
 // 不持有 std::sync::MutexGuard 跨 await；Tauri command future 仍可 Send。
@@ -134,11 +136,11 @@ pub async fn open_saved_pet(
 ) -> Result<(), String> {
     let _operation = lifecycle_guard().await;
     let pet = store.profile(&id).await?;
-    let old_caged = store.read_caged(&id).await?;
-    persist_then_open(
-        old_caged,
-        |flag| store.set_caged(&id, flag),
+    let snapshot = store.snapshot(&id).await?;
+    persist_then_apply(
+        || store.set_caged(&id, false),
         || open(&app, &pet),
+        || store.restore(&id, &snapshot),
     )
     .await
 }
@@ -149,19 +151,77 @@ pub async fn cage_saved_pet(
     app: tauri::AppHandle,
     store: State<'_, PetStore>,
 ) -> Result<(), String> {
+    cage_with_store(&app, &store, &id).await
+}
+
+pub async fn cage_with_store(
+    app: &tauri::AppHandle,
+    store: &PetStore,
+    id: &str,
+) -> Result<(), String> {
     let _operation = lifecycle_guard().await;
-    store.profile(&id).await?;
-    let window = app.get_webview_window(&label(&id)?);
-    pet_application::lifecycle::persist_then_close(
-        |flag| store.set_caged(&id, flag),
+    store.profile(id).await?;
+    let snapshot = store.snapshot(id).await?;
+    let window = app.get_webview_window(&label(id)?);
+    persist_then_apply(
+        || store.set_caged(id, true),
         || match window {
-            Some(window) => window.destroy().map_err(|e| e.to_string()),
+            Some(w) => w.destroy().map_err(|e| e.to_string()),
             None => Ok(()),
         },
+        || store.restore(id, &snapshot),
     )
     .await?;
-    app.state::<Runtime>().remove(&id);
+    app.state::<Runtime>().remove(id);
     Ok(())
+}
+
+pub async fn switch_with_store(
+    app: &tauri::AppHandle,
+    store: &PetStore,
+    id: &str,
+    walking: bool,
+) -> Result<pet_persistence::ActivityStatus, String> {
+    let _operation = lifecycle_guard().await;
+    let pet = store.profile(id).await?;
+    let snapshot = store.snapshot(id).await?;
+    persist_then_apply(
+        || async { store.switch_activity(id, walking).await.map(|_| ()) },
+        || open(app, &pet),
+        || store.restore(id, &snapshot),
+    )
+    .await?;
+    crate::roam::spawn_for_pet(app.clone(), label(id)?);
+    store.activity_status(id).await
+}
+
+#[tauri::command]
+pub async fn set_pet_walk(
+    id: String,
+    walking: bool,
+    app: tauri::AppHandle,
+    store: State<'_, PetStore>,
+) -> Result<pet_persistence::ActivityStatus, String> {
+    switch_with_store(&app, &store, &id, walking).await
+}
+
+#[tauri::command]
+pub async fn pet_activity_status(
+    id: String,
+    store: State<'_, PetStore>,
+) -> Result<pet_persistence::ActivityStatus, String> {
+    let _operation = lifecycle_guard().await;
+    store.activity_status(&id).await
+}
+
+#[tauri::command]
+pub async fn set_pet_default_caged(
+    id: String,
+    caged: bool,
+    store: State<'_, PetStore>,
+) -> Result<pet_persistence::ActivityStatus, String> {
+    let _operation = lifecycle_guard().await;
+    store.set_default_caged(&id, caged).await
 }
 
 #[tauri::command]
