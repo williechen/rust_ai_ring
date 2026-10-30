@@ -17,6 +17,6 @@ WHERE w.activity_type='walk' AND w.is_activity=1
 AND EXISTS(SELECT 1 FROM pet_activity s WHERE s.pet_id=w.pet_id AND s.owner_id=w.owner_id AND s.activity_type='sit' AND s.is_activity=1);
 
 INSERT INTO codemap(id,category,code,value,description,created_at,updated_at)
-VALUES ('initial-walk','activity','walk','散步','Initial walk activity',NOW(),NOW()),
-('initial-sit','activity','sit','坐下','Initial walk activity',NOW(),NOW());
+VALUES ('initial-walk','activity','walk','散步','Initial walk activity',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP),
+('initial-sit','activity','sit','坐下','Initial sit activity',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP);
 
