@@ -38,7 +38,7 @@ async fn creation_has_two_inactive_activities_and_no_new_columns(pool: sqlx::Sql
 async fn failure_creating_second_activity_rolls_back_owner_profile_and_first_activity(
     pool: sqlx::SqlitePool,
 ) {
-    sqlx::query("CREATE TRIGGER reject_sit BEFORE INSERT ON pet_activity WHEN NEW.activity_type='坐下' BEGIN SELECT RAISE(ABORT,'injected failure'); END")
+    sqlx::query("CREATE TRIGGER reject_sit BEFORE INSERT ON pet_activity WHEN NEW.activity_type='sit' BEGIN SELECT RAISE(ABORT,'injected failure'); END")
         .execute(&pool).await.unwrap();
     let store = PetStore { pool: pool.clone() };
     assert!(store.create("A").await.is_err());
@@ -50,14 +50,14 @@ async fn failure_creating_second_activity_rolls_back_owner_profile_and_first_act
 async fn any_active_type_means_outside_and_sit_wins_and_persists(pool: sqlx::SqlitePool) {
     let store = PetStore { pool: pool.clone() };
     let p = store.create("A").await.unwrap();
-    sqlx::query("INSERT INTO pet_activity(id,pet_id,owner_id,activity_type,is_activity) VALUES('other',?1,'local-owner','玩耍',1)").bind(&p.id).execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO pet_activity(id,pet_id,owner_id,activity_type,is_activity) VALUES('other',?1,'local-owner','play',1)").bind(&p.id).execute(&pool).await.unwrap();
     let s = store.activity_status(&p.id).await.unwrap();
     assert!(s.outside);
     assert!(!s.roaming);
     assert!(!store.read_caged(&p.id).await.unwrap());
     store.switch_activity(&p.id, true).await.unwrap();
     assert!(store.activity_status(&p.id).await.unwrap().roaming);
-    sqlx::query("UPDATE pet_activity SET is_activity=1 WHERE pet_id=?1 AND activity_type='坐下'")
+    sqlx::query("UPDATE pet_activity SET is_activity=1 WHERE pet_id=?1 AND activity_type='sit'")
         .bind(&p.id)
         .execute(&pool)
         .await
@@ -65,7 +65,7 @@ async fn any_active_type_means_outside_and_sit_wins_and_persists(pool: sqlx::Sql
     let s = store.activity_status(&p.id).await.unwrap();
     assert!(s.outside);
     assert!(!s.roaming);
-    let walking:i64=sqlx::query_scalar("SELECT count(*) FROM pet_activity WHERE pet_id=?1 AND activity_type='散步' AND is_activity=1").bind(&p.id).fetch_one(&pool).await.unwrap();
+    let walking:i64=sqlx::query_scalar("SELECT count(*) FROM pet_activity WHERE pet_id=?1 AND activity_type='walk' AND is_activity=1").bind(&p.id).fetch_one(&pool).await.unwrap();
     assert_eq!(walking, 0);
     assert!(store.activity_status(&p.id).await.unwrap().default_caged);
 }
@@ -86,7 +86,7 @@ async fn repeats_do_not_duplicate_and_cage_stops_only_target_without_changing_de
     }
     assert_eq!(flags(&pool, &a.id).await.len(), 2);
     assert!(!store.activity_status(&a.id).await.unwrap().roaming);
-    sqlx::query("INSERT INTO pet_activity(id,pet_id,owner_id,activity_type,is_activity) VALUES('play',?1,'local-owner','玩耍',1)").bind(&a.id).execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO pet_activity(id,pet_id,owner_id,activity_type,is_activity) VALUES('play',?1,'local-owner','play',1)").bind(&a.id).execute(&pool).await.unwrap();
     store.set_caged(&a.id, true).await.unwrap();
     assert!(store.read_caged(&a.id).await.unwrap());
     assert!(!store.read_caged(&b.id).await.unwrap());
@@ -105,7 +105,7 @@ async fn missing_and_foreign_pet_fail_closed_and_owner_mismatch_does_not_leak(
         .await
         .unwrap();
     sqlx::query("INSERT INTO pet_profile(id,name,species,owner_id) VALUES('foreign','X','tortoise','other-owner')").execute(&pool).await.unwrap();
-    sqlx::query("INSERT INTO pet_activity(id,pet_id,owner_id,activity_type,is_activity) VALUES('mismatch',?1,'other-owner','散步',1)").bind(&a.id).execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO pet_activity(id,pet_id,owner_id,activity_type,is_activity) VALUES('mismatch',?1,'other-owner','walk',1)").bind(&a.id).execute(&pool).await.unwrap();
     assert!(store.read_caged(&a.id).await.unwrap());
     for id in ["foreign", "missing"] {
         assert!(store.read_caged(id).await.is_err());
@@ -121,7 +121,7 @@ async fn native_failure_restores_exact_sitting_and_other_activity_snapshot(pool:
     let a = store.create("A").await.unwrap();
     store.select(&a.id).await.unwrap();
     store.switch_activity(&a.id, false).await.unwrap();
-    sqlx::query("INSERT INTO pet_activity(id,pet_id,owner_id,activity_type,is_activity) VALUES('play',?1,'local-owner','玩耍',1)").bind(&a.id).execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO pet_activity(id,pet_id,owner_id,activity_type,is_activity) VALUES('play',?1,'local-owner','play',1)").bind(&a.id).execute(&pool).await.unwrap();
     let before = flags(&pool, &a.id).await;
     let snapshot = store.snapshot(&a.id).await.unwrap();
     let result = pet_application::lifecycle::persist_then_apply(
@@ -182,7 +182,7 @@ async fn default_change_and_normalization_are_one_transaction(pool: sqlx::Sqlite
         .execute(&pool)
         .await
         .unwrap();
-    sqlx::query("CREATE TRIGGER reject_walk_update BEFORE UPDATE ON pet_activity WHEN OLD.activity_type='散步' BEGIN SELECT RAISE(ABORT,'normalization fails'); END").execute(&pool).await.unwrap();
+    sqlx::query("CREATE TRIGGER reject_walk_update BEFORE UPDATE ON pet_activity WHEN OLD.activity_type='walk' BEGIN SELECT RAISE(ABORT,'normalization fails'); END").execute(&pool).await.unwrap();
     assert!(store.set_default_caged(&a.id, false).await.is_err());
     let default: i64 = sqlx::query_scalar("SELECT is_default_closure FROM pet_profile WHERE id=?1")
         .bind(&a.id)
