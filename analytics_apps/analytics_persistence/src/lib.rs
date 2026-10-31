@@ -1,3 +1,5 @@
+pub mod login_session;
+
 /// PostgreSQL 聚合查詢結果，供 JSON API 與 Leptos SSR 共用。
 #[derive(Debug, serde::Serialize, sqlx::FromRow, PartialEq, Eq)]
 pub struct EventSummary {

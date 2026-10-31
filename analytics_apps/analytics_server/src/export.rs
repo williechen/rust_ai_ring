@@ -1,5 +1,5 @@
-use crate::IngestState;
 pub use crate::csv::render_csv;
+use crate::{IngestState, password_login::require_source_session};
 use analytics_persistence::{summary_for_source, summary_for_source_and_type};
 use axum::{
     extract::{Path, Query, State},
@@ -20,7 +20,7 @@ pub async fn export_summary(
     Query(query): Query<ExportQuery>,
     headers: HeaderMap,
 ) -> Result<Response, StatusCode> {
-    let raw = crate::password_login::require_query_session(&state, &headers).await?;
+    let raw = require_source_session(&state, &headers, &source).await?;
     if !matches!(source.as_str(), "web_chat" | "desktop_pet") {
         return Err(StatusCode::BAD_REQUEST);
     }

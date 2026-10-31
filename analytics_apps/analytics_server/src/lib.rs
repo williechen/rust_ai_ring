@@ -1,3 +1,4 @@
+mod accounts;
 pub mod admin;
 pub mod bootstrap;
 mod csv;
@@ -5,6 +6,7 @@ mod dashboard_summary;
 pub mod dashboard_ui;
 mod dashboard_url;
 pub mod export;
+pub mod page_acl;
 pub mod password_login;
 pub mod pg_store;
 mod session_cookie;
@@ -200,7 +202,7 @@ async fn source_kind_summary(
     headers: HeaderMap,
 ) -> Result<axum::response::Response, StatusCode> {
     // 先驗人員 Session，再驗來源／事件類型，最後才碰統計資料。
-    let raw = password_login::require_query_session(&state, &headers).await?;
+    let raw = password_login::require_source_session(&state, &headers, &source).await?;
     if !matches!(source.as_str(), "web_chat" | "desktop_pet") {
         return Err(StatusCode::BAD_REQUEST);
     }

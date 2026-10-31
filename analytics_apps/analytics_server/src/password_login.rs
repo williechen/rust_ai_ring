@@ -15,7 +15,7 @@ use sha2::{Digest, Sha256};
 
 const ORIGIN: &str = "http://127.0.0.1:3100";
 
-fn digest(value: &str) -> String {
+pub(crate) fn digest(value: &str) -> String {
     Sha256::digest(value.as_bytes())
         .iter()
         .map(|b| format!("{b:02x}"))
@@ -54,22 +54,29 @@ async fn login(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    if !form.username.trim().eq_ignore_ascii_case("admin")
+    if form.username.len() > 64
+        || form.username.trim().is_empty()
+        || !form
+            .username
+            .trim()
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
         || !(form.password == "admin" || (8..=128).contains(&form.password.len()))
     {
         return Err(StatusCode::UNAUTHORIZED);
     }
 
-    // Existing bootstrap only provisions admin. Reject duplicate case-folded identities rather than guessing one.
+    // Reject duplicate case-folded identities rather than guessing one.
     let found: Vec<(String, String, bool, String)> = sqlx::query_as(
         r#"SELECT id
             ,user_pd
             ,is_init_pd
-            ,user_status 
-        FROM uac_user 
-        WHERE lower(user_acnt)='admin' 
+            ,user_status
++       FROM uac_user
++       WHERE lower(user_acnt)=lower($1)
         LIMIT 2"#,
     )
+    .bind(form.username.trim())
     .fetch_all(&state.pool)
     .await
     .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
@@ -104,7 +111,7 @@ async fn login(
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     sqlx::query(
-        r#"DELETE FROM uac_login_session 
+        r#"DELETE FROM uac_login_session
         WHERE expires_at <= floor(extract(epoch from now()))::bigint"#,
     )
     .execute(&mut *tx)
@@ -140,41 +147,29 @@ async fn login(
 }
 
 // Recheck account status, mandatory-change state and password fingerprint on each protected request.
-async fn session(state: &IngestState, headers: &HeaderMap) -> Result<(bool, String), StatusCode> {
+pub(crate) async fn session(
+    state: &IngestState,
+    headers: &HeaderMap,
+) -> Result<(bool, String), StatusCode> {
     let raw = raw_cookie(headers).ok_or(StatusCode::UNAUTHORIZED)?;
-    let found: Option<(bool, bool, String, String, String)> = sqlx::query_as(
-        r#"SELECT s.restricted
-            ,u.is_init_pd
-            ,u.user_pd
-            ,s.credential_fingerprint
-            ,u.id 
-        FROM uac_login_session s 
-        JOIN uac_user u 
-            ON u.id=s.user_id 
-        WHERE s.token_hash=$1 
-            AND s.expires_at>floor(extract(epoch from now()))::bigint 
-            AND u.user_status='active' 
-            AND lower(u.user_acnt)='admin'"#,
-    )
-    .bind(digest(&raw))
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let found = analytics_persistence::login_session::lookup(&state.pool, &digest(&raw))
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     let (restricted, must_change, current, fingerprint, id) =
         found.ok_or(StatusCode::UNAUTHORIZED)?;
     if digest(&current) != fingerprint {
         return Err(StatusCode::UNAUTHORIZED);
     }
     let refreshed = sqlx::query(
-        r#"UPDATE uac_login_session 
-            SET expires_at=floor(extract(epoch from now()))::bigint+1800 
-        WHERE token_hash=$1 
-            AND expires_at>floor(extract(epoch from now()))::bigint 
+        r#"UPDATE uac_login_session
+            SET expires_at=floor(extract(epoch from now()))::bigint+1800
+        WHERE token_hash=$1
+            AND expires_at>floor(extract(epoch from now()))::bigint
             AND EXISTS (
-                SELECT 1 
-                FROM uac_user 
-                WHERE id=$2 
-                    AND user_pd=$3 
+                SELECT 1
+                FROM uac_user
+                WHERE id=$2
++                   AND user_pd=$3 
                     AND user_status='active')"#,
     )
     .bind(digest(&raw))
@@ -189,14 +184,32 @@ async fn session(state: &IngestState, headers: &HeaderMap) -> Result<(bool, Stri
     Ok((restricted || must_change, raw))
 }
 
-/// 已完成首次改密碼的有效管理者，才可讀取業務統計。
-/// 角色與來源 ACL 尚未建置，不得冒稱檢視者已獲授權。
-pub(crate) async fn require_query_session(
+/// A live person Session and source grant are required on every business query.
+pub(crate) async fn require_source_session(
     state: &IngestState,
     headers: &HeaderMap,
+    source: &str,
 ) -> Result<String, StatusCode> {
     let (restricted, raw) = session(state, headers).await?;
     if restricted {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    if !matches!(source, "web_chat" | "desktop_pet") {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let path = match source {
+        "web_chat" => "/api/v1/events/web_chat",
+        "desktop_pet" => "/api/v1/events/desktop_pet",
+        _ => unreachable!(),
+    };
+
+    let allowed = crate::page_acl::allowed(state, &raw, path, crate::page_acl::Crud::Read)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+
+    if !allowed {
         return Err(StatusCode::FORBIDDEN);
     }
     Ok(raw)
@@ -208,12 +221,31 @@ async fn change_page(
 ) -> Result<Response, StatusCode> {
     let (restricted, raw) = session(&state, &headers).await?;
     let csrf = digest(&format!("change-password:{raw}"));
+    let can_update = crate::page_acl::allowed(
+        &state,
+        &raw,
+        "/change-password",
+        crate::page_acl::Crud::Update,
+    )
+    .await
+    .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let mut html = crate::dashboard_ui::render_change_password_with_logout(
+        restricted,
+        csrf,
+        digest(&format!("logout:{raw}")),
+    );
+    if !can_update {
+        if let Some(start) = html.find("<form method=\"post\" action=\"/change-password\"") {
+            if let Some(end) = html[start..].find("</form>") {
+                html.replace_range(
+                    start..start + end + 7,
+                    "<p>沒有修改密碼 action；請聯絡管理員處理授權。</p>",
+                );
+            }
+        }
+    }
     Ok(renewed(
-        Html(crate::dashboard_ui::render_change_password_with_logout(
-            restricted,
-            csrf,
-            digest(&format!("logout:{raw}")),
-        )),
+        Html(crate::page_acl::decorate(&state, &raw, html).await?),
         &raw,
     ))
 }
@@ -268,14 +300,13 @@ async fn change_password(
     let row: Option<(String, String, String)> = sqlx::query_as(
         r#"SELECT u.id
             ,u.user_pd
-            ,s.credential_fingerprint 
-        FROM uac_user u 
-        JOIN uac_login_session s 
-            ON s.user_id=u.id 
-        WHERE s.token_hash=$1 
-            AND s.expires_at>floor(extract(epoch from now()))::bigint 
+            ,s.credential_fingerprint
+        FROM uac_user u
+        JOIN uac_login_session s
+            ON s.user_id=u.id
+        WHERE s.token_hash=$1
+            AND s.expires_at>floor(extract(epoch from now()))::bigint
             AND u.user_status='active' 
-            AND lower(u.user_acnt)='admin' 
         FOR UPDATE OF u,s"#,
     )
     .bind(digest(&raw))
@@ -286,6 +317,18 @@ async fn change_password(
     if digest(&current) != fingerprint {
         return Err(StatusCode::UNAUTHORIZED);
     }
+
+    let permit: bool = sqlx::query_scalar(crate::page_acl::PERMISSION_SQL)
+        .bind(digest(&raw))
+        .bind("/change-password")
+        .bind("update")
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    if !permit {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
     let encoded = tokio::task::spawn_blocking(move || {
         let parsed = PasswordHash::new(&current).map_err(|_| StatusCode::UNAUTHORIZED)?;
         Argon2::default()
@@ -299,11 +342,11 @@ async fn change_password(
     .await
     .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)??;
     sqlx::query(
-        r#"UPDATE uac_user 
+        r#"UPDATE uac_user
             SET user_pd=$1
                 ,user_email=$2
                 ,is_init_pd=FALSE
-                ,updated_at=now() 
+                ,updated_at=now()
         WHERE id=$3"#,
     )
     .bind(encoded)
@@ -356,12 +399,24 @@ async fn dashboard(
         return renewed(Redirect::to("/change-password"), &raw);
     }
 
-    let source = query.source.as_deref().unwrap_or("web_chat");
+    let default_source = if query.source.is_none() {
+        match require_source_session(&state, &headers, "web_chat").await {
+            Ok(_) => "web_chat",
+            Err(StatusCode::FORBIDDEN) => "desktop_pet",
+            Err(status) => return status.into_response(),
+        }
+    } else {
+        "web_chat"
+    };
+    let source = query.source.as_deref().unwrap_or(default_source);
     let source_label = match source {
         "web_chat" => "Chat",
         "desktop_pet" => "Pet",
         _ => return StatusCode::BAD_REQUEST.into_response(),
     };
+    if let Err(status) = require_source_session(&state, &headers, source).await {
+        return (status, "您沒有此來源的檢視權限。").into_response();
+    }
     let kind = query.event_type.as_deref().unwrap_or("");
     if !kind.is_empty() && (!crate::valid_event_type(kind) || kind.contains('\0')) {
         return StatusCode::BAD_REQUEST.into_response();
@@ -380,17 +435,18 @@ async fn dashboard(
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
 
-    renewed(
-        Html(crate::dashboard_ui::render_dashboard_with_rows_csrf(
-            source_label,
-            total,
-            source,
-            kind,
-            &rows,
-            &digest(&format!("logout:{raw}")),
-        )),
-        &raw,
-    )
+    let html = crate::dashboard_ui::render_dashboard_with_rows_csrf(
+        source_label,
+        total,
+        source,
+        kind,
+        &rows,
+        &digest(&format!("logout:{raw}")),
+    );
+    match crate::page_acl::decorate(&state, &raw, html).await {
+        Ok(html) => renewed(Html(html), &raw),
+        Err(e) => e.into_response(),
+    }
 }
 
 async fn summary(
@@ -398,7 +454,7 @@ async fn summary(
     Path(source): Path<String>,
     headers: HeaderMap,
 ) -> Result<Response, StatusCode> {
-    let raw = require_query_session(&state, &headers).await?;
+    let raw = require_source_session(&state, &headers, &source).await?;
     if !matches!(source.as_str(), "web_chat" | "desktop_pet") {
         return Err(StatusCode::BAD_REQUEST);
     }
@@ -445,6 +501,9 @@ async fn logout(
 
 pub fn build(state: IngestState) -> Router {
     Router::new()
+        .route("/navigation", get(crate::page_acl::navigation))
+        .route("/accounts/new", get(crate::accounts::page))
+        .route("/accounts", post(crate::accounts::create))
         .route("/login", get(login_page).post(login))
         .route("/logout", post(logout))
         .route("/change-password", get(change_page).post(change_password))
@@ -461,6 +520,10 @@ pub fn build(state: IngestState) -> Router {
         )
         .route("/healthz", get(crate::health))
         .route("/api/v1/events", post(crate::ingest))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            crate::page_acl::require,
+        ))
         .layer(DefaultBodyLimit::max(4096))
         .layer(axum::middleware::map_response(
             |mut r: Response| async move {

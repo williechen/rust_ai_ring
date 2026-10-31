@@ -22,8 +22,8 @@ pub async fn initialize(pool: &sqlx::PgPool, password: String) -> Result<String,
 
     let exists: bool = sqlx::query_scalar(
         r#"SELECT EXISTS(
-            SELECT 1 
-            FROM uac_user 
+            SELECT 1
+            FROM uac_user
             WHERE lower(user_acnt)='admin')"#,
     )
     .fetch_one(&mut *tx)
@@ -47,6 +47,9 @@ pub async fn initialize(pool: &sqlx::PgPool, password: String) -> Result<String,
         .bind(&id)
         .bind(hash)
         .execute(&mut *tx).await.map_err(|_| "管理員寫入失敗")?;
+
+    sqlx::query("INSERT INTO uac_user_role(user_id,role_id,created_at) VALUES($1,'analytics-admin',now()) ON CONFLICT DO NOTHING")
+        .bind(&id).execute(&mut *tx).await.map_err(|_| "管理員角色寫入失敗")?;
 
     tx.commit().await.map_err(|_| "管理員提交失敗")?;
 
@@ -72,6 +75,7 @@ pub async fn ensure_default(pool: &sqlx::PgPool) -> Result<String, String> {
         return Err("管理員身分重複；停止初始化，需人工查核".into());
     }
     if let Some((id,)) = admins.into_iter().next() {
+        // Existing identities retain their current grants, including deliberate role revocation.
         tx.commit()
             .await
             .map_err(|_| "初始化查核提交失敗".to_owned())?;
@@ -99,6 +103,10 @@ pub async fn ensure_default(pool: &sqlx::PgPool) -> Result<String, String> {
          VALUES ($1,'admin',$2,'admin@localhost.invalid','管理員','active',TRUE,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)"
     ).bind(&id).bind(hash).execute(&mut *tx).await
         .map_err(|_| "管理員寫入失敗".to_owned())?;
+
+    sqlx::query("INSERT INTO uac_user_role(user_id,role_id,created_at) VALUES($1,'analytics-admin',now()) ON CONFLICT DO NOTHING")
+        .bind(&id).execute(&mut *tx).await.map_err(|_| "管理員角色寫入失敗")?;
+
     tx.commit().await.map_err(|_| "管理員提交失敗".to_owned())?;
     Ok(id)
 }

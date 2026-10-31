@@ -89,7 +89,8 @@ fn DashboardView(
                             "查詢完成"
                         }}
                     </p>
-                    <p>"目前僅支援管理員；角色與來源 ACL 尚待接通。"</p>
+                    <a href="/accounts/new">"帳號管理：新增唯讀帳號"</a>
+                    <p>"來源查詢由伺服器依角色及授權範圍檢查。"</p>
                     <form method="post" action="/logout">
                         <input type="hidden" name="csrf" value=logout_csrf/>
                         <button type="submit">"登出"</button>
