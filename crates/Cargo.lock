@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "ai-core"
-version = "0.2.43"
+version = "0.2.45"
 dependencies = [
  "async-trait",
  "thiserror",
@@ -57,7 +57,7 @@ checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 
 [[package]]
 name = "chat-domain"
-version = "0.2.43"
+version = "0.2.45"
 dependencies = [
  "serde",
  "uuid",
@@ -337,7 +337,7 @@ dependencies = [
 
 [[package]]
 name = "shared"
-version = "0.2.43"
+version = "0.2.45"
 dependencies = [
  "chat-domain",
  "serde",
@@ -391,7 +391,7 @@ dependencies = [
 
 [[package]]
 name = "telemetry"
-version = "0.2.43"
+version = "0.2.45"
 
 [[package]]
 name = "thiserror"
