@@ -280,3 +280,15 @@ body {
 @media (prefers-reduced-motion:reduce) {
   .pet-face > img { transition:none; }
 }
+
+/* Life canvas fills the existing 200x200 native window; controls overlay it. */
+.pet-life { position:relative; padding:0; width:200px; height:200px; }
+.pet-life .pet-status { display:block; margin:0; }
+.pet-life .pet-face { position:absolute; inset:0; width:200px; height:200px; line-height:normal; overflow:hidden; }
+.pet-life .pet-face > img { width:168px; height:168px; object-fit:contain; }
+.pet-life .drag-handle { position:absolute; z-index:2; top:0; left:0; width:200px; height:20px; }
+.pet-life > p:not([role="alert"]) { position:absolute; top:20px; left:0; width:200px; pointer-events:none; }
+.pet-life .pet-status strong, .pet-life .pet-status small { position:absolute; width:1px; height:1px; padding:0; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+.pet-life > button { position:absolute; z-index:2; bottom:0; left:4px; }
+.pet-life > button:last-child { left:auto; right:4px; }
+.pet-life > p[role="alert"] { position:absolute; z-index:3; bottom:24px; left:0; width:200px; white-space:normal; background:#522; }
