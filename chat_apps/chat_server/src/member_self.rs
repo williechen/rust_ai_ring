@@ -10,8 +10,8 @@ use axum::{
 use shared::auth::{cookie_token, token_digest};
 use sqlx::SqlitePool;
 pub const ROOM: &str = "member-room-create";
-pub const PROFILE: &str = "member-self-profile-update";
-pub const PASSWORD: &str = "member-self-password-update";
+pub const PROFILE: &str = "member-profile-update";
+pub const PASSWORD: &str = "member-password-update";
 
 const PERMISSION: &str = r#"SELECT EXISTS(
     SELECT 1 
