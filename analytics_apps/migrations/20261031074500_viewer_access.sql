@@ -31,10 +31,10 @@ CREATE TABLE analytics_account_audit (
 -- Admin default: all seeded pages and their CRUD actions (no implicit category grant).
 INSERT INTO uac_role_acl(role_id,acl_id,created_at)
 SELECT 'analytics-admin',a.id,now() FROM uac_acl a
-WHERE a.id IN ('analytics-accounts','analytics-dashboard','analytics-chat','analytics-pet','analytics-summary','analytics-kind','analytics-export','analytics-password')
+WHERE a.id IN ('analytics-accounts','analytics-dashboard','analytics-chat','analytics-pet','analytics-summary','analytics-kind','analytics-export','analytics-password','analytics-security')
  OR a.acl_parent_id IN ('analytics-accounts','analytics-dashboard','analytics-chat','analytics-pet','analytics-summary','analytics-kind','analytics-export','analytics-password','analytics-security');
 -- Viewer default: read operations; source page visibility is independently granted per user.
 INSERT INTO uac_role_acl(role_id,acl_id,created_at)
 SELECT 'analytics-viewer',a.id,now() FROM uac_acl a
-WHERE a.id IN ('analytics-dashboard','analytics-password','analytics-summary','analytics-kind','analytics-export','analytics-password-update')
- OR (a.acl_category='action' AND a.acl_path='read' AND a.acl_parent_id IN ('analytics-accounts','analytics-dashboard','analytics-chat','analytics-pet','analytics-summary','analytics-kind','analytics-export','analytics-password'));
+WHERE a.id IN ('analytics-dashboard','analytics-password','analytics-summary','analytics-kind','analytics-export')
+ OR (a.acl_category='action' AND a.acl_path='read' AND a.acl_parent_id IN ('analytics-dashboard','analytics-chat','analytics-pet','analytics-summary','analytics-kind','analytics-export','analytics-password'));
