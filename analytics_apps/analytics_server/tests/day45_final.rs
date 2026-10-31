@@ -145,8 +145,14 @@ async fn upgrade_from_exact_f6_migrations_preserves_checksums_and_deny(pool: sql
         if path.extension().is_some_and(|x| x == "sql") && name < "20261031120000" {
             let target = dir.join(path.file_name().unwrap());
             if name == "20261031074500_viewer_access.sql" {
-                // Frozen exact-f6 bytes, never reconstructed from the current migration.
-                std::fs::write(target, include_str!("fixtures/f6_viewer_access.sql")).unwrap();
+                std::fs::write(
+                    target,
+                    exact_historical_fixture(
+                        include_bytes!("fixtures/f6_viewer_access.sql"),
+                        "fe81c4fd7b32a96e6b91f7a2532abf406ec88ff3a893350d57b0a2ee31ce5995",
+                    ),
+                )
+                .unwrap();
             } else {
                 std::fs::copy(&path, target).unwrap();
             }
@@ -278,7 +284,14 @@ async fn database_with_edited_28_checksum_is_not_silently_rewritten(pool: sqlx::
         if path.extension().is_some_and(|e| e == "sql") && name < "20261031180000" {
             let target = dir.join(path.file_name().unwrap());
             if name == "20261031074500_viewer_access.sql" {
-                std::fs::write(target, include_str!("fixtures/28b71b6_viewer_access.sql")).unwrap();
+                std::fs::write(
+                    target,
+                    exact_historical_fixture(
+                        include_bytes!("fixtures/28b71b6_viewer_access.sql"),
+                        "6a97c57e0123fd9aa90c45a92ab43906958e5cf18bcd4dcae1fe064c19469857",
+                    ),
+                )
+                .unwrap();
             } else {
                 std::fs::copy(&path, target).unwrap();
             }
@@ -312,4 +325,17 @@ async fn database_with_edited_28_checksum_is_not_silently_rewritten(pool: sqlx::
             .unwrap();
     assert_eq!(before, after);
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+// The two historical SQL files ended without LF. Editors may append one to the fixture.
+// Accept only that known transport change, then pin the exact historical bytes by SHA256.
+fn exact_historical_fixture(input: &[u8], expected: &str) -> Vec<u8> {
+    use sha2::{Digest, Sha256};
+    let bytes = input.strip_suffix(b"\n").unwrap_or(input);
+    let hash: String = Sha256::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    assert_eq!(hash, expected, "historical migration fixture bytes changed");
+    bytes.to_vec()
 }
