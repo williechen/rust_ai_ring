@@ -13,7 +13,7 @@ const root=process.argv[2] || path.resolve(__dirname,'../../../..');
   const result=await page.evaluate(()=>{const f=document.querySelector('.pet-face').getBoundingClientRect();const i=document.querySelector('img').getBoundingClientRect();return {frame:{width:f.width,height:f.height},image:{x:i.x,y:i.y,width:i.width,height:i.height},count:document.querySelectorAll('.pet-face img').length,scroll:document.documentElement.scrollHeight}});
   console.log(pose,JSON.stringify(result));
   if(result.frame.width!==200||result.frame.height!==200||result.count!==1)throw Error('200x200 single-image canvas missing');
-  if(result.image.x<0||result.image.y<0||result.image.xresult.image.width>200.5||result.image.y+result.image.height>200.5)throw Error('pose clipped');
+  if(result.image.x<0||result.image.y<0||result.image.x+result.image.width>200.5||result.image.y+result.image.height>200.5)throw Error('pose clipped');
  }
  await page.screenshot({path:process.env.PET_SCREENSHOT || 'pet-day45-canvas.png'});} finally { await b.close(); }
 })().catch(e=>{console.error(e);process.exitCode=1});
