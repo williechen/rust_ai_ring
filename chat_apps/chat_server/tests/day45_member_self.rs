@@ -293,7 +293,7 @@ async fn mandatory_change_cannot_be_bypassed_and_next_login_opens_account() {
     sqlx::query("UPDATE mbr_user_perm SET perm_filter='allow' WHERE user_id='self-member' AND perm_id='member-password-update'").execute(&pool).await.unwrap();
     let form = format!(
         "current_password=member-password&new_password=changed-password&confirm_password=changed-password&csrf={}",
-        csrf(&cookie, "member-password-update")
+        csrf(&cookie, "member-password")
     );
     assert_eq!(
         send(app.clone(), "/account/password", Some(form), &cookie)
