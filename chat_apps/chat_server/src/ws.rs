@@ -8,7 +8,7 @@ use axum::{
         ws::{Message, WebSocket, WebSocketUpgrade},
     },
     http::HeaderMap,
-    response::Response,
+    response::{IntoResponse, Response},
 };
 use shared::{ClientEvent, ServerEvent};
 use sqlx::SqlitePool;
@@ -36,6 +36,9 @@ pub async fn ws_handler(
     headers: HeaderMap,
     ws: WebSocketUpgrade,
 ) -> Response {
+    if let Err(status) = authorize_socket(&pool, &headers, &room_id).await {
+        return status.into_response();
+    }
     match state.room_repository.find_by_id(&room_id).await {
         Ok(Some(_)) => {
             ws.on_upgrade(move |socket| handle_socket(socket, state, room_id, pool, headers))
@@ -75,8 +78,28 @@ fn typing_event_for_room(
     })
 }
 
+#[cfg(test)]
 async fn socket_session_active(pool: &SqlitePool, headers: &HeaderMap) -> bool {
     active_member(pool, headers).await.is_ok()
+}
+
+async fn authorize_socket(
+    pool: &SqlitePool,
+    headers: &HeaderMap,
+    room: &str,
+) -> Result<(), axum::http::StatusCode> {
+    use axum::http::StatusCode;
+    let member = active_member(pool, headers).await?;
+    if crate::member_self::initial(pool, &member).await? {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    if chat_persistence::room_access::is_excluded(pool, &member, room)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
+    {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    Ok(())
 }
 
 async fn handle_socket(
@@ -93,7 +116,7 @@ async fn handle_socket(
     loop {
         tokio::select! {
             _ = recheck.tick() => {
-                if !socket_session_active(&pool, &headers).await {
+                if authorize_socket(&pool, &headers, &room_id).await.is_err() {
                     let _ = socket.send(Message::Close(None)).await;
                     break;
                 }
@@ -108,7 +131,7 @@ async fn handle_socket(
                     }
                 };
                 // 不因握手時曾通過就永久信任 Cookie。
-                if !socket_session_active(&pool, &headers).await {
+                if authorize_socket(&pool, &headers, &room_id).await.is_err() {
                     let _ = socket.send(Message::Close(None)).await;
                     break;
                 }
@@ -123,7 +146,7 @@ async fn handle_socket(
             event = room_events.recv() => {
                 match event {
                     Ok(event) => {
-                        if !socket_session_active(&pool, &headers).await {
+                        if authorize_socket(&pool, &headers, &room_id).await.is_err() {
                             let _ = socket.send(Message::Close(None)).await;
                             break;
                         }

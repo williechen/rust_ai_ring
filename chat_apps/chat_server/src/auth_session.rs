@@ -14,19 +14,9 @@ fn session_cookie(headers: &HeaderMap) -> Result<String, StatusCode> {
 /// No plaintext bearer token is ever stored in SQLite.
 pub async fn active_member(pool: &SqlitePool, headers: &HeaderMap) -> Result<String, StatusCode> {
     let raw = session_cookie(headers)?;
-    let member: Option<String> = sqlx::query_scalar(
-        r#"SELECT u.id 
-        FROM mbr_session s
-        JOIN mbr_user u 
-            ON u.id=s.mbr_user_id
-        WHERE s.token_hash=?1 
-          AND s.expires_at>unixepoch()
-          AND u.user_status='active'"#,
-    )
-    .bind(token_digest(&raw))
-    .fetch_optional(pool)
-    .await
-    .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let member = chat_persistence::member_session::active_member_id(pool, &token_digest(&raw))
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     member.ok_or(StatusCode::UNAUTHORIZED)
 }
 

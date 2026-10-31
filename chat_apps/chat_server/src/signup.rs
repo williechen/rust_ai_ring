@@ -130,6 +130,7 @@ async fn signup(
         .begin()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let member_id = uuid::Uuid::new_v4().to_string();
     sqlx::query(
         r#"INSERT INTO mbr_user (id
             ,user_acnt
@@ -142,7 +143,7 @@ async fn signup(
             ,updated_at
         ) VALUES (?1,?2,?3,?4,?5,'active',FALSE,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)"#,
     )
-    .bind(uuid::Uuid::new_v4().to_string())
+    .bind(&member_id)
     .bind(username)
     .bind(password_hash)
     .bind(email)
@@ -154,6 +155,8 @@ async fn signup(
         _ => StatusCode::INTERNAL_SERVER_ERROR,
     })?;
 
+    sqlx::query("INSERT INTO mbr_user_role(user_id,role_id,created_at) VALUES(?1,'member-default',CURRENT_TIMESTAMP)")
+        .bind(&member_id).execute(&mut *tx).await.map_err(|_|StatusCode::SERVICE_UNAVAILABLE)?;
     // 成功註冊不沿用目前瀏覽器的帳號或選房；資料與撤銷同交易提交。
     if let Some(token) = headers
         .get("cookie")

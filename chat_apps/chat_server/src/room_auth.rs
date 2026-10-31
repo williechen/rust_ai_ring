@@ -13,7 +13,10 @@ pub async fn require_member(
     request: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    active_member(&pool, request.headers()).await?;
+    let user = active_member(&pool, request.headers()).await?;
+    if crate::member_self::initial(&pool, &user).await? {
+        return Err(StatusCode::FORBIDDEN);
+    }
     Ok(next.run(request).await)
 }
 
@@ -24,7 +27,10 @@ pub async fn require_room_member(
     next: Next,
 ) -> Result<Response, StatusCode> {
     match active_member(&pool, request.headers()).await {
-        Ok(_) => {
+        Ok(member) => {
+            if crate::member_self::initial(&pool, &member).await? {
+                return Ok(Redirect::to("/account/password").into_response());
+            }
             // 登入成功也不能讓不存在的房間進入 SSR／WebSocket 畫面。
             // 沿用正式 SQLite RoomRepository，而不是在 middleware 複製 SQL。
             use chat_application::repository::RoomRepository;
@@ -37,6 +43,14 @@ pub async fn require_room_member(
             if !room.is_some_and(|room| room.id == id) {
                 return Err(StatusCode::NOT_FOUND);
             }
+            if chat_persistence::room_access::is_excluded(&pool, &member, &id)
+                .await
+                .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
+            {
+                return Ok(
+                    (StatusCode::FORBIDDEN, "您已被此聊天室排除，無法進入。").into_response()
+                );
+            }
             Ok(next.run(request).await)
         }
         Err(StatusCode::UNAUTHORIZED) => {
@@ -44,6 +58,81 @@ pub async fn require_room_member(
             Ok(Redirect::to(&format!("/signin?next=/room/{id}")).into_response())
         }
         Err(error) => Err(error),
+    }
+}
+
+#[cfg(test)]
+mod day45_tests {
+
+    use super::*;
+    use axum::{Router, body::Body, http::Request, routing::get};
+    use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn excluded_member_cannot_enter_but_public_listing_stays_public() {
+        let db = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        chat_persistence::migrate(&db).await.unwrap();
+        let id = uuid::Uuid::new_v4().to_string();
+        sqlx::query("INSERT INTO rooms(id,category_room_id,name,desc,created_at,updated_at) VALUES(?,'default-category','ACL','',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)")
+            .bind(&id).execute(&db).await.unwrap();
+        sqlx::query("INSERT INTO mbr_user(id,user_acnt,user_pd,user_email,user_name,user_status,is_init_pd,created_at,updated_at) VALUES('u45','u45','hash','u45@example.test','Member','active',FALSE,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)")
+            .execute(&db).await.unwrap();
+        let token = "d".repeat(64);
+        sqlx::query("INSERT INTO mbr_session(id,mbr_user_id,token_hash,expires_at) VALUES('s45','u45',?,unixepoch()+60)")
+            .bind(shared::auth::token_digest(&token)).execute(&db).await.unwrap();
+        let app = Router::new()
+            .route("/room/{room_id}", get(|| async { "ROOM" }))
+            .route_layer(axum::middleware::from_fn_with_state(
+                db.clone(),
+                require_room_member,
+            ))
+            .route("/api/rooms", get(|| async { "PUBLIC" }));
+        for excluded in [false, true, false] {
+            sqlx::query("DELETE FROM mbr_exclude WHERE mbr_user_id='u45'")
+                .execute(&db)
+                .await
+                .unwrap();
+            if excluded {
+                sqlx::query(
+                    "INSERT INTO mbr_exclude(id,mbr_user_id,room_id) VALUES('e45','u45',?)",
+                )
+                .bind(&id)
+                .execute(&db)
+                .await
+                .unwrap();
+            }
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::get(format!("/room/{id}"))
+                        .header("cookie", format!("chat_session={token}"))
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                response.status(),
+                if excluded {
+                    StatusCode::FORBIDDEN
+                } else {
+                    StatusCode::OK
+                }
+            );
+            assert_eq!(
+                app.clone()
+                    .oneshot(Request::get("/api/rooms").body(Body::empty()).unwrap())
+                    .await
+                    .unwrap()
+                    .status(),
+                StatusCode::OK
+            );
+        }
+        db.close().await;
     }
 }
 

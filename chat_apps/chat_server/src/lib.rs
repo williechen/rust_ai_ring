@@ -2,6 +2,7 @@ pub mod auth_session;
 pub mod http;
 pub mod hub;
 pub mod logout;
+pub mod member_self;
 pub mod room_auth;
 mod room_path;
 pub mod signin;
@@ -61,10 +62,8 @@ pub async fn application() -> Result<(), Box<dyn std::error::Error>> {
 
     // 建立房間需要有效會員；公開列表保持可讀。
     // GET 公開；只替 POST method 加上會員 Session middleware。
-    let room_methods =
-        get(http::list_rooms).merge(axum::routing::post(http::create_room).route_layer(
-            axum::middleware::from_fn_with_state(db.clone(), room_auth::require_member),
-        ));
+    let room_methods = get(http::list_rooms)
+        .merge(axum::routing::post(member_self::create_room_api).with_state(db.clone()));
 
     let app = Router::new()
         .route_service(&pkg_path, pkg_service)

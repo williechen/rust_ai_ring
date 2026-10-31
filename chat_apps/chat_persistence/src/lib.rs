@@ -1,3 +1,6 @@
+pub mod member_session;
+pub mod room_access;
+
 use async_trait::async_trait;
 use chat_application::repository::{MessageRepository, RepositoryError, RoomRepository};
 use chat_domain::Room;
@@ -107,11 +110,11 @@ impl RoomRepository for SqliteRoomRepository {
         sqlx::query_as::<_, RoomRow>(
             r"SELECT id
                , category_room_id
-               , name 
-            FROM rooms 
-            WHERE name 
-            LIKE ?1 
-            ESCAPE '\' 
+               , name
+            FROM rooms
+            WHERE name
+            LIKE ?1
+            ESCAPE '\'
             ORDER BY name, id",
         )
         .bind(pattern)

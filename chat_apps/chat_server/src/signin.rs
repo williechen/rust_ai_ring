@@ -25,7 +25,8 @@ pub fn routes(pool: SqlitePool) -> Router {
         .route("/api/session", get(session_status))
         .route("/account/rooms", axum::routing::post(account_create_room))
         .layer(DefaultBodyLimit::max(4096))
-        .with_state(pool)
+        .with_state(pool.clone())
+        .merge(crate::member_self::routes(pool))
 }
 
 /// Valid, active SQLite member Session; never expose the bearer token.
@@ -66,11 +67,12 @@ async fn login(
         return Err(StatusCode::UNAUTHORIZED);
     }
 
-    let found: Option<(String, String, bool)> = sqlx::query_as(
+    let found: Option<(String, String, bool, bool)> = sqlx::query_as(
         r#"SELECT id
                 ,user_pd
-                ,(user_status='active') 
-            FROM mbr_user 
+                ,(user_status='active')
+                ,is_init_pd
+            FROM mbr_user
             WHERE lower(user_acnt)=lower(?1)"#,
     )
     .bind(name)
@@ -78,7 +80,7 @@ async fn login(
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let (user_id, hash, active) = found.ok_or(StatusCode::UNAUTHORIZED)?;
+    let (user_id, hash, active, initial) = found.ok_or(StatusCode::UNAUTHORIZED)?;
     if !active {
         return Err(StatusCode::UNAUTHORIZED);
     }
@@ -108,8 +110,15 @@ async fn login(
         "INSERT INTO mbr_session (id,mbr_user_id,token_hash,expires_at) VALUES (?1,?2,?3,unixepoch()+86400)"
     ).bind(id).bind(user_id).bind(hashed).execute(&pool).await
         .map_err(|_|StatusCode::INTERNAL_SERVER_ERROR)?;
+
     let cookie = format!("chat_session={token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=86400");
-    let destination = safe_room_return(&input.next).unwrap_or("/account");
+
+    let destination = if initial {
+        "/account/password"
+    } else {
+        safe_room_return(&input.next).unwrap_or("/account")
+    };
+
     Ok((
         StatusCode::SEE_OTHER,
         [
@@ -139,8 +148,19 @@ async fn account(
     State(pool): State<SqlitePool>,
     headers: HeaderMap,
 ) -> Result<Html<String>, StatusCode> {
-    crate::auth_session::active_member(&pool, &headers).await?;
-    account_html(&headers, String::new(), String::new(), None)
+    let user = crate::auth_session::active_member(&pool, &headers).await?;
+    let initial: bool = sqlx::query_scalar("SELECT is_init_pd FROM mbr_user WHERE id=?1")
+        .bind(user)
+        .fetch_one(&pool)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    if initial {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let Html(html) = account_html(&headers, String::new(), String::new(), None)?;
+    Ok(Html(
+        crate::member_self::account_markup(&pool, &headers, html).await?,
+    ))
 }
 
 #[derive(Deserialize)]
@@ -154,7 +174,7 @@ async fn account_create_room(
     headers: HeaderMap,
     Form(form): Form<AccountRoomForm>,
 ) -> Result<Response, StatusCode> {
-    crate::auth_session::active_member(&pool, &headers).await?;
+    crate::member_self::require_action(&pool, &headers, crate::member_self::ROOM).await?;
     if headers.get(header::ORIGIN).and_then(|h| h.to_str().ok()) != Some("http://127.0.0.1:3000")
         || form.csrf != crate::auth_session::csrf_for_create_room(&headers)?
     {
@@ -168,38 +188,18 @@ async fn account_create_room(
         )
             .into_response());
     }
-    let repo = chat_persistence::SqliteRoomRepository::new(pool);
-    let created = chat_application::create_room(
-        &repo,
-        chat_application::CreateRoom {
-            id: uuid::Uuid::new_v4().to_string(),
-            category_room_id: "default-category".into(),
-            name: form.name.clone(),
-        },
+    let id = crate::member_self::create_room(&pool, &headers, form.name).await?;
+    let Html(html) = account_html(
+        &headers,
+        "已建立；可進房或回公開清單".into(),
+        String::new(),
+        Some(id),
+    )?;
+    Ok((
+        StatusCode::CREATED,
+        Html(crate::member_self::account_markup(&pool, &headers, html).await?),
     )
-    .await;
-    match created {
-        Ok(room) => Ok((
-            StatusCode::CREATED,
-            account_html(
-                &headers,
-                "已建立；可進房或回公開清單".into(),
-                String::new(),
-                Some(room.id),
-            )?,
-        )
-            .into_response()),
-        Err(_) => Ok((
-            StatusCode::SERVICE_UNAVAILABLE,
-            account_html(
-                &headers,
-                "未確認建立成功；請先查清單再決定是否重送".into(),
-                form.name,
-                None,
-            )?,
-        )
-            .into_response()),
-    }
+        .into_response())
 }
 
 #[cfg(test)]
@@ -370,6 +370,7 @@ mod day35_account_room_tests {
         chat_persistence::migrate(&pool).await.unwrap();
         sqlx::query("INSERT INTO mbr_user (id,user_acnt,user_pd,user_email,user_name,user_status,is_init_pd,created_at,updated_at) VALUES ('day35','learner35','unused','day35@example.test','Learner','active',FALSE,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)")
             .execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO mbr_user_role(user_id,role_id,created_at) VALUES('day35','member-default',CURRENT_TIMESTAMP)").execute(&pool).await.unwrap();
         let raw = "b".repeat(64);
         sqlx::query("INSERT INTO mbr_session(id,mbr_user_id,token_hash,expires_at) VALUES ('s35','day35',?1,unixepoch()+60)")
             .bind(shared::auth::token_digest(&raw))
