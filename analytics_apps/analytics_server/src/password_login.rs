@@ -72,8 +72,8 @@ async fn login(
             ,user_pd
             ,is_init_pd
             ,user_status
-+       FROM uac_user
-+       WHERE lower(user_acnt)=lower($1)
+        FROM uac_user
+        WHERE lower(user_acnt)=lower($1)
         LIMIT 2"#,
     )
     .bind(form.username.trim())
@@ -169,7 +169,7 @@ pub(crate) async fn session(
                 SELECT 1
                 FROM uac_user
                 WHERE id=$2
-+                   AND user_pd=$3 
+                    AND user_pd=$3 
                     AND user_status='active')"#,
     )
     .bind(digest(&raw))

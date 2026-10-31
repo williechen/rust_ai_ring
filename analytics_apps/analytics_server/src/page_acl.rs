@@ -283,7 +283,7 @@ WITH person AS (
  SELECT a.* FROM uac_acl a CROSS JOIN person p WHERE a.acl_status='active'
  AND NOT EXISTS(SELECT 1 FROM uac_user_acl x WHERE x.user_id=p.user_id AND x.acl_id=a.id AND x.acl_filter='deny')
  AND (EXISTS(SELECT 1 FROM uac_user_acl x WHERE x.user_id=p.user_id AND x.acl_id=a.id AND x.acl_filter='allow')
- OR EXISTS(SELECT 1 FROM uac_user_role ur JOIN uac_role  ON r.id=ur.role_id JOIN uac_role_acl ra ON ra.role_id=r.id
+ OR EXISTS(SELECT 1 FROM uac_user_role ur JOIN uac_role r ON r.id=ur.role_id JOIN uac_role_acl ra ON ra.role_id=r.id
  WHERE ur.user_id=p.user_id AND r.role_status='active' AND ra.acl_id=a.id))
 )
 SELECT c.id,c.acl_name,p.id,p.acl_name,p.acl_path,a.id,a.acl_name

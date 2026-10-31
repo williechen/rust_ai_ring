@@ -141,15 +141,15 @@ async fn upgrade_from_exact_f6_migrations_preserves_checksums_and_deny(pool: sql
     std::fs::create_dir(&dir).unwrap();
     for entry in std::fs::read_dir(&root).unwrap() {
         let path = entry.unwrap().path();
-        if path.extension().is_some_and(|x| x == "sql")
-            && !path
-                .file_name()
-                .unwrap()
-                .to_str()
-                .unwrap()
-                .starts_with("20261031120000")
-        {
-            std::fs::copy(&path, dir.join(path.file_name().unwrap())).unwrap();
+        let name = path.file_name().unwrap().to_str().unwrap();
+        if path.extension().is_some_and(|x| x == "sql") && name < "20261031120000" {
+            let target = dir.join(path.file_name().unwrap());
+            if name == "20261031074500_viewer_access.sql" {
+                // Frozen exact-f6 bytes, never reconstructed from the current migration.
+                std::fs::write(target, include_str!("fixtures/f6_viewer_access.sql")).unwrap();
+            } else {
+                std::fs::copy(&path, target).unwrap();
+            }
         }
     }
     let old = sqlx::migrate::Migrator::new(dir.as_path()).await.unwrap();
@@ -186,6 +186,10 @@ async fn upgrade_from_exact_f6_migrations_preserves_checksums_and_deny(pool: sql
     );
     let viewer_update:i64=sqlx::query_scalar("SELECT count(*) FROM uac_role_acl WHERE role_id='analytics-viewer' AND acl_id='analytics-password-update'").fetch_one(&pool).await.unwrap();
     assert_eq!(viewer_update, 0);
+    let definitions:(i64,i64)=sqlx::query_as("SELECT count(*) FILTER(WHERE acl_category='page'),count(*) FILTER(WHERE acl_category='action') FROM uac_acl").fetch_one(&pool).await.unwrap();
+    assert_eq!(definitions, (11, 44));
+    let grants:i64=sqlx::query_scalar("SELECT count(*) FROM uac_role_acl WHERE role_id='analytics-admin' AND (acl_id IN('analytics-roles','analytics-acls') OR acl_id IN(SELECT id FROM uac_acl WHERE acl_parent_id IN('analytics-roles','analytics-acls')))").fetch_one(&pool).await.unwrap();
+    assert_eq!(grants, 10);
     std::fs::remove_dir_all(dir).unwrap();
 }
 
@@ -261,4 +265,51 @@ async fn restart_does_not_restore_revoked_role_and_tree_escapes_labels(pool: sql
     let html = body_text(send(app, "/navigation", None, Some(&cookie)).await).await;
     assert!(!html.contains("<script>"));
     assert!(html.contains("&lt;script&gt;"));
+}
+
+#[sqlx::test(migrations = false)]
+async fn database_with_edited_28_checksum_is_not_silently_rewritten(pool: sqlx::PgPool) {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../migrations");
+    let dir = std::env::temp_dir().join(format!("day45-edited-ledger-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir(&dir).unwrap();
+    for entry in std::fs::read_dir(&root).unwrap() {
+        let path = entry.unwrap().path();
+        let name = path.file_name().unwrap().to_str().unwrap();
+        if path.extension().is_some_and(|e| e == "sql") && name < "20261031180000" {
+            let target = dir.join(path.file_name().unwrap());
+            if name == "20261031074500_viewer_access.sql" {
+                std::fs::write(target, include_str!("fixtures/28b71b6_viewer_access.sql")).unwrap();
+            } else {
+                std::fs::copy(&path, target).unwrap();
+            }
+        }
+    }
+    sqlx::migrate::Migrator::new(dir.as_path())
+        .await
+        .unwrap()
+        .run(&pool)
+        .await
+        .unwrap();
+    let before: Vec<u8> =
+        sqlx::query_scalar("SELECT checksum FROM _sqlx_migrations WHERE version=20261031074500")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let error = sqlx::migrate::Migrator::new(root.as_path())
+        .await
+        .unwrap()
+        .run(&pool)
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        sqlx::migrate::MigrateError::VersionMismatch(20261031074500)
+    ));
+    let after: Vec<u8> =
+        sqlx::query_scalar("SELECT checksum FROM _sqlx_migrations WHERE version=20261031074500")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(before, after);
+    std::fs::remove_dir_all(dir).unwrap();
 }

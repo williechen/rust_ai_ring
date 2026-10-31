@@ -1,6 +1,6 @@
 #![cfg(feature = "postgres-integration")]
 mod support;
-use analytics_server::{IngestState, IngestTokens, ootstrap, password_login};
+use analytics_server::{IngestState, IngestTokens, bootstrap, password_login};
 use axum::http::{StatusCode, header};
 use std::sync::Arc;
 use support::http::{body_text, response_cookie, send};

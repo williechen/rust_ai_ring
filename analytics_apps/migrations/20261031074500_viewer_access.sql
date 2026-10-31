@@ -10,8 +10,6 @@ INSERT INTO uac_acl(id,acl_name,acl_path,acl_category,acl_parent_id,acl_status,c
 ('analytics-token','認證管理','','category',NULL,'active',now(),now());
 INSERT INTO uac_acl(id,acl_name,acl_path,acl_category,acl_parent_id,acl_status,created_at,updated_at) VALUES
 ('analytics-accounts','帳號管理','/accounts/new','page','analytics-members','active',now(),now()),
-('analytics-roles','角色管理','/roles/index','page','analytics-members','active',now(),now()),
-('analytics-acls','頁面管理','/acls/index','page','analytics-members','active',now(),now()),
 ('analytics-dashboard','分析後台','/dashboard','page','analytics-info','active',now(),now()),
 ('analytics-chat','Chat來源','/api/v1/events/web_chat','page','analytics-info','active',now(),now()),
 ('analytics-pet','Pet來源','/api/v1/events/desktop_pet','page','analytics-info','active',now(),now()),
@@ -23,7 +21,7 @@ INSERT INTO uac_acl(id,acl_name,acl_path,acl_category,acl_parent_id,acl_status,c
 INSERT INTO uac_acl(id,acl_name,acl_path,acl_category,acl_parent_id,acl_status,created_at,updated_at)
 SELECT p.id || '-' || operation, operation, operation, 'action', p.id, 'active', now(),now()
 FROM uac_acl p CROSS JOIN (VALUES('create'),('read'),('update'),('delete')) AS crud(operation)
-WHERE p.id IN ('analytics-accounts','analytics-dashboard','analytics-chat','analytics-pet','analytics-summary','analytics-kind','analytics-export','analytics-password','analytics-security', 'analytics-roles', 'analytics-acls');
+WHERE p.id IN ('analytics-accounts','analytics-dashboard','analytics-chat','analytics-pet','analytics-summary','analytics-kind','analytics-export','analytics-password','analytics-security');
 INSERT INTO uac_user_role(user_id,role_id,created_at)
 SELECT id,'analytics-admin',now() FROM uac_user WHERE lower(user_acnt)='admin';
 CREATE TABLE analytics_account_audit (
@@ -33,8 +31,8 @@ CREATE TABLE analytics_account_audit (
 -- Admin default: all seeded pages and their CRUD actions (no implicit category grant).
 INSERT INTO uac_role_acl(role_id,acl_id,created_at)
 SELECT 'analytics-admin',a.id,now() FROM uac_acl a
-WHERE a.id IN ('analytics-accounts','analytics-dashboard','analytics-chat','analytics-pet','analytics-summary','analytics-kind','analytics-export','analytics-password','analytics-security', 'analytics-roles', 'analytics-acls')
- OR a.acl_parent_id IN ('analytics-accounts','analytics-dashboard','analytics-chat','analytics-pet','analytics-summary','analytics-kind','analytics-export','analytics-password','analytics-security', 'analytics-roles', 'analytics-acls');
+WHERE a.id IN ('analytics-accounts','analytics-dashboard','analytics-chat','analytics-pet','analytics-summary','analytics-kind','analytics-export','analytics-password','analytics-security')
+ OR a.acl_parent_id IN ('analytics-accounts','analytics-dashboard','analytics-chat','analytics-pet','analytics-summary','analytics-kind','analytics-export','analytics-password','analytics-security');
 -- Viewer default: read operations; source page visibility is independently granted per user.
 INSERT INTO uac_role_acl(role_id,acl_id,created_at)
 SELECT 'analytics-viewer',a.id,now() FROM uac_acl a
