@@ -3,7 +3,7 @@ resolver = "3"
 members = ["ai_core", "shared", "telemetry"]
 
 [workspace.package]
-version = "0.2.45"
+version = "0.2.47"
 edition = "2024"
 
 [workspace.dependencies]
