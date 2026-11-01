@@ -140,6 +140,26 @@ async fn active_pet(
 }
 
 #[tauri::command]
+async fn rename_pet(
+    id: String,
+    name: String,
+    app: tauri::AppHandle,
+    store: State<'_, pet_store::PetStore>,
+) -> Result<pet_store::SavedPet, String> {
+    let _operation = pet_windows::lifecycle_guard().await;
+    let saved = store.rename(&id, &name).await?;
+    // 只通知對應生活窗，避免更名事件誤切換控制窗選取。
+    // 舊資料沒有可定位生活窗時，更名仍以 SQLite 提交為準。
+    if let Ok(label) = pet_windows::label(&id) {
+        if app.get_webview_window(&label).is_some() {
+            app.emit_to(label, "pet-profile-changed", &saved)
+                .map_err(|_| "已更名，但生活窗通知失敗".to_owned())?;
+        }
+    }
+    Ok(saved)
+}
+
+#[tauri::command]
 async fn select_pet(
     id: String,
     app: tauri::AppHandle,
@@ -344,6 +364,7 @@ pub fn application(db: sqlx::SqlitePool) {
             quit_pet,
             validate_new_pet_name,
             create_pet,
+            rename_pet,
             list_pets,
             pet_cage_status_by_id,
             active_pet,

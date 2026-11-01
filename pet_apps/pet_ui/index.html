@@ -130,6 +130,8 @@
       return invoke("list_pets");
     };
 
+    window.renamePet = (id, name) => invoke("rename_pet", { id, name });
+
     window.createPet = (name) => {
       return invoke("create_pet", { name });
     };

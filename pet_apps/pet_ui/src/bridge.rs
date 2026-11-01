@@ -72,6 +72,9 @@ extern "C" {
     #[wasm_bindgen(js_namespace = window, js_name = createPet)]
     fn create_pet_js(name: &str) -> Promise;
 
+    #[wasm_bindgen(js_namespace=window, js_name=renamePet)]
+    fn rename_pet_js(id: &str, name: &str) -> Promise;
+
     #[wasm_bindgen(js_namespace=window, js_name=openSavedPet)]
     fn open_saved_pet_js(id: &str) -> Promise;
 
@@ -205,6 +208,13 @@ pub async fn create_pet(name: String) -> Result<SavedPet, String> {
         .map_err(js_error)?;
     serde_wasm_bindgen::from_value(value)
         .map_err(|_| "建立寵物回應格式錯誤；請重新整理清單確認是否已建立".into())
+}
+
+pub async fn rename_pet(id: &str, name: &str) -> Result<SavedPet, String> {
+    let value = JsFuture::from(rename_pet_js(id, name))
+        .await
+        .map_err(js_error)?;
+    serde_wasm_bindgen::from_value(value).map_err(|_| "寵物更名回應格式錯誤，請重新載入清單".into())
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]

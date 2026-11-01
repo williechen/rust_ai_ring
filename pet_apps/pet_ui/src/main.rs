@@ -3,6 +3,7 @@ mod cage_status;
 mod component;
 mod duplicate_preview;
 mod file_scan_view;
+mod scan_generation;
 
 pub use component::*;
 
@@ -12,10 +13,7 @@ use pet_domain::PetSnapshot;
 use std::collections::HashMap;
 
 use crate::cage_status::record_cage_status;
-
-fn accept_scan_result(request_generation: u64, current_generation: u64) -> bool {
-    request_generation == current_generation
-}
+use crate::scan_generation::accept_scan_result;
 
 fn main() {
     mount_to_body(|| {
@@ -243,7 +241,38 @@ fn App() -> impl IntoView {
                             let status_id=id.clone();
                             let display_id=id.clone();
                             let activity_id=id.clone();
-                            view! { <li>{format!("{}／{}（{}）", pet.name, pet.species, pet.id)}
+                            let rename_id=id.clone();
+                            let (rename_input, set_rename_input) = signal(pet.name.clone());
+                            view! { <li>{move || saved_pets.get().iter().find(|row| row.id == pet.id).map(|row| format!("{}／{}（{}）", row.name, row.species, row.id)).unwrap_or_default()}
+                                <label>"修改名稱"
+                                    <input aria-label="寵物新名稱" maxlength="64"
+                                        prop:value=move || rename_input.get()
+                                        on:input=move |event| set_rename_input.set(event_target_value(&event)) />
+                                </label>
+                                <button type="button" disabled=move || pets_busy.get()
+                                    on:click=move |_| {
+                                        if pets_busy.get_untracked() { return; }
+                                        set_pets_busy.set(true);
+                                        let id = rename_id.clone();
+                                        let proposed = rename_input.get_untracked();
+                                        spawn_local(async move {
+                                            match bridge::rename_pet(&id, &proposed).await {
+                                                Ok(updated) => {
+                                                    set_saved_pets.update(|rows| {
+                                                        if let Some(row) = rows.iter_mut().find(|p| p.id == id) {
+                                                            row.name = updated.name.clone();
+                                                        }
+                                                    });
+                                                    if active_pet.get_untracked().as_ref().is_some_and(|p| p.id == id) {
+                                                        set_active_pet.set(Some(updated));
+                                                    }
+                                                    set_new_pet_feedback.set("已更新寵物名稱".into());
+                                                }
+                                                Err(error) => set_new_pet_feedback.set(format!("更名失敗：{error}")),
+                                            }
+                                            set_pets_busy.set(false);
+                                        });
+                                    }>"儲存名稱"</button>
                                 <button type="button" disabled=move || pets_busy.get()
                                     on:click=move |_| {
                                         if pets_busy.get_untracked() { return; }
@@ -526,17 +555,5 @@ fn ErrorMessage(error: ReadSignal<Option<String>>) -> impl IntoView {
                 }}
             </p>
         </Show>
-    }
-}
-
-#[cfg(test)]
-mod day16_scan_generation_tests {
-    use super::accept_scan_result;
-
-    #[test]
-    fn canceled_or_superseded_scan_cannot_restore_preview() {
-        assert!(accept_scan_result(3, 3));
-        assert!(!accept_scan_result(2, 3));
-        assert!(!accept_scan_result(3, 4));
     }
 }
