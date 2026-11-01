@@ -2212,9 +2212,9 @@ checksum = "a4933f3f57a8e9d9da04db23fb153356ecaf00cbd14aee46279c33dc80925c37"
 
 [[package]]
 name = "leptos"
-version = "0.8.22"
+version = "0.8.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "713ee6895e3d1126ea9781280d01414f5643f3f201a949b71efffac07d735f00"
+checksum = "4b0f9f061ff585050a77e18b93a58d6c881c6785f473fc98924c4f77da50d891"
 dependencies = [
  "any_spawner",
  "cfg-if",
@@ -2298,9 +2298,9 @@ dependencies = [
 
 [[package]]
 name = "leptos_macro"
-version = "0.8.19"
+version = "0.8.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0902af1e6947ffc7e906b7003a165f76f178dc711a47b74241025090b0c32a72"
+checksum = "0066e6f8003dbedea0900a2d7ad11734ab1a541330718866dd4b9a394a032127"
 dependencies = [
  "attribute-derive",
  "cfg-if",
@@ -2923,7 +2923,7 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
 name = "pet-application"
-version = "0.2.46"
+version = "0.2.47"
 dependencies = [
  "serde",
  "serde_json",
@@ -2933,7 +2933,7 @@ dependencies = [
 
 [[package]]
 name = "pet-domain"
-version = "0.2.46"
+version = "0.2.47"
 dependencies = [
  "serde",
  "serde_json",
@@ -2943,8 +2943,9 @@ dependencies = [
 
 [[package]]
 name = "pet-persistence"
-version = "0.2.46"
+version = "0.2.47"
 dependencies = [
+ "pet-application",
  "serde",
  "serde_json",
  "sqlx",
@@ -2954,7 +2955,7 @@ dependencies = [
 
 [[package]]
 name = "pet-server"
-version = "0.2.46"
+version = "0.2.47"
 dependencies = [
  "ai-core",
  "dotenv",
@@ -2975,7 +2976,7 @@ dependencies = [
 
 [[package]]
 name = "pet-ui"
-version = "0.2.46"
+version = "0.2.47"
 dependencies = [
  "gloo-timers",
  "js-sys",
@@ -5006,9 +5007,9 @@ dependencies = [
 
 [[package]]
 name = "unicode-properties"
-version = "0.1.4"
+version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7df058c713841ad818f1dc5d3fd88063241cc61f49f5fbea4b951e8cf5a8d71d"
+checksum = "993ad287eb20e8ba755312801cfe1413e0f25d604075863acaddca10b04c1833"
 
 [[package]]
 name = "unicode-segmentation"

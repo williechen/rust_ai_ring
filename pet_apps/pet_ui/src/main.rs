@@ -3,6 +3,7 @@ mod cage_status;
 mod component;
 mod duplicate_preview;
 mod file_scan_view;
+pub mod management_selection;
 mod scan_generation;
 
 pub use component::*;
@@ -56,6 +57,8 @@ fn App() -> impl IntoView {
     let (saved_pets, set_saved_pets) = signal(Vec::<bridge::SavedPet>::new());
     let (pets_busy, set_pets_busy) = signal(false);
     let cage_status = RwSignal::new(HashMap::<String, String>::new());
+
+    let (management_pet_id, set_management_pet_id) = signal(None::<String>);
 
     let (active_pet, set_active_pet) = signal::<Option<bridge::SavedPet>>(None);
     let profile_events = RwSignal::new(0_u64);
@@ -241,9 +244,13 @@ fn App() -> impl IntoView {
                             let status_id=id.clone();
                             let display_id=id.clone();
                             let activity_id=id.clone();
-                            let rename_id=id.clone();
+                            let selected_id=id.clone();
+                            let rename_scope=id.clone();
                             let (rename_input, set_rename_input) = signal(pet.name.clone());
+                            let (rename_id, set_rename_id) = signal(pet.id.clone());
                             view! { <li>{move || saved_pets.get().iter().find(|row| row.id == pet.id).map(|row| format!("{}／{}（{}）", row.name, row.species, row.id)).unwrap_or_default()}
+                                <p role="status">{move || if management_pet_id.get().as_deref()==Some(selected_id.as_str()) { "目前管理對象" } else { "" }}</p>
+                                <Show when=move || management_pet_id.get().as_deref()==Some(rename_scope.as_str()) fallback=|| ()>
                                 <label>"修改名稱"
                                     <input aria-label="寵物新名稱" maxlength="64"
                                         prop:value=move || rename_input.get()
@@ -253,7 +260,7 @@ fn App() -> impl IntoView {
                                     on:click=move |_| {
                                         if pets_busy.get_untracked() { return; }
                                         set_pets_busy.set(true);
-                                        let id = rename_id.clone();
+                                        let id = rename_id.get_untracked();
                                         let proposed = rename_input.get_untracked();
                                         spawn_local(async move {
                                             match bridge::rename_pet(&id, &proposed).await {
@@ -273,24 +280,14 @@ fn App() -> impl IntoView {
                                             set_pets_busy.set(false);
                                         });
                                     }>"儲存名稱"</button>
+                                </Show>
                                 <button type="button" disabled=move || pets_busy.get()
                                     on:click=move |_| {
-                                        if pets_busy.get_untracked() { return; }
-                                        set_pets_busy.set(true); let id=id.clone();
-                                        spawn_local(async move {
-                                            match bridge::select_pet(&id).await {
-                                                Ok(pet) => {
-                                                    cage_status.update(|statuses| {
-                                                        statuses.remove(&id);
-                                                    });
-                                                    set_active_pet.set(Some(pet));
-                                                    set_new_pet_feedback.set("生活窗選取已儲存".into());
-                                                },
-                                                Err(message) => set_new_pet_feedback.set(message),
-                                            }
-                                            set_pets_busy.set(false);
-                                        });
-                                    }>"選為生活窗寵物"</button>
+                                        match management_selection::choose_management_pet(&id,&saved_pets.get_untracked(),set_management_pet_id) {
+                                            Ok(()) => set_new_pet_feedback.set("已選為管理對象；出入籠狀態保持不變".into()),
+                                            Err(message) => set_new_pet_feedback.set(message),
+                                        }
+                                    }>"選為管理對象"</button>
                                 <button type="button" disabled=move || pets_busy.get()
                                     on:click=move |_| {
                                         if pets_busy.get_untracked() {return;}

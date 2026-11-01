@@ -13,23 +13,13 @@ pub struct PetStore {
 impl PetStore {
     /// 僅更新本機主人指定寵物的名稱，不更動活動、預設或生活窗狀態。
     pub async fn rename(&self, id: &str, input: &str) -> Result<SavedPet, String> {
-        let name = pet_application::normalize_new_pet_name(input)?;
-        let result = sqlx::query(
-            "UPDATE pet_profile SET name=?1,updated_at=CURRENT_TIMESTAMP
-             WHERE id=?2 AND owner_id='local-owner'",
-        )
-        .bind(&name)
-        .bind(id)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| match e {
-            sqlx::Error::Database(d) if d.is_unique_violation() => "寵物名稱已存在".to_string(),
-            _ => "寵物更名失敗".to_string(),
-        })?;
-        if result.rows_affected() != 1 {
-            return Err("找不到寵物".into());
-        }
-        self.profile(id).await
+        let adapter = pet_persistence::pet_names::SqlitePetNames(self.pool.clone());
+        let saved = pet_application::pet_names::rename_pet(&adapter, id, input).await?;
+        Ok(SavedPet {
+            id: saved.id,
+            name: saved.name,
+            species: saved.species,
+        })
     }
 
     pub async fn profile(&self, id: &str) -> Result<SavedPet, String> {

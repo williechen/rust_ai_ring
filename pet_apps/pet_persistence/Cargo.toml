@@ -11,3 +11,5 @@ sqlx.workspace = true
 
 thiserror.workspace = true
 uuid.workspace = true
+
+pet-application = { path = "../pet_application" }
