@@ -14,6 +14,21 @@ impl ChatService {
         Self
     }
 
+    /// 作者只由 Delivery 已驗證的會員身分提供，不取自訊息 payload。
+    pub fn send_member_message(
+        &self,
+        room_id: String,
+        content: String,
+        member_id: String,
+    ) -> ChatMessage {
+        ChatMessage {
+            id: Uuid::new_v4().to_string(),
+            room_id,
+            author: MessageAuthor::User { user_id: member_id },
+            content,
+        }
+    }
+
     pub fn send_message(&self, room_id: String, content: String) -> ChatMessage {
         ChatMessage {
             id: Uuid::new_v4().to_string(),

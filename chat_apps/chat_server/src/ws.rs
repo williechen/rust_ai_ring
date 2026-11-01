@@ -10,6 +10,7 @@ use axum::{
     http::HeaderMap,
     response::{IntoResponse, Response},
 };
+use chat_domain::message_rules::{room_matches_connection, valid_message_content};
 use shared::{ClientEvent, ServerEvent};
 use sqlx::SqlitePool;
 use tokio::{sync::broadcast, time::MissedTickBehavior};
@@ -57,16 +58,6 @@ pub async fn ws_handler(
     }
 }
 
-// 訊息內容不可僅有空白；保留原始內容，不自動裁切。
-fn valid_message_content(content: &str) -> bool {
-    !content.trim().is_empty()
-}
-
-// 防止跨房間發送；空白識別碼不可視為合法房間。
-fn room_matches_connection(connection: &str, event: &str) -> bool {
-    !connection.trim().is_empty() && !event.trim().is_empty() && connection == event
-}
-
 fn typing_event_for_room(
     connection_room: &str,
     event_room: &str,
@@ -87,7 +78,7 @@ async fn authorize_socket(
     pool: &SqlitePool,
     headers: &HeaderMap,
     room: &str,
-) -> Result<(), axum::http::StatusCode> {
+) -> Result<String, axum::http::StatusCode> {
     use axum::http::StatusCode;
     let member = active_member(pool, headers).await?;
     if crate::member_self::initial(pool, &member).await? {
@@ -99,7 +90,7 @@ async fn authorize_socket(
     {
         return Err(StatusCode::FORBIDDEN);
     }
-    Ok(())
+    Ok(member)
 }
 
 async fn handle_socket(
@@ -131,13 +122,13 @@ async fn handle_socket(
                     }
                 };
                 // 不因握手時曾通過就永久信任 Cookie。
-                if authorize_socket(&pool, &headers, &room_id).await.is_err() {
-                    let _ = socket.send(Message::Close(None)).await;
-                    break;
-                }
+                let member_id = match authorize_socket(&pool, &headers, &room_id).await {
+                    Ok(member) => member,
+                    Err(_) => { let _ = socket.send(Message::Close(None)).await; break; }
+                };
                 if let Message::Text(text) = message
                     && let Err(error) = handle_client_event(
-                        &mut socket, &state, text.as_str(), room_id.clone()
+                        &mut socket, &state, text.as_str(), room_id.clone(), member_id
                     ).await {
                         eprintln!("client message error: {error}");
                         break;
@@ -174,8 +165,9 @@ async fn persist_ws_message(
     hub: &RoomHub,
     room_id: String,
     content: String,
+    member_id: String,
 ) -> Result<(), RepositoryError> {
-    let message = service.send_message(room_id.clone(), content);
+    let message = service.send_member_message(room_id.clone(), content, member_id);
     chat_application::persist_in_existing_room(rooms, messages, message, move |saved| {
         hub.publish(room_id, ServerEvent::MessageCreated(saved))
     })
@@ -187,6 +179,7 @@ async fn handle_client_event(
     state: &AppState,
     text: &str,
     event_room_id: String,
+    member_id: String,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let event: ClientEvent = serde_json::from_str(text)?;
 
@@ -200,7 +193,7 @@ async fn handle_client_event(
                     socket,
                     ServerEvent::Error {
                         code: "room_mismatch".to_string(),
-                        message: "message room does not match connection room".to_string(),
+                        message: "訊息房間與目前連線不符".to_string(),
                     },
                 )
                 .await?;
@@ -226,6 +219,7 @@ async fn handle_client_event(
                 &state.room_hub,
                 room_id,
                 content,
+                member_id,
             )
             .await
             {
@@ -252,7 +246,7 @@ async fn handle_client_event(
                         socket,
                         ServerEvent::Error {
                             code: "room_mismatch".into(),
-                            message: "typing room does not match connection room".into(),
+                            message: "輸入狀態房間與目前連線不符".into(),
                         },
                     )
                     .await?;
@@ -266,32 +260,6 @@ async fn handle_client_event(
 
 #[cfg(test)]
 mod test {
-    use super::{room_matches_connection, valid_message_content};
-
-    #[test]
-    fn matching_room() {
-        assert!(room_matches_connection("room-a", "room-a"));
-    }
-    #[test]
-    fn different_room() {
-        assert!(!room_matches_connection("room-a", "room-b"));
-    }
-    #[test]
-    fn blank_room() {
-        assert!(!room_matches_connection("", ""));
-        assert!(!room_matches_connection("room-a", " "));
-    }
-    #[test]
-    fn accepts_nonblank_content() {
-        assert!(valid_message_content("你好"));
-        assert!(valid_message_content(" 你好 "));
-    }
-    #[test]
-    fn rejects_blank_content() {
-        assert!(!valid_message_content(""));
-        assert!(!valid_message_content(" \n\t "));
-    }
-
     // 加到 apps/server/src/ws.rs 既有 #[cfg(test)] mod test 內。
     #[sqlx::test(migrations = "../migrations")]
     async fn ws_message_requires_room_at_write_time(pool: sqlx::SqlitePool) {
@@ -315,6 +283,7 @@ mod test {
             &hub,
             "room-day11".into(),
             "不應寫入".into(),
+            "member-fixture".into(),
         )
         .await;
         assert!(matches!(denied, Err(RepositoryError::RoomAccessError(_))));
@@ -343,6 +312,7 @@ mod test {
             &hub,
             "room-day11".into(),
             "確實寫入".into(),
+            "member-fixture".into(),
         )
         .await
         .unwrap();
@@ -419,5 +389,75 @@ mod test {
         );
         pool.close().await;
         assert!(!socket_session_active(&pool, &headers).await);
+    }
+}
+
+#[cfg(test)]
+mod day47_member_author_tests {
+    use super::*;
+    use axum::http::{StatusCode, header};
+    use chat_domain::MessageAuthor;
+
+    #[sqlx::test(migrations = "../migrations")]
+    async fn session_identity_is_persisted_and_revocation_denies_later_events(pool: SqlitePool) {
+        sqlx::query("INSERT INTO mbr_user(id,user_acnt,user_pd,user_email,user_name,user_status,is_init_pd,created_at,updated_at) VALUES('member47','member47','hash','member47@example.invalid','會員','active',FALSE,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)").execute(&pool).await.unwrap();
+        let raw = "a".repeat(64);
+        sqlx::query("INSERT INTO mbr_session(id,mbr_user_id,token_hash,expires_at) VALUES('s47','member47',?1,unixepoch()+60)").bind(shared::auth::token_digest(&raw)).execute(&pool).await.unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::COOKIE,
+            format!("chat_session={raw}").parse().unwrap(),
+        );
+        let rooms = chat_persistence::SqliteRoomRepository::new(pool.clone());
+        chat_application::create_room(
+            &rooms,
+            chat_application::CreateRoom {
+                id: "room47".into(),
+                category_room_id: "default-category".into(),
+                name: "會員聊天室".into(),
+            },
+        )
+        .await
+        .unwrap();
+        let messages = chat_persistence::SqliteMessageRepository::new(pool.clone());
+        let hub = RoomHub::new(8);
+        let (_, mut events) = hub.subscribe("room47".into());
+        let member = authorize_socket(&pool, &headers, "room47").await.unwrap();
+        assert_eq!(member, "member47");
+        persist_ws_message(
+            &ChatService::new(),
+            &rooms,
+            &messages,
+            &hub,
+            "room47".into(),
+            "會員訊息".into(),
+            member,
+        )
+        .await
+        .unwrap();
+        let history = messages.list_by_room("room47").await.unwrap();
+        assert_eq!(history.len(), 1);
+        assert_eq!(
+            history[0].author,
+            MessageAuthor::User {
+                user_id: "member47".into()
+            }
+        );
+        match events.try_recv().unwrap() {
+            ServerEvent::MessageCreated(message) => assert_eq!(message, history[0]),
+            other => panic!("意外事件 {other:?}"),
+        }
+        sqlx::query("DELETE FROM mbr_session WHERE id='s47'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            authorize_socket(&pool, &headers, "room47")
+                .await
+                .unwrap_err(),
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(messages.list_by_room("room47").await.unwrap().len(), 1);
+        assert!(events.try_recv().is_err());
     }
 }

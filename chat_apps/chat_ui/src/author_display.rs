@@ -2,10 +2,10 @@ use chat_domain::MessageAuthor;
 
 pub(super) fn author_label(author: &MessageAuthor) -> String {
     match author {
-        MessageAuthor::AnonymousUser => "You".to_string(),
-        MessageAuthor::User { user_id } => format!("User {}", user_id),
+        MessageAuthor::AnonymousUser => "訪客".to_string(),
+        MessageAuthor::User { user_id } => format!("會員 {}", user_id),
         MessageAuthor::Ai { persona_id } => format!("AI {}", persona_id),
-        MessageAuthor::System => "System".to_string(),
+        MessageAuthor::System => "系統".to_string(),
     }
 }
 
@@ -14,12 +14,12 @@ mod tests {
     use super::*;
     #[test]
     fn original_author_labels_are_preserved() {
-        assert_eq!(author_label(&MessageAuthor::AnonymousUser), "You");
+        assert_eq!(author_label(&MessageAuthor::AnonymousUser), "訪客");
         assert_eq!(
             author_label(&MessageAuthor::User {
                 user_id: "u".into()
             }),
-            "User u"
+            "會員 u"
         );
         assert_eq!(
             author_label(&MessageAuthor::Ai {
@@ -27,6 +27,6 @@ mod tests {
             }),
             "AI a"
         );
-        assert_eq!(author_label(&MessageAuthor::System), "System");
+        assert_eq!(author_label(&MessageAuthor::System), "系統");
     }
 }
