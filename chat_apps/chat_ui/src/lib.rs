@@ -5,15 +5,19 @@ mod chat_socket;
 #[cfg(target_arch = "wasm32")]
 mod room_api;
 
+#[cfg(any(target_arch = "wasm32", test))]
+mod room_history_state;
 mod room_list_state;
+
 mod session_entry;
 
+mod author_display;
 #[cfg(all(test, feature = "ssr"))]
 mod signin_contract;
 
 use std::rc::Rc;
 
-use chat_domain::{ChatMessage, MessageAuthor};
+use chat_domain::ChatMessage;
 use chat_socket::ChatSocket;
 use leptos::prelude::*;
 use leptos_router::{
@@ -22,6 +26,8 @@ use leptos_router::{
     path,
 };
 
+#[cfg(target_arch = "wasm32")]
+use room_history_state::merge_history;
 use room_list_state::{filter_rooms, room_status_text};
 use session_entry::{SessionEntry, session_entry_display};
 
@@ -36,16 +42,7 @@ use shared::ClientEvent;
 #[cfg(target_arch = "wasm32")]
 use shared::ServerEvent;
 
-use crate::room_list_state::clear_room_search;
-
-fn author_label(author: &MessageAuthor) -> String {
-    match author {
-        MessageAuthor::AnonymousUser => "You".to_string(),
-        MessageAuthor::User { user_id } => format!("User {}", user_id),
-        MessageAuthor::Ai { persona_id } => format!("AI {}", persona_id),
-        MessageAuthor::System => "System".to_string(),
-    }
-}
+use crate::{author_display::author_label, room_list_state::clear_room_search};
 
 #[cfg(any(target_arch = "wasm32", test))]
 fn apply_room_search(
@@ -70,7 +67,7 @@ fn apply_room_search(
 pub fn shell(options: LeptosOptions) -> impl IntoView {
     view! {
         <!DOCTYPE html>
-        <html>
+        <html lang="zh-Hant">
             <head>
                 <meta charset="utf-8"/>
                 <meta name="viewport" content="width=device-width, initial-scale=1"/>
@@ -213,12 +210,31 @@ fn room_heading(id: &str, result: Result<String, String>) -> String {
     }
 }
 
+#[cfg(target_arch = "wasm32")]
+fn request_history(
+    room_id: String,
+    set_messages: WriteSignal<Vec<ChatMessage>>,
+    set_status: WriteSignal<String>,
+) {
+    set_status.set("正在載入歷史訊息".into());
+    wasm_bindgen_futures::spawn_local(async move {
+        match room_api::room_history(&room_id).await {
+            Ok(history) => {
+                set_messages.update(|rows| *rows = merge_history(std::mem::take(rows), history));
+                set_status.set("已載入最近一百則歷史訊息".into());
+            }
+            Err(error) => set_status.set(format!("{error}；請重試")),
+        }
+    });
+}
+
 #[component]
 pub fn ChatPage(room_id: String) -> impl IntoView {
     let (draft, set_draft) = signal(String::new());
 
     let (connection, set_connection) = signal(String::from("尚未連線"));
     let (messages, set_messages) = signal(Vec::<ChatMessage>::new());
+    let (history_status, set_history_status) = signal(String::from("正在載入歷史訊息"));
 
     let (room_title, set_room_title) = signal(format!("房間 {room_id}"));
     #[cfg(target_arch = "wasm32")]
@@ -233,7 +249,10 @@ pub fn ChatPage(room_id: String) -> impl IntoView {
     let _ = set_room_title;
 
     #[cfg(not(target_arch = "wasm32"))]
-    let _ = set_messages;
+    let _ = (set_messages, set_history_status);
+
+    #[cfg(target_arch = "wasm32")]
+    request_history(room_id.clone(), set_messages, set_history_status);
 
     #[cfg(target_arch = "wasm32")]
     let socket = {
@@ -248,7 +267,11 @@ pub fn ChatPage(room_id: String) -> impl IntoView {
             &url,
             move |event| {
                 if let ServerEvent::MessageCreated(message) = event {
-                    set_messages.update(|messages| messages.push(message));
+                    set_messages.update(|rows| {
+                        if !rows.iter().any(|m| m.id == message.id) {
+                            rows.push(message);
+                        }
+                    });
                 }
             },
             move |status| set_connection.set(status.into()),
@@ -263,6 +286,16 @@ pub fn ChatPage(room_id: String) -> impl IntoView {
 
     #[cfg(not(target_arch = "wasm32"))]
     let socket = Some(Rc::new(ChatSocket::server_stub()));
+
+    let reload_history = {
+        let room_id = room_id.clone();
+        move |_| {
+            #[cfg(target_arch = "wasm32")]
+            request_history(room_id.clone(), set_messages, set_history_status);
+            #[cfg(not(target_arch = "wasm32"))]
+            let _ = &room_id;
+        }
+    };
 
     let send = {
         let socket = socket.clone();
@@ -298,15 +331,14 @@ pub fn ChatPage(room_id: String) -> impl IntoView {
                 <h2>{move || room_title.get()}</h2>
                 <p role="status">{move || connection.get()}</p>
             </header>
-            <p class="history-disclosure" role="note">
-                "歷史載入尚未接通：目前只顯示本次連線收到的訊息；重新整理不會載入已儲存訊息。"
-            </p>
+            <p class="history-disclosure" role="status">{move || history_status.get()}</p>
+            <button type="button" on:click=reload_history>"重新載入歷史"</button>
             <div class="message-history" aria-live="polite">
                 {move || {
                     if messages.get().is_empty() {
                         view! {
                             <p class="messages-empty">
-                                "目前尚無本次連線收到的訊息"
+                                "目前尚無訊息"
                             </p>
                         }.into_any()
                     } else {
@@ -326,7 +358,7 @@ pub fn ChatPage(room_id: String) -> impl IntoView {
             <div>
                 <textarea
                     aria-label="聊天訊息"
-                    placeholder="Type a message..."
+                    placeholder="輸入訊息"
                     prop:value=move || draft.get()
                     on:input=move |event| set_draft.set(event_target_value(&event))
                 />
@@ -334,7 +366,7 @@ pub fn ChatPage(room_id: String) -> impl IntoView {
                 <button
                     type="button"
                     disabled=move || draft.get().trim().is_empty()
-                    on:click=send>"Send"</button>
+                    on:click=send>"傳送"</button>
             </div>
         </section>
     }
@@ -505,7 +537,7 @@ mod day16_layout_tests {
         assert!(html.contains("room-fixture"));
         assert!(html.contains("<textarea"));
         assert!(html.contains("尚未連線"));
-        assert!(html.contains("歷史載入尚未接通"));
+        assert!(html.contains("正在載入歷史訊息"));
         assert!(!html.contains("Online: 100"));
     }
 }
@@ -534,13 +566,14 @@ mod day31_account_tests {
 mod day32_history_disclosure_tests {
     use super::*;
     #[test]
-    fn room_explicitly_discloses_missing_history_and_empty_live_messages() {
+    fn room_discloses_loading_history_and_empty_messages() {
         let owner = Owner::new();
         let html = owner.with(|| view! { <ChatPage room_id="day32-room".to_owned() /> }.to_html());
         assert!(html.contains("day32-room"));
-        assert!(html.contains("歷史載入尚未接通"));
-        assert!(html.contains("重新整理不會載入已儲存訊息"));
-        assert!(html.contains("目前尚無本次連線收到的訊息"));
+        assert!(html.contains("正在載入歷史訊息"));
+        assert!(html.contains("重新載入歷史"));
+        assert!(html.contains("目前尚無訊息"));
+        assert!(!html.contains("已載入最近一百則歷史訊息"));
         assert!(html.contains("aria-live=\"polite\""));
     }
 }

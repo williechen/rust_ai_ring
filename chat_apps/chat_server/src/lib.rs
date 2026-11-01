@@ -70,6 +70,10 @@ pub async fn application() -> Result<(), Box<dyn std::error::Error>> {
         .route("/health", get(http::health))
         .route("/api/rooms", room_methods)
         .route("/api/rooms/{id}", get(http::get_room))
+        .route(
+            "/api/rooms/{id}/messages",
+            get(http::room_history).layer(axum::Extension(db.clone())),
+        )
         .route("/signin", get(ssr::app_handler))
         .route("/", get(ssr::app_handler))
         .merge(guarded_room)

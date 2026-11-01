@@ -97,6 +97,9 @@ mod tests {
     struct FailingRepository;
     #[async_trait]
     impl MessageRepository for FailingRepository {
+        async fn list_by_room(&self, _: &str) -> Result<Vec<ChatMessage>, RepositoryError> {
+            Err(RepositoryError::MessageAccessError("DB unavailable".into()))
+        }
         async fn create(&self, _: &ChatMessage) -> Result<(), RepositoryError> {
             Err(RepositoryError::MessageAccessError("DB unavailable".into()))
         }
@@ -105,6 +108,9 @@ mod tests {
     struct SuccessfulRepository;
     #[async_trait]
     impl MessageRepository for SuccessfulRepository {
+        async fn list_by_room(&self, _: &str) -> Result<Vec<ChatMessage>, RepositoryError> {
+            Ok(Vec::new())
+        }
         async fn create(&self, _: &ChatMessage) -> Result<(), RepositoryError> {
             Ok(())
         }

@@ -1,8 +1,11 @@
 use crate::state::AppState;
-use axum::extract::{Query, State};
+use axum::Extension;
+use axum::extract::{Path, Query, State};
+use axum::http::HeaderMap;
 use axum::{Json, http::StatusCode};
 use serde::Serialize;
 use shared::{CreateRoomRequest, CreateRoomResponse};
+use sqlx::SqlitePool;
 
 #[derive(Debug, Serialize)]
 pub struct HealthResponse {
@@ -109,6 +112,43 @@ pub async fn list_rooms(
                 name: room.name,
             })
             .collect(),
+    ))
+}
+
+/// 歷史讀取須在每次 HTTP 請求重新驗證會員與房間排除狀態。
+pub async fn room_history(
+    State(state): State<AppState>,
+    Extension(pool): Extension<SqlitePool>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<chat_domain::ChatMessage>>, StatusCode> {
+    if id.trim().is_empty() || id.len() > 40 || id.contains('\0') {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let member = crate::auth_session::active_member(&pool, &headers).await?;
+    if crate::member_self::initial(&pool, &member).await? {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let room = state
+        .room_repository
+        .find_by_id(&id)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    if !room.is_some_and(|room| room.id == id) {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    if chat_persistence::room_access::is_excluded(&pool, &member, &id)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
+    {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    Ok(Json(
+        state
+            .message_repository
+            .list_by_room(&id)
+            .await
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?,
     ))
 }
 

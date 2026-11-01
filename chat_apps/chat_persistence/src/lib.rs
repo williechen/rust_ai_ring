@@ -166,6 +166,40 @@ impl MessageRepository for SqliteMessageRepository {
         .map(|_| ())
         .map_err(|e| RepositoryError::MessageAccessError(e.to_string()))
     }
+
+    async fn list_by_room(
+        &self,
+        room_id: &str,
+    ) -> Result<Vec<chat_domain::ChatMessage>, RepositoryError> {
+        // 只讀指定房間最後一百筆，依插入順序重建訊息。
+        let rows: Vec<(String, String, String, Option<String>, String)> = sqlx::query_as(
+            "SELECT id,room_id,author_kind,author_id,content
+             FROM (SELECT rowid AS seq,id,room_id,author_kind,author_id,content
+                   FROM messages WHERE room_id=?1 ORDER BY rowid DESC LIMIT 100)
+             ORDER BY seq ASC",
+        )
+        .bind(room_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::MessageAccessError(e.to_string()))?;
+        rows.into_iter()
+            .map(|(id, room_id, kind, author_id, content)| {
+                let author = match (kind.as_str(), author_id) {
+                    ("anonymous_user", None) => chat_domain::MessageAuthor::AnonymousUser,
+                    ("user", Some(user_id)) => chat_domain::MessageAuthor::User { user_id },
+                    ("ai", Some(persona_id)) => chat_domain::MessageAuthor::Ai { persona_id },
+                    ("system", None) => chat_domain::MessageAuthor::System,
+                    _ => return Err(RepositoryError::MessageAccessError("作者資料無效".into())),
+                };
+                Ok(chat_domain::ChatMessage {
+                    id,
+                    room_id,
+                    author,
+                    content,
+                })
+            })
+            .collect()
+    }
 }
 
 #[cfg(test)]

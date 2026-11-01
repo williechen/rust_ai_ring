@@ -23,5 +23,6 @@ pub trait RoomRepository: Send + Sync {
 
 #[async_trait]
 pub trait MessageRepository: Send + Sync {
+    async fn list_by_room(&self, room_id: &str) -> Result<Vec<ChatMessage>, RepositoryError>;
     async fn create(&self, message: &ChatMessage) -> Result<(), RepositoryError>;
 }
