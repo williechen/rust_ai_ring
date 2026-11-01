@@ -1,4 +1,6 @@
 pub mod login_session;
+pub mod page_permissions;
+pub mod viewer_access;
 
 /// PostgreSQL 聚合查詢結果，供 JSON API 與 Leptos SSR 共用。
 #[derive(Debug, serde::Serialize, sqlx::FromRow, PartialEq, Eq)]

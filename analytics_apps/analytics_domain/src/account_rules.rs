@@ -1,5 +1,5 @@
 /// 帳號識別碼使用既有 ASCII 契約，避免大小寫折疊後產生歧義。
-pub(crate) fn valid_viewer_username(value: &str) -> bool {
+pub fn valid_viewer_username(value: &str) -> bool {
     (3..=64).contains(&value.len())
         && value
             .bytes()

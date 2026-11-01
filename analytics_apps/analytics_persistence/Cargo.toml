@@ -7,6 +7,8 @@ edition.workspace = true
 postgres-integration = []
 
 [dependencies]
+analytics-application = { path = "../analytics_application" }
+
 axum.workspace = true
 argon2.workspace = true
 

@@ -505,6 +505,10 @@ pub fn build(state: IngestState) -> Router {
         .route("/accounts/new", get(crate::accounts::page))
         .route("/accounts", post(crate::accounts::create))
         .route("/accounts/{id}/disable", post(crate::accounts::disable))
+        .route(
+            "/accounts/{id}/sources",
+            post(crate::accounts::update_sources),
+        )
         .route("/login", get(login_page).post(login))
         .route("/logout", post(logout))
         .route("/change-password", get(change_page).post(change_password))

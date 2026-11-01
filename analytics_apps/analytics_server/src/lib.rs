@@ -1,4 +1,3 @@
-mod account_rules;
 mod accounts;
 pub mod admin;
 pub mod bootstrap;
@@ -12,6 +11,7 @@ pub mod password_login;
 pub mod pg_store;
 mod session_cookie;
 
+use analytics_domain::account_rules;
 use analytics_persistence::summary_for_source;
 use analytics_persistence::{EventSummary, summary_for_source_and_type};
 use axum::{

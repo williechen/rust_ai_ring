@@ -34,6 +34,7 @@ async fn account_manager(
 pub(crate) struct Notice {
     created: Option<String>,
     disabled: Option<String>,
+    updated: Option<String>,
 }
 
 pub(crate) async fn page(
@@ -47,6 +48,8 @@ pub(crate) async fn page(
         "已建立唯讀帳號；請安全交付初始密碼，首次登入須改密碼。"
     } else if query.disabled.as_deref() == Some("1") {
         "已停用檢視者，既有登入工作階段已撤銷。"
+    } else if query.updated.as_deref() == Some("1") {
+        "已儲存來源權限；既有Session下次查詢立即重新核權。"
     } else {
         ""
     };
@@ -56,34 +59,35 @@ pub(crate) async fn page(
             .await
             .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
 
-    let viewers: Vec<(String, String)> = if can_delete {
-        sqlx::query_as(
-            "SELECT u.id,u.user_acnt FROM uac_user u
-             JOIN uac_user_role ur ON ur.user_id=u.id
-             WHERE ur.role_id='analytics-viewer' AND u.user_status='active'
-             ORDER BY u.user_acnt LIMIT 100",
-        )
-        .fetch_all(&state.pool)
-        .await
-        .map_err(db_error)?
+    let can_update =
+        crate::page_acl::allowed(&state, &raw, "/accounts/new", crate::page_acl::Crud::Update)
+            .await
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+
+    let viewers: Vec<(String, String, String, String)> = if can_delete || can_update {
+        sqlx::query_as("SELECT u.id,u.user_acnt,COALESCE((SELECT acl_filter FROM uac_user_acl a WHERE a.user_id=u.id AND a.acl_id='analytics-chat'),'inherit'),COALESCE((SELECT acl_filter FROM uac_user_acl a WHERE a.user_id=u.id AND a.acl_id='analytics-pet'),'inherit') FROM uac_user u JOIN uac_user_role ur ON ur.user_id=u.id WHERE ur.role_id='analytics-viewer' AND u.user_status='active' AND NOT EXISTS(SELECT 1 FROM uac_user_role ar WHERE ar.user_id=u.id AND ar.role_id='analytics-admin') ORDER BY u.user_acnt LIMIT 100")
+            .fetch_all(&state.pool).await.map_err(db_error)?
     } else {
         Vec::new()
     };
 
-    let viewer_forms = viewers
-        .into_iter()
-        .map(|(id, username)| {
-            let action = format!("/accounts/{id}/disable");
-            let token = digest(&format!("disable-account:{raw}:{id}"));
-            view! { <li>
-                <span>{username}</span>
-                <form method="post" action=action>
-                    <input type="hidden" name="csrf" value=token/>
-                    <button type="submit">"停用帳號"</button>
-                </form>
-            </li> }
-        })
-        .collect_view();
+    let viewer_forms=viewers.into_iter().map(|(id,username,chat,pet)| {
+        let delete_action=format!("/accounts/{id}/disable");let delete_token=digest(&format!("disable-account:{raw}:{id}"));
+        let update_action=format!("/accounts/{id}/sources");let update_token=digest(&format!("update-sources:{raw}:{id}"));
+        let delete_form=can_delete.then(||view! { <form method="post" action=delete_action><input type="hidden" name="csrf" value=delete_token/><button type="submit">"停用帳號"</button></form> });
+        let update_form=can_update.then(||view! {
+            <form method="post" action=update_action>
+                <input type="hidden" name="csrf" value=update_token/>
+                <label>"Chat來源"<select name="chat">
+                    <option value="inherit" selected=chat=="inherit">"沿用角色"</option><option value="allow" selected=chat=="allow">"個人允許"</option><option value="deny" selected=chat=="deny">"個人拒絕"</option>
+                </select></label>
+                <label>"Pet來源"<select name="pet">
+                    <option value="inherit" selected=pet=="inherit">"沿用角色"</option><option value="allow" selected=pet=="allow">"個人允許"</option><option value="deny" selected=pet=="deny">"個人拒絕"</option>
+                </select></label><button type="submit">"儲存來源權限"</button>
+            </form>
+        });
+        view! { <li><span>{username}</span>{update_form}{delete_form}</li> }
+    }).collect_view();
 
     let mut html=view!{
         <html lang="zh-Hant">
@@ -182,7 +186,7 @@ pub(crate) async fn disable(
     }
     let status: Option<String> = sqlx::query_scalar(
         "SELECT u.user_status FROM uac_user u JOIN uac_user_role ur ON ur.user_id=u.id
-         WHERE u.id=$1 AND ur.role_id='analytics-viewer' FOR UPDATE OF u",
+        WHERE u.id=$1 AND ur.role_id='analytics-viewer' AND NOT EXISTS(SELECT 1 FROM uac_user_role ar WHERE ar.user_id=u.id AND ar.role_id='analytics-admin') FOR UPDATE OF u",
     )
     .bind(&id)
     .fetch_optional(&mut *tx)
@@ -331,4 +335,48 @@ async fn create_inner(
         .bind(uuid::Uuid::new_v4().to_string()).bind(actor).bind(&id).execute(&mut *tx).await.map_err(db_error)?;
     tx.commit().await.map_err(db_error)?;
     Ok(renewed(Redirect::to("/accounts/new?created=1"), &raw))
+}
+
+#[derive(serde::Deserialize)]
+pub(crate) struct SourceForm {
+    csrf: String,
+    chat: String,
+    pet: String,
+}
+
+pub(crate) async fn update_sources(
+    State(state): State<IngestState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<SourceForm>,
+) -> Result<Response, StatusCode> {
+    use analytics_application::viewer_access::{AccessError, Actor, SourceChanges, SourceChoice};
+    let (actor, raw) = account_manager(&state, &headers).await?;
+    if headers.get(header::ORIGIN).and_then(|h| h.to_str().ok()) != Some("http://127.0.0.1:3100")
+        || form.csrf != digest(&format!("update-sources:{raw}:{id}"))
+    {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let changes = SourceChanges {
+        chat: SourceChoice::parse(&form.chat).map_err(|_| StatusCode::UNPROCESSABLE_ENTITY)?,
+        pet: SourceChoice::parse(&form.pet).map_err(|_| StatusCode::UNPROCESSABLE_ENTITY)?,
+    };
+    let adapter = analytics_persistence::viewer_access::PgViewerAccess(state.pool.clone());
+    analytics_application::viewer_access::update_sources(
+        &adapter,
+        &Actor {
+            id: actor,
+            token_hash: digest(&raw),
+        },
+        &id,
+        changes,
+    )
+    .await
+    .map_err(|e| match e {
+        AccessError::Invalid => StatusCode::UNPROCESSABLE_ENTITY,
+        AccessError::Denied => StatusCode::FORBIDDEN,
+        AccessError::NotFound => StatusCode::NOT_FOUND,
+        AccessError::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
+    })?;
+    Ok(renewed(Redirect::to("/accounts/new?updated=1"), &raw))
 }

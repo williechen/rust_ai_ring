@@ -8,6 +8,8 @@ default-run = "analytics-server"
 postgres-integration = ["analytics-persistence/postgres-integration"]
 
 [dependencies]
+analytics-application = { path = "../analytics_application" }
+analytics-domain = { path = "../analytics_domain" }
 analytics-persistence = { path = "../analytics_persistence" }
 
 axum.workspace = true

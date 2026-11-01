@@ -29,6 +29,7 @@ version = "0.2.46"
 name = "analytics-persistence"
 version = "0.2.46"
 dependencies = [
+ "analytics-application",
  "argon2",
  "axum",
  "dotenv",
@@ -48,6 +49,8 @@ dependencies = [
 name = "analytics-server"
 version = "0.2.46"
 dependencies = [
+ "analytics-application",
+ "analytics-domain",
  "analytics-persistence",
  "argon2",
  "axum",
