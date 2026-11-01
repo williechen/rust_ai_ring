@@ -5,7 +5,7 @@ use crate::{
 use argon2::{Argon2, PasswordHasher};
 use axum::{
     Form,
-    extract::{Query, State},
+    extract::{Path, Query, State},
     http::{HeaderMap, StatusCode, header},
     response::{Html, Redirect, Response},
 };
@@ -33,6 +33,7 @@ async fn account_manager(
 #[derive(Default, serde::Deserialize)]
 pub(crate) struct Notice {
     created: Option<String>,
+    disabled: Option<String>,
 }
 
 pub(crate) async fn page(
@@ -44,22 +45,82 @@ pub(crate) async fn page(
     let csrf = digest(&format!("create-account:{raw}"));
     let message = if query.created.as_deref() == Some("1") {
         "已建立唯讀帳號；請安全交付初始密碼，首次登入須改密碼。"
+    } else if query.disabled.as_deref() == Some("1") {
+        "已停用檢視者，既有登入工作階段已撤銷。"
     } else {
         ""
     };
+
+    let can_delete =
+        crate::page_acl::allowed(&state, &raw, "/accounts/new", crate::page_acl::Crud::Delete)
+            .await
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+
+    let viewers: Vec<(String, String)> = if can_delete {
+        sqlx::query_as(
+            "SELECT u.id,u.user_acnt FROM uac_user u
+             JOIN uac_user_role ur ON ur.user_id=u.id
+             WHERE ur.role_id='analytics-viewer' AND u.user_status='active'
+             ORDER BY u.user_acnt LIMIT 100",
+        )
+        .fetch_all(&state.pool)
+        .await
+        .map_err(db_error)?
+    } else {
+        Vec::new()
+    };
+
+    let viewer_forms = viewers
+        .into_iter()
+        .map(|(id, username)| {
+            let action = format!("/accounts/{id}/disable");
+            let token = digest(&format!("disable-account:{raw}:{id}"));
+            view! { <li>
+                <span>{username}</span>
+                <form method="post" action=action>
+                    <input type="hidden" name="csrf" value=token/>
+                    <button type="submit">"停用帳號"</button>
+                </form>
+            </li> }
+        })
+        .collect_view();
+
     let mut html=view!{
-        <html lang="zh-Hant"><head><title>"新增唯讀帳號"</title></head><body><main>
-        <h1>"新增唯讀帳號"</h1><p role="status">{message}</p>
-        <form method="post" action="/accounts">
-        <input type="hidden" name="csrf" value=csrf/>
-        <label>"帳號"<input name="username" required minlength="3" maxlength="64" autocomplete="off"/></label>
-        <label>"初始密碼"<input type="password" name="password" required minlength="8" maxlength="128" autocomplete="new-password"/></label>
-        <label>"Email"<input type="email" name="email" required maxlength="254"/></label>
-        <label><input type="checkbox" name="chat"/>"可讀 Chat"</label>
-        <label><input type="checkbox" name="pet"/>"可讀 Pet"</label>
-        <button type="submit">"建立唯讀帳號"</button></form>
-        <a href="/dashboard">"返回後台"</a>
-        </main></body></html>
+        <html lang="zh-Hant">
+            <head>
+                <title>"新增唯讀帳號"</title>
+            </head>
+            <body>
+                <main>
+                    <h1>"新增唯讀帳號"</h1>
+                    <p role="status">{message}</p>
+                    <form method="post" action="/accounts">
+                        <input type="hidden" name="csrf" value=csrf/>
+                        <label>"帳號"
+                            <input name="username" required minlength="3" maxlength="64" autocomplete="off"/>
+                        </label>
+                        <label>"初始密碼"
+                            <input type="password" name="password" required minlength="8" maxlength="128" autocomplete="new-password"/>
+                        </label>
+                        <label>"Email"
+                            <input type="email" name="email" required maxlength="254"/>
+                        </label>
+                        <label>
+                            <input type="checkbox" name="chat"/>"可讀 Chat"
+                        </label>
+                        <label>
+                            <input type="checkbox" name="pet"/>"可讀 Pet"
+                        </label>
+                        <button type="submit">"建立唯讀帳號"</button>
+                    </form>
+                    <section>
+                        <h2>"檢視者帳號"</h2>
+                        <ul>{viewer_forms}</ul>
+                    </section>
+                    <a href="/dashboard">"返回後台"</a>
+                </main>
+            </body>
+        </html>
     }.to_html();
     let can_create =
         crate::page_acl::allowed(&state, &raw, "/accounts/new", crate::page_acl::Crud::Create)
@@ -76,6 +137,77 @@ pub(crate) async fn page(
         Html(crate::page_acl::decorate(&state, &raw, html).await?),
         &raw,
     ))
+}
+
+#[derive(serde::Deserialize)]
+pub(crate) struct DisableViewer {
+    csrf: String,
+}
+
+/// 停用帳號與撤銷 Session 同一個 PG 交易提交；操作前重驗 Delete action。
+pub(crate) async fn disable(
+    State(state): State<IngestState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<DisableViewer>,
+) -> Result<Response, StatusCode> {
+    let (actor, raw) = account_manager(&state, &headers).await?;
+    if actor == id
+        || headers.get(header::ORIGIN).and_then(|h| h.to_str().ok())
+            != Some("http://127.0.0.1:3100")
+        || form.csrf != digest(&format!("disable-account:{raw}:{id}"))
+    {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let mut tx = state.pool.begin().await.map_err(db_error)?;
+    let authorized: Option<(String, String)> = sqlx::query_as(
+        "SELECT u.user_pd,s.credential_fingerprint FROM uac_user u
+         JOIN uac_login_session s ON s.user_id=u.id
+         WHERE u.id=$1 AND s.token_hash=$2 AND s.expires_at>floor(extract(epoch from now()))::bigint
+           AND s.restricted=FALSE AND u.user_status='active' AND u.is_init_pd=FALSE FOR SHARE OF u,s"
+    ).bind(&actor).bind(digest(&raw)).fetch_optional(&mut *tx).await.map_err(db_error)?;
+    let (credential, fingerprint) = authorized.ok_or(StatusCode::FORBIDDEN)?;
+    if digest(&credential) != fingerprint {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let allowed: bool = sqlx::query_scalar(crate::page_acl::PERMISSION_SQL)
+        .bind(digest(&raw))
+        .bind("/accounts/new")
+        .bind("delete")
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(db_error)?;
+    if !allowed {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let status: Option<String> = sqlx::query_scalar(
+        "SELECT u.user_status FROM uac_user u JOIN uac_user_role ur ON ur.user_id=u.id
+         WHERE u.id=$1 AND ur.role_id='analytics-viewer' FOR UPDATE OF u",
+    )
+    .bind(&id)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(db_error)?;
+    match status.as_deref() {
+        None => return Err(StatusCode::NOT_FOUND),
+        Some("active") => (),
+        _ => return Err(StatusCode::CONFLICT),
+    }
+    sqlx::query("UPDATE uac_user SET user_status='disabled',updated_at=now() WHERE id=$1")
+        .bind(&id)
+        .execute(&mut *tx)
+        .await
+        .map_err(db_error)?;
+    sqlx::query("DELETE FROM uac_login_session WHERE user_id=$1")
+        .bind(&id)
+        .execute(&mut *tx)
+        .await
+        .map_err(db_error)?;
+    sqlx::query("INSERT INTO analytics_account_audit(id,actor_id,target_id,action,result) VALUES($1,$2,$3,'disable_viewer','disabled')")
+        .bind(uuid::Uuid::new_v4().to_string()).bind(&actor).bind(&id)
+        .execute(&mut *tx).await.map_err(db_error)?;
+    tx.commit().await.map_err(db_error)?;
+    Ok(renewed(Redirect::to("/accounts/new?disabled=1"), &raw))
 }
 
 #[derive(serde::Deserialize)]
@@ -126,10 +258,7 @@ async fn create_inner(
     let username = form.username.trim().to_ascii_lowercase();
     let email = form.email.trim().to_ascii_lowercase();
     let parts: Vec<_> = email.split('@').collect();
-    if !(3..=64).contains(&username.len())
-        || !username
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    if !crate::account_rules::valid_viewer_username(&username)
         || !(8..=128).contains(&form.password.len())
         || email.len() > 254
         || !email.is_ascii()

@@ -32,6 +32,7 @@ impl Crud {
 fn operation(route: &str, method: &Method) -> Option<Crud> {
     match (route, method) {
         ("/accounts", &Method::POST) => Some(Crud::Create),
+        ("/accounts/{id}/disable", &Method::POST) => Some(Crud::Delete),
         ("/accounts", &Method::DELETE) => Some(Crud::Delete),
         ("/change-password", &Method::POST) => Some(Crud::Update),
         (_, &Method::GET | &Method::HEAD) => Some(Crud::Read),
@@ -51,7 +52,7 @@ pub(crate) async fn require(
         .unwrap_or(request.uri().path());
     let page = match route {
         "/" | "/dashboard" => "/dashboard",
-        "/accounts" | "/accounts/new" => "/accounts/new",
+        "/accounts" | "/accounts/new" | "/accounts/{id}/disable" => "/accounts/new",
         "/change-password" => "/change-password",
         "/api/v1/events/{source}/summary"
         | "/api/v1/events/{source}/summary/{event_type}"
