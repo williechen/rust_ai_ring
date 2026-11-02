@@ -13,6 +13,7 @@ mod session_entry;
 
 mod author_display;
 mod composer_key;
+mod room_cards;
 mod room_heading;
 #[cfg(all(test, feature = "ssr"))]
 mod signin_contract;
@@ -27,7 +28,7 @@ use leptos_router::{
     hooks::{use_params_map, use_query_map},
     path,
 };
-
+use room_cards::RoomCards;
 #[cfg(target_arch = "wasm32")]
 use room_heading::room_heading;
 #[cfg(target_arch = "wasm32")]
@@ -132,14 +133,14 @@ fn HomePage() -> impl IntoView {
     let _ = set_entry;
 
     view! {
-        <p>"Welcome to Rust AI Chat!"</p>
+        <p>"探索公開聊天室；進入前仍須登入與權限確認。"</p>
         <p>
             <a href=move || session_entry_display(entry.get()).0 rel="external">
                 {move || session_entry_display(entry.get()).1}
             </a>
             <span role="status">{move || session_entry_display(entry.get()).2}</span>
         </p>
-        <RoomList />
+        <RoomList cards=true />
     }
 }
 
@@ -385,7 +386,7 @@ pub fn ChatPage(room_id: String) -> impl IntoView {
 }
 
 #[component]
-fn RoomList() -> impl IntoView {
+fn RoomList(#[prop(default = false)] cards: bool) -> impl IntoView {
     let params = use_params_map();
     let (query, set_query) = signal(String::new());
     let (rows, set_rows) = signal(Vec::<(String, String)>::new());
@@ -504,6 +505,10 @@ fn RoomList() -> impl IntoView {
                 );
                 view! {
                     <p class="room-result-feedback" role="status">{feedback}</p>
+                    {if cards {
+                        view! { <RoomCards rooms=visible active_room=params.read().get("room_id").unwrap_or_default() /> }.into_any()
+                    } else {
+                        view! {
                     <ul>
                         {visible.into_iter().map(|(id, name)| view! {
                         <li>
@@ -515,6 +520,8 @@ fn RoomList() -> impl IntoView {
                         </li>
                         }).collect_view()}
                     </ul>
+                        }.into_any()
+                    }}
                 }
             }}
             </div>
@@ -690,5 +697,31 @@ mod day40_home_entry_tests {
             session_entry_display(SessionEntry::SignedIn),
             ("/account", "管理", "")
         );
+    }
+}
+
+#[cfg(all(test, feature = "ssr"))]
+mod day49_room_cards_tests {
+    use super::*;
+    #[test]
+    fn public_cards_use_real_rooms_and_escape_names() {
+        Owner::new().with(|| {
+            let html = view! { <RoomCards rooms=vec![("room-a".into(), "<房間>".into()), ("room-b".into(), "第二間".into())] active_room="room-b".to_owned() /> }.to_html();
+            assert_eq!(html.matches(r#"class="room-card""#).count(), 2);
+            assert!(html.contains(r#"href="/room/room-a""#));
+            assert!(html.contains(r#"href="/room/room-b""#));
+            assert!(html.contains("&lt;房間&gt;"));
+            assert!(!html.contains("<房間>"));
+            assert_eq!(html.matches(r#"aria-current="page""#).count(), 1);
+            assert!(!html.contains("在線"));
+        });
+    }
+    #[test]
+    fn empty_snapshot_never_manufactures_a_room() {
+        Owner::new().with(|| {
+            let html = view! { <RoomCards rooms=Vec::new() active_room=String::new() /> }.to_html();
+            assert!(!html.contains(r#"class="room-card""#));
+            assert!(!html.contains(r#"href="/room/"#));
+        });
     }
 }

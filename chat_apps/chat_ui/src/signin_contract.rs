@@ -39,7 +39,7 @@ fn day43_room_list_has_clear_search_control() {
         view! {
             <Router>
                 <Routes fallback=|| ()>
-                    <Route path=path!("/") view=crate::RoomList />
+                    <Route path=path!("/") view=|| view! { <crate::RoomList /> } />
                 </Routes>
             </Router>
         }
