@@ -4,6 +4,7 @@ mod component;
 mod duplicate_preview;
 mod file_scan_view;
 pub mod management_selection;
+mod saved_pet;
 mod scan_generation;
 
 pub use component::*;
@@ -14,6 +15,7 @@ use pet_domain::PetSnapshot;
 use std::collections::HashMap;
 
 use crate::cage_status::record_cage_status;
+use crate::saved_pet::SavedPet;
 use crate::scan_generation::accept_scan_result;
 
 fn main() {
@@ -54,13 +56,13 @@ fn App() -> impl IntoView {
     let (new_pet_name, set_new_pet_name) = signal(String::new());
     let (new_pet_feedback, set_new_pet_feedback) = signal(String::new());
 
-    let (saved_pets, set_saved_pets) = signal(Vec::<bridge::SavedPet>::new());
+    let (saved_pets, set_saved_pets) = signal(Vec::<SavedPet>::new());
     let (pets_busy, set_pets_busy) = signal(false);
     let cage_status = RwSignal::new(HashMap::<String, String>::new());
 
     let (management_pet_id, set_management_pet_id) = signal(None::<String>);
 
-    let (active_pet, set_active_pet) = signal::<Option<bridge::SavedPet>>(None);
+    let (active_pet, set_active_pet) = signal::<Option<SavedPet>>(None);
     let profile_events = RwSignal::new(0_u64);
     spawn_local(async move {
         if let Err(message) = bridge::listen_pet_profile(move |pet| {
@@ -189,7 +191,12 @@ fn App() -> impl IntoView {
                                 Ok(created) => {
                                     // 先更新清單，不因後續開窗失敗重送 INSERT。
                                     match bridge::list_pets().await {
-                                        Ok(rows) => set_saved_pets.set(rows),
+                                        Ok(rows) => {
+                                            management_selection::reconcile_management_pet(
+                                                &rows, management_pet_id, set_management_pet_id
+                                            );
+                                            set_saved_pets.set(rows);
+                                        },
                                         Err(_) => set_new_pet_feedback.set(
                                             "寵物已儲存，但清單讀回失敗；請重新載入，勿重送建立。".into()
                                         ),
@@ -225,8 +232,16 @@ fn App() -> impl IntoView {
                         spawn_local(async move {
                             match bridge::list_pets().await {
                                 Ok(rows) => {
+                                    // 只在已提交的新清單中確認管理對象是否仍存在。
+                                    let removed = management_selection::reconcile_management_pet(
+                                        &rows, management_pet_id, set_management_pet_id
+                                    );
                                     set_saved_pets.set(rows);
-                                    set_new_pet_feedback.set("已重新載入清單".into());
+                                    set_new_pet_feedback.set(if removed {
+                                        "原管理對象已不在清單，請重新選擇".into()
+                                    } else {
+                                        "已重新載入清單".into()
+                                    });
                                 }
                                 Err(error) => set_new_pet_feedback.set(format!("讀取清單失敗：{error}")),
                             }

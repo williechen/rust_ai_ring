@@ -3,6 +3,8 @@ use pet_domain::{PetCommand, PetSnapshot};
 use wasm_bindgen::{JsCast, closure::Closure, prelude::*};
 use wasm_bindgen_futures::JsFuture;
 
+use crate::saved_pet::SavedPet;
+
 #[wasm_bindgen]
 extern "C" {
 
@@ -215,13 +217,6 @@ pub async fn rename_pet(id: &str, name: &str) -> Result<SavedPet, String> {
         .await
         .map_err(js_error)?;
     serde_wasm_bindgen::from_value(value).map_err(|_| "寵物更名回應格式錯誤，請重新載入清單".into())
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
-pub struct SavedPet {
-    pub id: String,
-    pub name: String,
-    pub species: String,
 }
 
 pub async fn list_pets() -> Result<Vec<SavedPet>, String> {
