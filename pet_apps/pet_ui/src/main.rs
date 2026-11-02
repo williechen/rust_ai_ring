@@ -1,6 +1,7 @@
 mod bridge;
 mod cage_status;
 mod component;
+mod control_navigation;
 mod duplicate_preview;
 mod file_scan_view;
 pub mod management_selection;
@@ -17,6 +18,7 @@ use std::collections::HashMap;
 use crate::cage_status::record_cage_status;
 use crate::saved_pet::SavedPet;
 use crate::scan_generation::accept_scan_result;
+use control_navigation::ControlNavigation;
 
 fn main() {
     mount_to_body(|| {
@@ -167,11 +169,14 @@ fn App() -> impl IntoView {
 
     view! {
         <main class="control-shell">
+            <style>{include_str!("control.css")}</style>
             <h1>"寵物控制台"</h1>
+            <ControlNavigation />
             <p>"控制台關閉後寵物仍運作；檔案功能目前只提供唯讀預覽"</p>
 
-            <section>
-                <h2>"新增寵物"</h2>
+ <section id="pet-management" aria-labelledby="pet-management-title" tabindex="-1">
+                <h2 id="pet-management-title">"管理"</h2>
+                <h3>"新增寵物"</h3>
                 <label>"寵物名稱"
                     <input
                         prop:value=move || new_pet_name.get()
@@ -372,7 +377,8 @@ fn App() -> impl IntoView {
                 </ul>
             </section>
 
-            <h2>"互動與聊天"</h2>
+             <section id="pet-interaction" aria-labelledby="pet-interaction-title" tabindex="-1">
+            <h2 id="pet-interaction-title">"互動與聊天"</h2>
             <p>{move || snapshot.get().map(|s| format!("目前狀態: {:?}, 最近更新: {:?}", s.state, s.revision)).unwrap_or_else(|| "讀取中…".into())}</p>
 
             <PetControls
@@ -401,6 +407,9 @@ fn App() -> impl IntoView {
             />
 
             <h2>"檔案管理"</h2>
+            </section>
++                <section id="pet-files" aria-labelledby="pet-files-title" tabindex="-1">
++                <h2 id="pet-files-title">"檔案管理"</h2>
             <button
                 type="button"
                 disabled=move || scan_loading.get() || duplicate_loading.get()
@@ -492,6 +501,20 @@ fn App() -> impl IntoView {
                 <p role="status">"已確認本次預覽；尚未執行移動、刪除或還原。"</p>
             </Show>
 
+            </section>
+            <section id="pet-settings" aria-labelledby="pet-settings-title" tabindex="-1">
+                <h2 id="pet-settings-title">"設定"</h2>
+                <p>"目前可在管理區修改名稱與啟動預設；五欄與外觀設定尚未接通。"</p>
+            </section>
+            <section id="pet-memory" aria-labelledby="pet-memory-title" tabindex="-1">
+                <h2 id="pet-memory-title">"記憶"</h2>
+                <p>"記憶查詢與管理尚未接通。"</p>
+            </section>
+            <section id="pet-updates" aria-labelledby="pet-updates-title" tabindex="-1">
+                <h2 id="pet-updates-title">"更新"</h2>
+                <p>"版本檢查與簽章更新尚未接通。"</p>
+            </section>
+
             <ErrorMessage error />
 
             <button
@@ -567,5 +590,30 @@ fn ErrorMessage(error: ReadSignal<Option<String>>) -> impl IntoView {
                 }}
             </p>
         </Show>
+    }
+}
+
+#[cfg(test)]
+mod day49_control_navigation_tests {
+    use super::*;
+    #[test]
+    fn navigation_reaches_exactly_six_real_sections_without_commands() {
+        Owner::new().with(|| {
+            let html = view! { <ControlNavigation /> }.to_html();
+            for (id, title) in [
+                ("pet-interaction", "互動"),
+                ("pet-settings", "設定"),
+                ("pet-memory", "記憶"),
+                ("pet-files", "檔案"),
+                ("pet-management", "管理"),
+                ("pet-updates", "更新"),
+            ] {
+                assert!(html.contains(&format!("href=\"#{id}\"")));
+                assert!(html.contains(title));
+            }
+            assert_eq!(html.matches("href=\"#pet-").count(), 6);
+            assert!(!html.contains("<button"));
+            assert!(!html.contains("javascript:"));
+        });
     }
 }

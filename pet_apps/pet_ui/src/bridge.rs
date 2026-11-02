@@ -65,9 +65,6 @@ extern "C" {
     #[wasm_bindgen(js_namespace = window, js_name = scanDuplicatePreview)]
     fn scan_duplicate_preview_js() -> Promise;
 
-    #[wasm_bindgen(js_namespace = window, js_name = validateNewPetName)]
-    fn validate_new_pet_name_js(name: &str) -> Promise;
-
     #[wasm_bindgen(js_namespace = window, js_name = listPets)]
     fn list_pets_js() -> Promise;
 

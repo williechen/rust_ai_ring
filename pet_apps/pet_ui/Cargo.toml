@@ -21,4 +21,5 @@ wasm-bindgen-futures = "0.4"
 web-sys = { version = "0.3", features = ["Window"] }
 
 [dev-dependencies]
+leptos = { version = "0.8", features = ["ssr"] }
 serde_json.workspace = true

@@ -1,0 +1,17 @@
+.control-shell{max-width:1100px;margin:auto;padding:20px;color:#233044;background:#eef2f6;overflow-wrap:anywhere}
+
+.control-navigation{position:sticky;top:0;z-index:1;display:flex;flex-wrap:wrap;gap:8px;background:#fff;padding:12px;border-radius:12px}
+
+.control-navigation a{display:block;padding:10px 18px;color:#185ca5;border:1px solid #d8e1ec;border-radius:8px;text-decoration:none}
+
+.control-navigation a:focus-visible{outline:3px solid #185ca5;outline-offset:2px}
+
+.control-shell>section{margin-top:16px;padding:18px;border-radius:12px;background:#fff;scroll-margin-top:100px}
+
+.control-shell input{max-width:100%}
+
+@media(max-width:600px){
+    .control-shell{padding:10px}
+    .control-navigation{position:static}
+    .control-navigation a{flex:1 0 25%;text-align:center}
+    .control-shell>section{scroll-margin-top:12px}}
