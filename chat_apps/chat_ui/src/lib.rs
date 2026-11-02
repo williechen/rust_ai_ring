@@ -29,6 +29,8 @@ use leptos_router::{
 };
 
 #[cfg(target_arch = "wasm32")]
+use room_heading::room_heading;
+#[cfg(target_arch = "wasm32")]
 use room_history_state::merge_history;
 use room_list_state::{filter_rooms, room_status_text};
 use session_entry::{SessionEntry, session_entry_display};
