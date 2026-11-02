@@ -12,6 +12,8 @@ mod room_list_state;
 mod session_entry;
 
 mod author_display;
+mod composer_key;
+mod room_heading;
 #[cfg(all(test, feature = "ssr"))]
 mod signin_contract;
 
@@ -203,13 +205,6 @@ fn RoomPage() -> impl IntoView {
     }
 }
 
-fn room_heading(id: &str, result: Result<String, String>) -> String {
-    match result {
-        Ok(name) => format!("房間 {name}"),
-        Err(_) => format!("房間 {id}（無法取得房間名稱）"),
-    }
-}
-
 #[cfg(target_arch = "wasm32")]
 fn request_history(
     room_id: String,
@@ -300,7 +295,7 @@ pub fn ChatPage(room_id: String) -> impl IntoView {
     let send = {
         let socket = socket.clone();
 
-        move |_| {
+        Rc::new(move || {
             let room_id = room_id.clone();
 
             let content = draft.get_untracked().trim().to_string();
@@ -317,13 +312,17 @@ pub fn ChatPage(room_id: String) -> impl IntoView {
                 .and_then(|socket| socket.send(&event).map_err(|_| "發送失敗".to_string()))
             {
                 Ok(()) => {
+                    // WS 傳送不等於持久化 ACK；維持既有「等待回應」文案。
                     set_draft.set(String::new());
                     set_connection.set("已發送，等待回應...".into());
                 }
                 Err(_) => set_connection.set("發送失敗，請重新進房".into()),
             }
-        }
+        })
     };
+
+    let send_button = send.clone();
+    let send_keyboard = send.clone();
 
     view! {
         <section class="conversation">
@@ -361,12 +360,23 @@ pub fn ChatPage(room_id: String) -> impl IntoView {
                     placeholder="輸入訊息"
                     prop:value=move || draft.get()
                     on:input=move |event| set_draft.set(event_target_value(&event))
+                    on:keydown=move |event: leptos::ev::KeyboardEvent| {
+                        if composer_key::should_send_key(
+                            &event.key(), event.shift_key(), event.ctrl_key(),
+                            event.alt_key(), event.meta_key(), event.is_composing(),
+                            event.key_code(),
+                        ) {
+                            event.prevent_default();
+                            send_keyboard();
+                        }
+                    }
                 />
 
                 <button
                     type="button"
                     disabled=move || draft.get().trim().is_empty()
-                    on:click=send>"傳送"</button>
+                    on:click=move |_| send_button()>"傳送"</button>
+                <p class="composer-help">"Enter 傳送；Shift+Enter 換行；輸入法選字不傳送。"</p>
             </div>
         </section>
     }
@@ -507,22 +517,6 @@ fn RoomList() -> impl IntoView {
             }}
             </div>
         </section>
-    }
-}
-
-#[cfg(test)]
-mod day42_room_heading_tests {
-    use super::room_heading;
-    #[test]
-    fn real_name_and_failed_detail_have_distinct_visible_states() {
-        assert_eq!(
-            room_heading("room-1", Ok("技術討論".into())),
-            "房間 技術討論"
-        );
-        assert_eq!(
-            room_heading("room-1", Err("404".into())),
-            "房間 room-1（無法取得房間名稱）"
-        );
     }
 }
 
