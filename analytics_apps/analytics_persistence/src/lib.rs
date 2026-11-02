@@ -1,4 +1,5 @@
 pub mod login_session;
+pub mod navigation;
 pub mod page_permissions;
 pub mod viewer_access;
 

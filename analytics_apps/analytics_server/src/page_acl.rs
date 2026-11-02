@@ -2,12 +2,15 @@ use crate::{
     IngestState,
     password_login::{digest, session},
 };
+use analytics_persistence::navigation::TreeRow;
+use analytics_ui::navigation::{Navigation, NavigationPage};
 use axum::{
     extract::{MatchedPath, Request, State},
     http::{Method, StatusCode},
     middleware::Next,
     response::{IntoResponse, Redirect, Response},
 };
+use leptos::prelude::*;
 
 // Requires a valid three-level tree and separate effective grants on both page and action.
 // User deny on category/page/action wins; allowing a category never grants descendant CRUD.
@@ -254,126 +257,32 @@ mod hierarchy_tests {
     }
 }
 
-// A page is visible without any action grant. Category visibility is a projection of pages.
-const PAGE_SQL: &str = r#"
-WITH person AS (
- SELECT s.user_id FROM uac_login_session s JOIN uac_user u ON u.id=s.user_id
- WHERE s.token_hash=$1 AND s.expires_at>floor(extract(epoch from now()))::bigint AND u.user_status='active'
-), granted AS (
- SELECT a.* FROM uac_acl a CROSS JOIN person p WHERE a.acl_status='active'
- AND NOT EXISTS(SELECT 1 FROM uac_user_acl x WHERE x.user_id=p.user_id AND x.acl_id=a.id AND x.acl_filter='deny')
- AND (EXISTS(SELECT 1 FROM uac_user_acl x WHERE x.user_id=p.user_id AND x.acl_id=a.id AND x.acl_filter='allow')
- OR EXISTS(SELECT 1 FROM uac_user_role ur JOIN uac_role r ON r.id=ur.role_id JOIN uac_role_acl ra ON ra.role_id=r.id
- WHERE ur.user_id=p.user_id AND r.role_status='active' AND ra.acl_id=a.id))
-)
-SELECT c.id,c.acl_name,p.id,p.acl_name,p.acl_path,a.id,a.acl_name
-FROM granted p JOIN uac_acl c ON c.id=p.acl_parent_id AND c.acl_category='category'
- AND c.acl_parent_id IS NULL AND c.acl_status='active'
-CROSS JOIN person who
-LEFT JOIN granted a ON a.acl_category='action' AND a.acl_parent_id=p.id
- AND a.acl_path IN ('create','read','update','delete')
- AND (SELECT count(*) FROM uac_acl other WHERE other.acl_parent_id=p.id AND other.acl_category='action' AND other.acl_path=a.acl_path)=1
-WHERE p.acl_category='page'
- AND (SELECT count(*) FROM uac_acl other WHERE other.acl_category='page' AND other.acl_path=p.acl_path)=1
- AND NOT EXISTS(SELECT 1 FROM uac_user_acl x WHERE x.user_id=who.user_id AND x.acl_id=c.id AND x.acl_filter='deny')
-ORDER BY c.id,p.id,a.id
-"#;
-
-type TreeRow = (
-    String,
-    String,
-    String,
-    String,
-    String,
-    Option<String>,
-    Option<String>,
-);
-
 async fn rows(state: &IngestState, raw: &str) -> Result<Vec<TreeRow>, sqlx::Error> {
-    sqlx::query_as(PAGE_SQL)
-        .bind(digest(raw))
-        .fetch_all(&state.pool)
-        .await
+    analytics_persistence::navigation::rows(&state.pool, &digest(raw)).await
 }
 
 async fn page_allowed(state: &IngestState, raw: &str, path: &str) -> Result<bool, sqlx::Error> {
     Ok(rows(state, raw).await?.iter().any(|r| r.4 == path))
 }
 
-fn escape(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&#39;")
+pub(crate) async fn tree(state: &IngestState, raw: &str) -> Result<String, sqlx::Error> {
+    Ok(render_navigation(rows(state, raw).await?))
 }
 
-pub(crate) async fn tree(state: &IngestState, raw: &str) -> Result<String, sqlx::Error> {
-    let mut html = String::from("<nav aria-label=\"功能樹\"><ul>");
-    let mut category = String::new();
-    let mut page = String::new();
-    for (cid, cname, pid, pname, path, aid, aname) in rows(state, raw).await? {
-        if cid != category {
-            if !page.is_empty() {
-                html.push_str("</ul></li>");
-                page.clear();
-            }
-            if !category.is_empty() {
-                html.push_str("</ul></li>");
-            }
-            html.push_str(&format!(
-                "<li data-acl-category=\"{}\">{}<ul>",
-                escape(&cid),
-                escape(&cname)
-            ));
-            category = cid;
-        }
-        if pid != page {
-            if !page.is_empty() {
-                html.push_str("</ul></li>");
-            }
-            html.push_str(&format!("<li data-acl-page=\"{}\">", escape(&pid)));
-            // API definitions remain visible labels; do not manufacture unimplemented UI routes.
-            let href = match path.as_str() {
-                "/api/v1/events/web_chat" => "/dashboard?source=web_chat",
-                "/api/v1/events/desktop_pet" => "/dashboard?source=desktop_pet",
-                other => other,
-            };
-            if matches!(
-                path.as_str(),
-                "/dashboard"
-                    | "/accounts/new"
-                    | "/change-password"
-                    | "/api/v1/events/web_chat"
-                    | "/api/v1/events/desktop_pet"
-            ) {
-                html.push_str(&format!(
-                    "<a href=\"{}\">{}</a>",
-                    escape(href),
-                    escape(&pname)
-                ));
-            } else {
-                html.push_str(&escape(&pname));
-            }
-            html.push_str("<ul>");
-            page = pid;
-        }
-        if let Some(id) = aid {
-            html.push_str(&format!(
-                "<li data-acl-action=\"{}\">{}</li>",
-                escape(&id),
-                escape(&aname.unwrap_or_default())
-            ));
-        }
-    }
-    if !page.is_empty() {
-        html.push_str("</ul></li>");
-    }
-    if !category.is_empty() {
-        html.push_str("</ul></li>");
-    }
-    html.push_str("</ul></nav>");
-    Ok(html)
+fn render_navigation(items: Vec<TreeRow>) -> String {
+    let pages = items
+        .into_iter()
+        .map(
+            |(category_id, category_name, page_id, page_name, path, _, _)| NavigationPage {
+                category_id,
+                category_name,
+                page_id,
+                page_name,
+                path,
+            },
+        )
+        .collect();
+    view! { <Navigation pages=pages /> }.to_html()
 }
 
 pub(crate) async fn navigation(
@@ -422,4 +331,37 @@ pub(crate) async fn decorate(
         }
     }
     Ok(html.replacen("<main>", &format!("<main>{nav}"), 1))
+}
+
+#[cfg(test)]
+mod day49_navigation_tests {
+    use super::*;
+    #[test]
+    fn normal_navigation_hides_actions_but_keeps_page_links_and_escaping() {
+        let page = |action: &str| {
+            (
+                "category".into(),
+                "<分類>".into(),
+                "page".into(),
+                "<頁面>".into(),
+                "/dashboard".into(),
+                Some(action.into()),
+                Some("刪除".into()),
+            )
+        };
+        let html = render_navigation(vec![page("read"), page("delete")]);
+        assert!(!html.contains("data-acl-action"));
+        assert!(!html.contains("刪除"));
+        assert_eq!(html.matches("data-acl-category=").count(), 1);
+        assert_eq!(html.matches("data-acl-page=").count(), 1);
+        assert!(html.contains("href=\"/dashboard\""));
+        assert!(html.contains("&lt;分類&gt;"));
+        assert!(html.contains("&lt;頁面&gt;"));
+    }
+    #[test]
+    fn empty_grants_never_create_a_category_or_page() {
+        let html = render_navigation(Vec::new());
+        assert!(!html.contains("data-acl-category"));
+        assert!(!html.contains("data-acl-page"));
+    }
 }

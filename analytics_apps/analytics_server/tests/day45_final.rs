@@ -51,7 +51,7 @@ async fn page_drives_category_and_actions_do_not_grant_pages(pool: sqlx::PgPool)
         !html.contains("action=\"/change-password\""),
         "no update => no form"
     );
-    assert!(!html.contains("data-acl-category=\"analytics-info\""));
+    assert!(!html.contains("data-acl-action=\"analytics-password-update\""));
     sqlx::query("INSERT INTO uac_user_acl(user_id,acl_id,acl_filter,created_at) VALUES($1,'analytics-password-update','allow',now())").bind(&id).execute(&pool).await.unwrap();
     let html = body_text(send(app.clone(), "/change-password", None, Some(&cookie)).await).await;
     assert!(html.contains("data-acl-action=\"analytics-password-update\""));

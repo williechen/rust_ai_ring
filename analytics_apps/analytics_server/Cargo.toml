@@ -11,6 +11,7 @@ postgres-integration = ["analytics-persistence/postgres-integration"]
 analytics-application = { path = "../analytics_application" }
 analytics-domain = { path = "../analytics_domain" }
 analytics-persistence = { path = "../analytics_persistence" }
+analytics-ui = { path = "../analytics_ui" }
 
 axum.workspace = true
 argon2.workspace = true

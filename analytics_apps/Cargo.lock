@@ -52,6 +52,7 @@ dependencies = [
  "analytics-application",
  "analytics-domain",
  "analytics-persistence",
+ "analytics-ui",
  "argon2",
  "axum",
  "dotenv",
@@ -70,6 +71,9 @@ dependencies = [
 [[package]]
 name = "analytics-ui"
 version = "0.2.47"
+dependencies = [
+ "leptos",
+]
 
 [[package]]
 name = "any_spawner"

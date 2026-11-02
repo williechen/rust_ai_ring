@@ -4,3 +4,4 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+leptos = { workspace = true, features = ["ssr"] }
