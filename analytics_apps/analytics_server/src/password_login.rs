@@ -408,15 +408,17 @@ async fn dashboard(
     } else {
         "web_chat"
     };
+
     let source = query.source.as_deref().unwrap_or(default_source);
-    let source_label = match source {
-        "web_chat" => "Chat",
-        "desktop_pet" => "Pet",
-        _ => return StatusCode::BAD_REQUEST.into_response(),
+
+    let Some(source_label) = crate::dashboard_source::source_label(source) else {
+        return StatusCode::BAD_REQUEST.into_response();
     };
+
     if let Err(status) = require_source_session(&state, &headers, source).await {
         return (status, "您沒有此來源的檢視權限。").into_response();
     }
+
     let kind = query.event_type.as_deref().unwrap_or("");
     if !kind.is_empty() && (!crate::valid_event_type(kind) || kind.contains('\0')) {
         return StatusCode::BAD_REQUEST.into_response();
@@ -435,13 +437,26 @@ async fn dashboard(
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
 
-    let html = crate::dashboard_ui::render_dashboard_with_rows_csrf(
+    // 導覽連結依同一 Session 的即時來源權限決定，不能依畫面隱藏替代後端 ACL。
+    let allow_chat = match require_source_session(&state, &headers, "web_chat").await {
+        Ok(_) => true,
+        Err(StatusCode::FORBIDDEN) => false,
+        Err(status) => return status.into_response(),
+    };
+    let allow_pet = match require_source_session(&state, &headers, "desktop_pet").await {
+        Ok(_) => true,
+        Err(StatusCode::FORBIDDEN) => false,
+        Err(status) => return status.into_response(),
+    };
+    let html = crate::dashboard_ui::render_dashboard_with_rows_csrf_acl(
         source_label,
         total,
         source,
         kind,
         &rows,
         &digest(&format!("logout:{raw}")),
+        allow_chat,
+        allow_pet,
     );
     match crate::page_acl::decorate(&state, &raw, html).await {
         Ok(html) => renewed(Html(html), &raw),

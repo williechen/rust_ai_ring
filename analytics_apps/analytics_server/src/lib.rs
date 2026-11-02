@@ -2,6 +2,7 @@ mod accounts;
 pub mod admin;
 pub mod bootstrap;
 mod csv;
+mod dashboard_source;
 mod dashboard_summary;
 pub mod dashboard_ui;
 mod dashboard_url;

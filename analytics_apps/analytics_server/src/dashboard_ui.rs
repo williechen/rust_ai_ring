@@ -1,3 +1,4 @@
+use leptos::attr::Allow;
 use leptos::prelude::*;
 
 use analytics_persistence::EventSummary;
@@ -13,6 +14,8 @@ fn DashboardView(
     event_type: String,
     rows: Vec<(String, i64)>,
     logout_csrf: String,
+    allow_chat: bool,
+    allow_pet: bool,
 ) -> impl IntoView {
     let chat_current = (source_label == "Chat").then_some("page");
     let pet_current = (source_label == "Pet").then_some("page");
@@ -39,12 +42,12 @@ fn DashboardView(
                 <main>
                     <h1>"Analytics 管理後台"</h1>
                     <nav aria-label="事件來源">
-                        <a href=chat_source_url aria-current=chat_current>
-                            "Chat 事件"
-                        </a>
-                        <a href=pet_source_url aria-current=pet_current>
-                            "Pet 事件"
-                        </a>
+                        {allow_chat.then(|| view! {
+                            <a href=chat_source_url aria-current=chat_current>"Chat 事件"</a>
+                        })}
+                        {allow_pet.then(|| view! {
+                            <a href=pet_source_url aria-current=pet_current>"Pet 事件"</a>
+                        })}
                     </nav>
                     <a href="/change-password">"修改密碼與 Email"</a>
                     <a href=export_url>"匯出目前篩選 CSV"</a>
@@ -131,6 +134,30 @@ pub fn render_dashboard_with_rows_csrf(
     rows: &[EventSummary],
     logout_csrf: &str,
 ) -> String {
+    // 舊 SSR snapshot caller 保留完整導航；正式路由須使用帶 ACL 的入口。
+    render_dashboard_with_rows_csrf_acl(
+        source_label,
+        total,
+        source,
+        event_type,
+        rows,
+        logout_csrf,
+        true,
+        true,
+    )
+}
+
+/// 正式後台只輸出已授權來源的導覽連結；伺服器查詢仍獨立核權。
+pub fn render_dashboard_with_rows_csrf_acl(
+    source_label: &'static str,
+    total: i64,
+    source: &str,
+    event_type: &str,
+    rows: &[EventSummary],
+    logout_csrf: &str,
+    allow_chat: bool,
+    allow_pet: bool,
+) -> String {
     let rows: Vec<(String, i64)> = rows
         .iter()
         .map(|row| (row.event_type.clone(), row.total))
@@ -145,6 +172,8 @@ pub fn render_dashboard_with_rows_csrf(
                 event_type=event_type.to_string()
                 rows
                 logout_csrf=logout_csrf.to_string()
+                allow_chat=allow_chat
+                allow_pet=allow_pet
             />
         }
         .to_html()
@@ -457,5 +486,40 @@ mod day44_logout_csrf_ssr_tests {
         assert!(change.contains("name=\"csrf\" value=\"change-hex\""));
         let logout = change.split("action=\"/logout\"").nth(1).unwrap();
         assert!(logout.contains("name=\"csrf\" value=\"logout-hex\""));
+    }
+}
+
+#[cfg(test)]
+mod day48_source_navigation_acl_tests {
+    use super::*;
+
+    #[test]
+    fn source_links_only_show_authorized_sources() {
+        let only_pet = render_dashboard_with_rows_csrf_acl(
+            "Pet",
+            0,
+            "desktop_pet",
+            "",
+            &[],
+            "csrf",
+            false,
+            true,
+        );
+        assert!(only_pet.contains("Pet 事件"));
+        assert!(!only_pet.contains("Chat 事件"));
+        assert!(!only_pet.contains("source=web_chat"));
+        let only_chat = render_dashboard_with_rows_csrf_acl(
+            "Chat",
+            0,
+            "web_chat",
+            "",
+            &[],
+            "csrf",
+            true,
+            false,
+        );
+        assert!(only_chat.contains("Chat 事件"));
+        assert!(!only_chat.contains("Pet 事件"));
+        assert!(!only_chat.contains("source=desktop_pet"));
     }
 }
