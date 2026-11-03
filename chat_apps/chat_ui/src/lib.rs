@@ -101,6 +101,7 @@ pub fn App() -> impl IntoView {
                 <h1>
                     <a href="/" rel="external">"Rust AI Chat"</a>
                 </h1>
+                <SiteNavigation />
                 <Routes fallback=|| view!{
                     <p>"404 - Page Not Found"</p>
                 }>
@@ -114,14 +115,19 @@ pub fn App() -> impl IntoView {
 }
 
 #[component]
-fn HomePage() -> impl IntoView {
+fn SiteNavigation() -> impl IntoView {
     let (entry, set_entry) = signal(SessionEntry::Checking);
+    let (logout_csrf, set_logout_csrf) = signal(None::<String>);
 
     #[cfg(target_arch = "wasm32")]
     Effect::new(move |_| {
         wasm_bindgen_futures::spawn_local(async move {
             let next = match room_api::session_status().await {
-                Ok(true) => SessionEntry::SignedIn,
+                Ok(true) => {
+                    // 登出權杖由已驗證的會員 Session 取得，未取得時不顯示無效操作。
+                    set_logout_csrf.set(room_api::logout_csrf().await.ok());
+                    SessionEntry::SignedIn
+                }
                 Ok(false) => SessionEntry::SignedOut,
                 Err(_) => SessionEntry::Unavailable,
             };
@@ -130,16 +136,38 @@ fn HomePage() -> impl IntoView {
     });
 
     #[cfg(not(target_arch = "wasm32"))]
-    let _ = set_entry;
+    let _ = (set_entry, set_logout_csrf);
 
     view! {
+        {move || view! { <AuthNavigation state=entry.get() logout_csrf=logout_csrf.get() /> }}
+    }
+}
+
+#[component]
+fn AuthNavigation(state: SessionEntry, logout_csrf: Option<String>) -> impl IntoView {
+    let (href, label, status) = session_entry_display(state);
+
+    view! {
+        <nav aria-label="主要導覽">
+            <a href="/" rel="external">"首頁"</a>
+            <a href=href rel="external">{label}</a>
+            {if state == SessionEntry::SignedIn {
+                logout_csrf.map(|csrf| view! {
+                    <form method="post" action="/logout">
+                        <input type="hidden" name="csrf" value=csrf/>
+                        <button type="submit">"登出"</button>
+                    </form>
+                })
+            } else { None }}
+            <span role="status">{status}</span>
+        </nav>
+    }
+}
+
+#[component]
+fn HomePage() -> impl IntoView {
+    view! {
         <p>"探索公開聊天室；進入前仍須登入與權限確認。"</p>
-        <p>
-            <a href=move || session_entry_display(entry.get()).0 rel="external">
-                {move || session_entry_display(entry.get()).1}
-            </a>
-            <span role="status">{move || session_entry_display(entry.get()).2}</span>
-        </p>
         <RoomList cards=true />
     }
 }
@@ -722,6 +750,29 @@ mod day49_room_cards_tests {
             let html = view! { <RoomCards rooms=Vec::new() active_room=String::new() /> }.to_html();
             assert!(!html.contains(r#"class="room-card""#));
             assert!(!html.contains(r#"href="/room/"#));
+        });
+    }
+}
+
+#[cfg(test)]
+mod day50_logout_navigation_tests {
+    use super::*;
+
+    #[test]
+    fn signed_in_navigation_places_real_csrf_logout_after_management() {
+        Owner::new().with(|| {
+            let html = view! { <AuthNavigation state=SessionEntry::SignedIn logout_csrf=Some("token-hex".to_owned()) /> }.to_html();
+            let management = html.find("管理").expect("管理入口");
+            let logout = html.find("登出").expect("登出操作");
+            assert!(management < logout);
+            assert!(html.contains("method=\"post\""));
+            assert!(html.contains("action=\"/logout\""));
+            assert!(html.contains("name=\"csrf\" value=\"token-hex\""));
+            assert!(!html.contains("使用者選單"));
+            let signed_out = view! { <AuthNavigation state=SessionEntry::SignedOut logout_csrf=Some("forged".to_owned()) /> }.to_html();
+            assert!(!signed_out.contains("action=\"/logout\""));
+            let no_token = view! { <AuthNavigation state=SessionEntry::SignedIn logout_csrf=None /> }.to_html();
+            assert!(!no_token.contains("action=\"/logout\""));
         });
     }
 }

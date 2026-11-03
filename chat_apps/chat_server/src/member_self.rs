@@ -387,6 +387,7 @@ struct Capabilities {
     update_profile: bool,
     update_password: bool,
     create_csrf: String,
+    logout_csrf: String,
 }
 
 async fn capabilities(
@@ -402,6 +403,7 @@ async fn capabilities(
             update_profile: !restricted && allowed(&pool, &user, PROFILE).await?,
             update_password: allowed(&pool, &user, PASSWORD).await?,
             create_csrf: csrf(&headers, "create-room")?,
+            logout_csrf: csrf(&headers, "logout")?,
         }),
     ))
 }

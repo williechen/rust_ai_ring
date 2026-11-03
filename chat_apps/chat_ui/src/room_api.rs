@@ -109,3 +109,26 @@ pub async fn room_name(id: &str) -> Result<String, String> {
         .map(str::to_owned)
         .ok_or_else(|| "房間名稱缺失".into())
 }
+
+/// 只由已登入會員的受保護能力端點讀取登出 CSRF，不從 Cookie 推算。
+pub async fn logout_csrf() -> Result<String, String> {
+    let window = web_sys::window().ok_or("無法取得瀏覽器")?;
+    let value = JsFuture::from(window.fetch_with_str("/api/member-capabilities"))
+        .await
+        .map_err(|_| "無法取得登出權杖")?;
+    let response: web_sys::Response = value.dyn_into().map_err(|_| "登出權杖回應無效")?;
+    if !response.ok() {
+        return Err("無法確認登出權限".into());
+    }
+    let text = JsFuture::from(response.text().map_err(|_| "無法讀取權杖")?)
+        .await
+        .map_err(|_| "無法讀取權杖")?
+        .as_string()
+        .ok_or("權杖格式無效")?;
+    let data: serde_json::Value = serde_json::from_str(&text).map_err(|_| "權杖格式無效")?;
+    data.get("logout_csrf")
+        .and_then(|v| v.as_str())
+        .filter(|v| !v.is_empty())
+        .map(str::to_owned)
+        .ok_or_else(|| "缺少登出權杖".into())
+}
