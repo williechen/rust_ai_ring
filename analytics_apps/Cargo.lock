@@ -19,15 +19,15 @@ checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
 name = "analytics-application"
-version = "0.2.47"
+version = "0.2.50"
 
 [[package]]
 name = "analytics-domain"
-version = "0.2.47"
+version = "0.2.50"
 
 [[package]]
 name = "analytics-persistence"
-version = "0.2.47"
+version = "0.2.50"
 dependencies = [
  "analytics-application",
  "argon2",
@@ -47,7 +47,7 @@ dependencies = [
 
 [[package]]
 name = "analytics-server"
-version = "0.2.47"
+version = "0.2.50"
 dependencies = [
  "analytics-application",
  "analytics-domain",
@@ -70,7 +70,7 @@ dependencies = [
 
 [[package]]
 name = "analytics-ui"
-version = "0.2.47"
+version = "0.2.50"
 dependencies = [
  "leptos",
 ]
@@ -334,7 +334,7 @@ dependencies = [
 
 [[package]]
 name = "chat-domain"
-version = "0.2.47"
+version = "0.2.50"
 dependencies = [
  "serde",
  "uuid",
@@ -2078,7 +2078,7 @@ dependencies = [
 
 [[package]]
 name = "shared"
-version = "0.2.47"
+version = "0.2.50"
 dependencies = [
  "chat-domain",
  "serde",
