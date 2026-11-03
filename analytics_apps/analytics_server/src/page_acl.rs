@@ -330,7 +330,16 @@ pub(crate) async fn decorate(
             }
         }
     }
-    Ok(html.replacen("<main>", &format!("<main>{nav}"), 1))
+    // Dashboard 導覽插入語意 aside；舊受保護表單仍沿原 main 注入契約。
+    if html.contains("<aside class=\"analytics-sidebar\">") {
+        Ok(html.replacen(
+            "<aside class=\"analytics-sidebar\">",
+            &format!("<aside class=\"analytics-sidebar\">{nav}"),
+            1,
+        ))
+    } else {
+        Ok(html.replacen("<main>", &format!("<main>{nav}"), 1))
+    }
 }
 
 #[cfg(test)]

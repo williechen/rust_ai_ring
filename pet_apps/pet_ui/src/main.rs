@@ -1,3 +1,4 @@
+mod activity_target;
 mod bridge;
 mod cage_status;
 mod component;
@@ -174,7 +175,7 @@ fn App() -> impl IntoView {
             <ControlNavigation />
             <p>"控制台關閉後寵物仍運作；檔案功能目前只提供唯讀預覽"</p>
 
- <section id="pet-management" aria-labelledby="pet-management-title" tabindex="-1">
+            <section id="pet-management" aria-labelledby="pet-management-title" tabindex="-1">
                 <h2 id="pet-management-title">"管理"</h2>
                 <h3>"新增寵物"</h3>
                 <label>"寵物名稱"
@@ -263,7 +264,6 @@ fn App() -> impl IntoView {
                             let find_id=id.clone();
                             let status_id=id.clone();
                             let display_id=id.clone();
-                            let activity_id=id.clone();
                             let selected_id=id.clone();
                             let rename_scope=id.clone();
                             let (rename_input, set_rename_input) = signal(pet.name.clone());
@@ -371,13 +371,12 @@ fn App() -> impl IntoView {
                                                 set_pets_busy.set(false);
                                             });
                                         }>"找回寵物"</button>
-                                        <ActivityControls id=activity_id busy=pets_busy set_busy=set_pets_busy statuses=cage_status />
                             </li> }
                         } />
                 </ul>
             </section>
 
-             <section id="pet-interaction" aria-labelledby="pet-interaction-title" tabindex="-1">
+            <section id="pet-interaction" aria-labelledby="pet-interaction-title" tabindex="-1">
             <h2 id="pet-interaction-title">"互動與聊天"</h2>
             <p>{move || snapshot.get().map(|s| format!("目前狀態: {:?}, 最近更新: {:?}", s.state, s.revision)).unwrap_or_else(|| "讀取中…".into())}</p>
 
@@ -386,6 +385,15 @@ fn App() -> impl IntoView {
                 set_snapshot
                 set_error
             />
+
+            {move || activity_target::activity_target(
+                &saved_pets.get(), management_pet_id.get().as_deref()
+            ).map(|id| view! {
+                <section aria-label="所選寵物活動">
+                    <h3>"所選寵物的散步／坐下操作"</h3>
+                    <ActivityControls id busy=pets_busy set_busy=set_pets_busy statuses=cage_status />
+                </section>
+            })}
 
             <button
                 class="chat-trigger"
@@ -406,10 +414,9 @@ fn App() -> impl IntoView {
                  set_chat_error
             />
 
-            <h2>"檔案管理"</h2>
             </section>
-+                <section id="pet-files" aria-labelledby="pet-files-title" tabindex="-1">
-+                <h2 id="pet-files-title">"檔案管理"</h2>
+            <section id="pet-files" aria-labelledby="pet-files-title" tabindex="-1">
+            <h2 id="pet-files-title">"檔案管理"</h2>
             <button
                 type="button"
                 disabled=move || scan_loading.get() || duplicate_loading.get()
@@ -615,5 +622,36 @@ mod day49_control_navigation_tests {
             assert!(!html.contains("<button"));
             assert!(!html.contains("javascript:"));
         });
+    }
+}
+
+#[cfg(test)]
+mod day50_activity_target_tests {
+    use super::*;
+
+    #[test]
+    fn only_selected_existing_pet_can_use_interaction_controls() {
+        let rows = vec![
+            SavedPet {
+                id: "a".into(),
+                name: "第一隻".into(),
+                species: "cat".into(),
+            },
+            SavedPet {
+                id: "b".into(),
+                name: "第二隻".into(),
+                species: "dog".into(),
+            },
+        ];
+        assert_eq!(
+            activity_target::activity_target(&rows, Some("b")),
+            Some("b".into())
+        );
+        assert_eq!(
+            activity_target::activity_target(&rows, Some("missing")),
+            None
+        );
+        assert_eq!(activity_target::activity_target(&rows, None), None);
+        assert_eq!(rows.len(), 2); // 選擇管理對象不能修改寵物資料。
     }
 }

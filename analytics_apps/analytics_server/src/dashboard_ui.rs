@@ -6,6 +6,15 @@ use analytics_persistence::EventSummary;
 use crate::dashboard_summary::summary_count_label;
 use crate::dashboard_url::{encode_query_component, export_csv_url, source_switch_url};
 
+/// 只格式化既有篩選文案，不影響來源與事件類型的授權。
+fn filter_description(event_type: &str) -> String {
+    if event_type.is_empty() {
+        "全部事件類型".to_owned()
+    } else {
+        format!("精確事件類型：{event_type}")
+    }
+}
+
 #[component]
 fn DashboardView(
     source_label: &'static str,
@@ -23,11 +32,7 @@ fn DashboardView(
     let pet_source_url = source_switch_url("desktop_pet", &event_type);
     let clear_url = format!("/dashboard?source={source}");
     let export_url = export_csv_url(&source, &event_type);
-    let filter_description = if event_type.is_empty() {
-        "全部事件類型".to_string()
-    } else {
-        format!("精確事件類型：{event_type}")
-    };
+    let filter_description = filter_description(&event_type);
 
     let count_label = summary_count_label(source_label, &event_type, total);
     let filter_source = source.clone();
@@ -37,10 +42,14 @@ fn DashboardView(
             <head>
                 <meta charset="utf-8"/>
                 <title>"Analytics 管理後台"</title>
+                <style>{include_str!("dashboard.css")}</style>
             </head>
             <body>
-                <main>
-                    <h1>"Analytics 管理後台"</h1>
+                <div class="analytics-shell">
+                    <header class="analytics-header">
+                        <h1>"Analytics 管理後台"</h1>
+                    </header>
+                    <aside class="analytics-sidebar">
                     <nav aria-label="事件來源">
                         {allow_chat.then(|| view! {
                             <a href=chat_source_url aria-current=chat_current>"Chat 事件"</a>
@@ -50,6 +59,8 @@ fn DashboardView(
                         })}
                     </nav>
                     <a href="/change-password">"修改密碼與 Email"</a>
+                    </aside>
+                    <main class="analytics-content">
                     <a href=export_url>"匯出目前篩選 CSV"</a>
                     <form method="get" action="/dashboard">
                         <input type="hidden" name="source" value=source/>
@@ -93,12 +104,15 @@ fn DashboardView(
                         }}
                     </p>
                     <a href="/accounts/new">"帳號管理：新增唯讀帳號"</a>
+                    </main>
+                    <footer class="analytics-footer">
                     <p>"來源查詢由伺服器依角色及授權範圍檢查。"</p>
                     <form method="post" action="/logout">
                         <input type="hidden" name="csrf" value=logout_csrf/>
                         <button type="submit">"登出"</button>
                     </form>
-                </main>
+                    </footer>
+                </div>
             </body>
         </html>
     }
@@ -521,5 +535,28 @@ mod day48_source_navigation_acl_tests {
         assert!(only_chat.contains("Chat 事件"));
         assert!(!only_chat.contains("Pet 事件"));
         assert!(!only_chat.contains("source=desktop_pet"));
+    }
+}
+
+#[cfg(test)]
+mod day50_grid_layout_tests {
+    use super::*;
+    #[test]
+    fn real_dashboard_has_semantic_three_row_two_column_shell() {
+        let html = render_dashboard_filtered("Chat", 1, "web_chat", "");
+        for tag in [
+            "<header class=\"analytics-header\"",
+            "<aside class=\"analytics-sidebar\"",
+            "<main class=\"analytics-content\"",
+            "<footer class=\"analytics-footer\"",
+        ] {
+            assert!(html.contains(tag), "缺少 {tag}");
+        }
+        assert!(html.contains("grid-template-areas"));
+        assert!(html.find("analytics-header").unwrap() < html.find("analytics-sidebar").unwrap());
+        assert!(html.find("analytics-sidebar").unwrap() < html.find("analytics-content").unwrap());
+        assert!(html.find("analytics-content").unwrap() < html.find("analytics-footer").unwrap());
+        assert!(html.contains("action=\"/dashboard\""));
+        assert!(html.contains("已提交事件類型明細"));
     }
 }
