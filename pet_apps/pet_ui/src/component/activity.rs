@@ -3,7 +3,7 @@ use leptos::prelude::*;
 use pet_domain::{PetSnapshot, PetState};
 use wasm_bindgen_futures::spawn_local;
 
-use crate::bridge;
+use crate::{bridge, component::frames::frame_uri};
 
 use super::pose::{PetPose, project_pose};
 
@@ -110,11 +110,45 @@ pub fn PetStatus(
                 <img class=move || pose().map(PetPose::css_class)
                           .unwrap_or("pose-idle")
                     alt="寵物動畫"
-                    src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 96 96'%3E%3Cellipse cx='45' cy='55' rx='32' ry='23' fill='%235c984c'/%3E%3Ccircle cx='71' cy='50' r='15' fill='%239dcc70'/%3E%3Ccircle cx='76' cy='45' r='3' fill='%23252f27'/%3E%3Cpath d='M25 48 Q45 18 65 48 M44 34 L44 75 M28 52 L60 52' fill='none' stroke='%232d5838' stroke-width='4'/%3E%3C/svg%3E"
+                    src=move || frame_uri(pose().unwrap_or(PetPose::Idle))
                 />
             </div>
             <strong>{label}</strong>
             <small>"revision "{revision}</small>
         </section>
+    }
+}
+
+#[cfg(test)]
+mod frame_render_tests {
+    use super::*;
+    fn render(state: PetState) -> String {
+        Owner::new().with(|| {
+            let (snapshot, _) = signal(Some(PetSnapshot { state, revision: 7 }));
+            let (blinking, _) = signal(false);
+            let (animation_phase, _) = signal(false);
+            view! { <PetStatus snapshot blinking animation_phase/> }.to_html()
+        })
+    }
+    #[test]
+    fn actual_pet_status_serializes_one_state_specific_image() {
+        let idle = render(PetState::Idle);
+        let sleeping = render(PetState::Sleeping);
+        for html in [&idle, &sleeping] {
+            assert_eq!(html.matches("<img ").count(), 1);
+            assert!(html.contains("alt=\"寵物動畫\""));
+            assert!(html.contains("data:image/svg+xml,"));
+            assert!(!html.contains("🐢"));
+        }
+        let src = |html: &str| {
+            html.split("src=\"")
+                .nth(1)
+                .unwrap()
+                .split('"')
+                .next()
+                .unwrap()
+                .to_owned()
+        };
+        assert_ne!(src(&idle), src(&sleeping));
     }
 }
