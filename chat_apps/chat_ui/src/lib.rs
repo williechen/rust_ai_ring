@@ -17,6 +17,7 @@ mod room_cards;
 mod room_heading;
 #[cfg(all(test, feature = "ssr"))]
 mod signin_contract;
+pub mod signin_form;
 
 use std::rc::Rc;
 
@@ -172,47 +173,15 @@ fn HomePage() -> impl IntoView {
     }
 }
 
-// crates/ui/src/lib.rs：完整取代原 SignInPage 函式。
 #[component]
 fn SignInPage() -> impl IntoView {
     let query = use_query_map();
-    let next = move || query.read().get("next").unwrap_or_default();
+
     view! {
-        <section class="sign-in">
-            <h2>"使用者登入"</h2>
-            <form method="post" action="/login">
-                <input type="hidden" name="next" value=next />
-                <div>
-                    <label for="login-username">"帳號"</label>
-                    <input
-                        id="login-username"
-                        name="username"
-                        type="text"
-                        autocomplete="username"
-                        required
-                        maxlength="32"
-                    />
-                </div>
-                <div>
-                    <label for="login-password">"密碼"</label>
-                    <input
-                        id="login-password"
-                        name="password"
-                        type="password"
-                        autocomplete="current-password"
-                        required
-                        maxlength="128"
-                    />
-                </div>
-                <button type="submit">"登入"</button>
-            </form>
-            <p>
-                <a href="/signup" rel="external">"建立會員"</a>
-            </p>
-            <p>
-                <a href="/" rel="external">"回房間清單"</a>
-            </p>
-        </section>
+        {move || view! { <signin_form::SignInForm
+            next=query.read().get("next").unwrap_or_default()
+            username=String::new() message=String::new()/>
+        }}
     }
 }
 

@@ -10,6 +10,8 @@ use serde::Deserialize;
 use shared::auth::token_digest;
 use sqlx::SqlitePool;
 
+use crate::room_path::canonical_room_id;
+
 #[derive(Deserialize)]
 struct Credentials {
     username: String,
@@ -43,13 +45,27 @@ async fn session_status(
 
 /// Reject external URLs, fragments, queries and noncanonical room IDs.
 fn safe_room_return(next: &str) -> Option<&str> {
-    let id = next.strip_prefix("/room/")?;
-    let parsed = uuid::Uuid::parse_str(id).ok()?;
-    (parsed.to_string() == id).then_some(next)
+    canonical_room_id(next).map(|_| next)
 }
 
 async fn login_page() -> Redirect {
     Redirect::to("/signin")
+}
+
+fn login_failure(username: &str, next: &str) -> Response {
+    // 只保留可顯示帳號與站內房間；Leptos負責HTML escaping。
+    let username = if username.len() <= 32 {
+        username.to_owned()
+    } else {
+        String::new()
+    };
+    let next = safe_room_return(next).unwrap_or("").to_owned();
+    (
+        StatusCode::UNAUTHORIZED,
+        [(header::CACHE_CONTROL, "no-store")],
+        Html(chat_ui::signin_form::render_login_failure(username, next)),
+    )
+        .into_response()
 }
 
 async fn login(
@@ -64,7 +80,7 @@ async fn login(
     let name = input.username.trim();
     if name.is_empty() || name.len() > 32 || input.password.is_empty() || input.password.len() > 128
     {
-        return Err(StatusCode::UNAUTHORIZED);
+        return Ok(login_failure(name, &input.next));
     }
 
     let found: Option<(String, String, bool, bool)> = sqlx::query_as(
@@ -80,9 +96,11 @@ async fn login(
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let (user_id, hash, active, initial) = found.ok_or(StatusCode::UNAUTHORIZED)?;
+    let Some((user_id, hash, active, initial)) = found else {
+        return Ok(login_failure(name, &input.next));
+    };
     if !active {
-        return Err(StatusCode::UNAUTHORIZED);
+        return Ok(login_failure(name, &input.next));
     }
     let password = input.password;
     let verified = tokio::task::spawn_blocking(move || {
@@ -95,7 +113,7 @@ async fn login(
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     if verified.is_err() {
-        return Err(StatusCode::UNAUTHORIZED);
+        return Ok(login_failure(name, &input.next));
     }
 
     // 兩個獨立 UUIDv4 組成不可預測的 session bearer；不直接入庫。
