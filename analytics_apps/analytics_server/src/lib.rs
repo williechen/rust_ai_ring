@@ -7,6 +7,7 @@ mod dashboard_summary;
 pub mod dashboard_ui;
 mod dashboard_url;
 pub mod export;
+mod management_shell;
 pub mod page_acl;
 pub mod password_login;
 pub mod pg_store;

@@ -229,25 +229,15 @@ async fn change_page(
     )
     .await
     .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    let mut html = crate::dashboard_ui::render_change_password_with_logout(
+    let pages = crate::page_acl::pages(&state, &raw).await?;
+    let html = crate::dashboard_ui::render_change_password_authorized(
         restricted,
         csrf,
         digest(&format!("logout:{raw}")),
+        pages,
+        can_update,
     );
-    if !can_update {
-        if let Some(start) = html.find("<form method=\"post\" action=\"/change-password\"") {
-            if let Some(end) = html[start..].find("</form>") {
-                html.replace_range(
-                    start..start + end + 7,
-                    "<p>沒有修改密碼 action；請聯絡管理員處理授權。</p>",
-                );
-            }
-        }
-    }
-    Ok(renewed(
-        Html(crate::page_acl::decorate(&state, &raw, html).await?),
-        &raw,
-    ))
+    Ok(renewed(Html(html), &raw))
 }
 
 #[derive(Deserialize)]
@@ -448,7 +438,22 @@ async fn dashboard(
         Err(StatusCode::FORBIDDEN) => false,
         Err(status) => return status.into_response(),
     };
-    let html = crate::dashboard_ui::render_dashboard_with_rows_csrf_acl(
+    let pages = match crate::page_acl::pages(&state, &raw).await {
+        Ok(pages) => pages,
+        Err(status) => return status.into_response(),
+    };
+    let can_export = match crate::page_acl::allowed(
+        &state,
+        &raw,
+        "/api/v1/events/{source}/export.csv",
+        crate::page_acl::Crud::Read,
+    )
+    .await
+    {
+        Ok(allowed) => allowed,
+        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
+    let html = crate::dashboard_ui::render_dashboard_authorized(
         source_label,
         total,
         source,
@@ -457,11 +462,10 @@ async fn dashboard(
         &digest(&format!("logout:{raw}")),
         allow_chat,
         allow_pet,
+        pages,
+        can_export,
     );
-    match crate::page_acl::decorate(&state, &raw, html).await {
-        Ok(html) => renewed(Html(html), &raw),
-        Err(e) => e.into_response(),
-    }
+    renewed(Html(html), &raw)
 }
 
 async fn summary(

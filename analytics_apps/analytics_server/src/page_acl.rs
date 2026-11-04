@@ -269,8 +269,8 @@ pub(crate) async fn tree(state: &IngestState, raw: &str) -> Result<String, sqlx:
     Ok(render_navigation(rows(state, raw).await?))
 }
 
-fn render_navigation(items: Vec<TreeRow>) -> String {
-    let pages = items
+fn navigation_pages(items: Vec<TreeRow>) -> Vec<NavigationPage> {
+    items
         .into_iter()
         .map(
             |(category_id, category_name, page_id, page_name, path, _, _)| NavigationPage {
@@ -281,7 +281,11 @@ fn render_navigation(items: Vec<TreeRow>) -> String {
                 path,
             },
         )
-        .collect();
+        .collect()
+}
+
+fn render_navigation(items: Vec<TreeRow>) -> String {
+    let pages = navigation_pages(items);
     view! { <Navigation pages=pages /> }.to_html()
 }
 
@@ -297,49 +301,15 @@ pub(crate) async fn navigation(
     ))
 }
 
-// Shared management shell on actual HTML callers, not just a standalone projection test.
-pub(crate) async fn decorate(
+/// 在序列化前取得有效頁面；查詢失敗不輸出業務頁面。
+pub(crate) async fn pages(
     state: &IngestState,
     raw: &str,
-    mut html: String,
-) -> Result<String, StatusCode> {
-    let nav = tree(state, raw)
+) -> Result<Vec<NavigationPage>, StatusCode> {
+    rows(state, raw)
         .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    // Remove legacy unconditional shortcuts; the grant-derived tree owns management links.
-    for literal in [
-        "<a href=\"/change-password\">修改密碼與 Email</a>",
-        "<a href=\"/accounts/new\">帳號管理：新增唯讀帳號</a>",
-    ] {
-        html = html.replace(literal, "");
-    }
-    if let Some(start) = html.find("<nav aria-label=\"事件來源\"") {
-        if let Some(end) = html[start..].find("</nav>") {
-            html.replace_range(start..start + end + 6, "");
-        }
-    }
-    if !allowed(state, raw, "/api/v1/events/{source}/export.csv", Crud::Read)
-        .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
-    {
-        if let Some(label) = html.find("匯出目前篩選 CSV") {
-            if let Some(start) = html[..label].rfind("<a ") {
-                if let Some(end) = html[label..].find("</a>") {
-                    html.replace_range(start..label + end + 4, "");
-                }
-            }
-        }
-    }
-    // Dashboard 導覽插入語意 aside；舊受保護表單仍沿原 main 注入契約。
-    if html.contains("<aside class=\"analytics-sidebar\">") {
-        Ok(html.replacen(
-            "<aside class=\"analytics-sidebar\">",
-            &format!("<aside class=\"analytics-sidebar\">{nav}"),
-            1,
-        ))
-    } else {
-        Ok(html.replacen("<main>", &format!("<main>{nav}"), 1))
-    }
+        .map(navigation_pages)
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)
 }
 
 #[cfg(test)]

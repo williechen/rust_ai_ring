@@ -1,3 +1,4 @@
+use analytics_ui::navigation::NavigationPage;
 use leptos::attr::Allow;
 use leptos::prelude::*;
 
@@ -5,6 +6,7 @@ use analytics_persistence::EventSummary;
 
 use crate::dashboard_summary::summary_count_label;
 use crate::dashboard_url::{encode_query_component, export_csv_url, source_switch_url};
+use crate::management_shell::ManagementShell;
 
 /// 只格式化既有篩選文案，不影響來源與事件類型的授權。
 fn filter_description(event_type: &str) -> String {
@@ -25,6 +27,8 @@ fn DashboardView(
     logout_csrf: String,
     allow_chat: bool,
     allow_pet: bool,
+    pages: Vec<NavigationPage>,
+    can_export: bool,
 ) -> impl IntoView {
     let chat_current = (source_label == "Chat").then_some("page");
     let pet_current = (source_label == "Pet").then_some("page");
@@ -45,11 +49,7 @@ fn DashboardView(
                 <style>{include_str!("dashboard.css")}</style>
             </head>
             <body>
-                <div class="analytics-shell">
-                    <header class="analytics-header">
-                        <h1>"Analytics 管理後台"</h1>
-                    </header>
-                    <aside class="analytics-sidebar">
+                <ManagementShell pages logout_csrf>
                     <nav aria-label="事件來源">
                         {allow_chat.then(|| view! {
                             <a href=chat_source_url aria-current=chat_current>"Chat 事件"</a>
@@ -58,10 +58,7 @@ fn DashboardView(
                             <a href=pet_source_url aria-current=pet_current>"Pet 事件"</a>
                         })}
                     </nav>
-                    <a href="/change-password">"修改密碼與 Email"</a>
-                    </aside>
-                    <main class="analytics-content">
-                    <a href=export_url>"匯出目前篩選 CSV"</a>
+                    {can_export.then(|| view! { <a href=export_url>"匯出目前篩選 CSV"</a> })}
                     <form method="get" action="/dashboard">
                         <input type="hidden" name="source" value=source/>
                         <label for="event-type">"事件類型（精確比對）"</label>
@@ -103,16 +100,7 @@ fn DashboardView(
                             "查詢完成"
                         }}
                     </p>
-                    <a href="/accounts/new">"帳號管理：新增唯讀帳號"</a>
-                    </main>
-                    <footer class="analytics-footer">
-                    <p>"來源查詢由伺服器依角色及授權範圍檢查。"</p>
-                    <form method="post" action="/logout">
-                        <input type="hidden" name="csrf" value=logout_csrf/>
-                        <button type="submit">"登出"</button>
-                    </form>
-                    </footer>
-                </div>
+                    </ManagementShell>
             </body>
         </html>
     }
@@ -148,8 +136,15 @@ pub fn render_dashboard_with_rows_csrf(
     rows: &[EventSummary],
     logout_csrf: &str,
 ) -> String {
-    // 舊 SSR snapshot caller 保留完整導航；正式路由須使用帶 ACL 的入口。
-    render_dashboard_with_rows_csrf_acl(
+    // 相容快照明示授權頁；正式路由傳入資料庫計算結果。
+    let pages = vec![NavigationPage {
+        category_id: "snapshot-member".into(),
+        category_name: "會員管理".into(),
+        page_id: "snapshot-password".into(),
+        page_name: "修改密碼".into(),
+        path: "/change-password".into(),
+    }];
+    render_dashboard_authorized(
         source_label,
         total,
         source,
@@ -157,6 +152,8 @@ pub fn render_dashboard_with_rows_csrf(
         rows,
         logout_csrf,
         true,
+        true,
+        pages,
         true,
     )
 }
@@ -171,6 +168,32 @@ pub fn render_dashboard_with_rows_csrf_acl(
     logout_csrf: &str,
     allow_chat: bool,
     allow_pet: bool,
+) -> String {
+    render_dashboard_authorized(
+        source_label,
+        total,
+        source,
+        event_type,
+        rows,
+        logout_csrf,
+        allow_chat,
+        allow_pet,
+        Vec::new(),
+        true,
+    )
+}
+
+pub(crate) fn render_dashboard_authorized(
+    source_label: &'static str,
+    total: i64,
+    source: &str,
+    event_type: &str,
+    rows: &[EventSummary],
+    logout_csrf: &str,
+    allow_chat: bool,
+    allow_pet: bool,
+    pages: Vec<NavigationPage>,
+    can_export: bool,
 ) -> String {
     let rows: Vec<(String, i64)> = rows
         .iter()
@@ -188,6 +211,8 @@ pub fn render_dashboard_with_rows_csrf_acl(
                 logout_csrf=logout_csrf.to_string()
                 allow_chat=allow_chat
                 allow_pet=allow_pet
+                pages
+                can_export
             />
         }
         .to_html()
@@ -239,7 +264,13 @@ pub fn render_login() -> String {
 }
 
 #[component]
-fn ChangePasswordView(restricted: bool, csrf: String, logout_csrf: String) -> impl IntoView {
+fn ChangePasswordView(
+    restricted: bool,
+    csrf: String,
+    logout_csrf: String,
+    pages: Vec<NavigationPage>,
+    can_update: bool,
+) -> impl IntoView {
     let heading = if restricted {
         "首次登入須更換密碼與Email"
     } else {
@@ -247,10 +278,10 @@ fn ChangePasswordView(restricted: bool, csrf: String, logout_csrf: String) -> im
     };
     view! {
         <html lang="zh-Hant">
-            <head><meta charset="utf-8"/><title>"修改密碼"</title></head>
-            <body><main>
+            <head><meta charset="utf-8"/><title>"修改密碼"</title><style>{include_str!("dashboard.css")}</style></head>
+            <body><ManagementShell pages logout_csrf>
                 <h1>{heading}</h1>
-                <form method="post" action="/change-password">
+                {if can_update { view! { <form method="post" action="/change-password">
                     <input type="hidden" name="csrf" value=csrf/>
                     <p>
                         <label for="change-current">"目前密碼"</label>
@@ -273,13 +304,9 @@ fn ChangePasswordView(restricted: bool, csrf: String, logout_csrf: String) -> im
                             autocomplete="email" required maxlength="254"/>
                     </p>
                     <button type="submit">"儲存並重新登入"</button>
-                </form>
+                </form> }.into_any() } else { view! { <p>"沒有修改密碼 action；請聯絡管理員處理授權。"</p> }.into_any() }}
                 <p>"成功後所有裝置都須重新登入。Email不驗證；寄信重設尚未接通。"</p>
-                <form method="post" action="/logout">
-                    <input type="hidden" name="csrf" value=logout_csrf/>
-                    <button type="submit">"登出"</button>
-                </form>
-            </main></body>
+                </ManagementShell></body>
         </html>
     }
 }
@@ -293,10 +320,20 @@ pub fn render_change_password_with_logout(
     csrf: String,
     logout_csrf: String,
 ) -> String {
+    render_change_password_authorized(restricted, csrf, logout_csrf, Vec::new(), true)
+}
+
+pub(crate) fn render_change_password_authorized(
+    restricted: bool,
+    csrf: String,
+    logout_csrf: String,
+    pages: Vec<NavigationPage>,
+    can_update: bool,
+) -> String {
     format!(
         "<!doctype html>{}",
         view! {
-            <ChangePasswordView restricted csrf logout_csrf/>
+            <ChangePasswordView restricted csrf logout_csrf pages can_update/>
         }
         .to_html()
     )
@@ -558,5 +595,97 @@ mod day50_grid_layout_tests {
         assert!(html.find("analytics-content").unwrap() < html.find("analytics-footer").unwrap());
         assert!(html.contains("action=\"/dashboard\""));
         assert!(html.contains("已提交事件類型明細"));
+    }
+}
+
+#[cfg(test)]
+mod component_acl_revision_tests {
+    use super::*;
+    #[test]
+    fn ungranted_management_shortcuts_are_absent_before_serialization() {
+        let html = render_dashboard_with_rows_csrf_acl(
+            "Chat",
+            0,
+            "web_chat",
+            "",
+            &[],
+            "csrf",
+            false,
+            false,
+        );
+        assert!(!html.contains("href=\"/accounts/new\""));
+        assert!(!html.contains("href=\"/change-password\""));
+        assert!(!html.contains("source=desktop_pet"));
+        assert!(html.contains("analytics-shell"));
+    }
+    #[test]
+    fn password_page_uses_the_same_semantic_shell() {
+        let html =
+            render_change_password_with_logout(true, "change-token".into(), "logout-token".into());
+        for marker in [
+            "<header",
+            "<aside",
+            "analytics-content",
+            "<footer",
+            "logout-token",
+            "change-token",
+        ] {
+            assert!(html.contains(marker), "缺少 {marker}");
+        }
+        assert_eq!(html.matches("<html").count(), 1);
+        assert_eq!(html.matches("action=\"/logout\"").count(), 1);
+    }
+    #[test]
+    fn protected_rendering_never_patches_serialized_html() {
+        for code in [
+            include_str!("page_acl.rs"),
+            include_str!("accounts.rs"),
+            include_str!("password_login.rs"),
+        ] {
+            assert!(!code.contains("replace_range("));
+            assert!(!code.contains("page_acl::decorate("));
+        }
+    }
+}
+
+#[cfg(test)]
+mod authorized_view_tests {
+    use super::*;
+    #[test]
+    fn grants_and_action_flags_are_applied_by_components() {
+        let pages = vec![NavigationPage {
+            category_id: "members".into(),
+            category_name: "<會員>".into(),
+            page_id: "password".into(),
+            page_name: "自身密碼".into(),
+            path: "/change-password".into(),
+        }];
+        let html = render_dashboard_authorized(
+            "Chat",
+            0,
+            "web_chat",
+            "",
+            &[],
+            "logout",
+            false,
+            false,
+            pages.clone(),
+            false,
+        );
+        assert!(html.contains("href=\"/change-password\""));
+        assert!(html.contains("&lt;會員&gt;"));
+        assert!(!html.contains("href=\"/accounts/new\""));
+        assert!(!html.contains("匯出目前篩選 CSV"));
+        assert!(!html.contains("data-acl-action"));
+        let denied = render_change_password_authorized(
+            false,
+            "change".into(),
+            "logout".into(),
+            pages,
+            false,
+        );
+        assert!(!denied.contains("action=\"/change-password\""));
+        assert!(denied.contains("沒有修改密碼 action"));
+        assert!(denied.contains("action=\"/logout\""));
     }
 }

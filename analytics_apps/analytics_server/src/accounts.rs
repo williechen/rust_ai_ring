@@ -1,5 +1,6 @@
 use crate::{
     IngestState,
+    management_shell::ManagementShell,
     password_login::{digest, renewed, session},
 };
 use argon2::{Argon2, PasswordHasher};
@@ -89,16 +90,22 @@ pub(crate) async fn page(
         view! { <li><span>{username}</span>{update_form}{delete_form}</li> }
     }).collect_view();
 
-    let mut html=view!{
+    let can_create =
+        crate::page_acl::allowed(&state, &raw, "/accounts/new", crate::page_acl::Crud::Create)
+            .await
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let pages = crate::page_acl::pages(&state, &raw).await?;
+    let logout_csrf = digest(&format!("logout:{raw}"));
+    let html=view!{
         <html lang="zh-Hant">
             <head>
-                <title>"新增唯讀帳號"</title>
+                <title>"新增唯讀帳號"</title><style>{include_str!("dashboard.css")}</style>
             </head>
             <body>
-                <main>
+                <ManagementShell pages logout_csrf>
                     <h1>"新增唯讀帳號"</h1>
                     <p role="status">{message}</p>
-                    <form method="post" action="/accounts">
+                    {if can_create { view! { <form method="post" action="/accounts">
                         <input type="hidden" name="csrf" value=csrf/>
                         <label>"帳號"
                             <input name="username" required minlength="3" maxlength="64" autocomplete="off"/>
@@ -116,31 +123,17 @@ pub(crate) async fn page(
                             <input type="checkbox" name="pet"/>"可讀 Pet"
                         </label>
                         <button type="submit">"建立唯讀帳號"</button>
-                    </form>
+                    </form> }.into_any() } else { view! { <p>"沒有新增 action。"</p> }.into_any() }}
                     <section>
                         <h2>"檢視者帳號"</h2>
                         <ul>{viewer_forms}</ul>
                     </section>
-                    <a href="/dashboard">"返回後台"</a>
-                </main>
+                </ManagementShell>
             </body>
         </html>
     }.to_html();
-    let can_create =
-        crate::page_acl::allowed(&state, &raw, "/accounts/new", crate::page_acl::Crud::Create)
-            .await
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    if !can_create {
-        if let Some(start) = html.find("<form method=\"post\" action=\"/accounts\"") {
-            if let Some(end) = html[start..].find("</form>") {
-                html.replace_range(start..start + end + 7, "<p>沒有新增 action。</p>");
-            }
-        }
-    }
-    Ok(renewed(
-        Html(crate::page_acl::decorate(&state, &raw, html).await?),
-        &raw,
-    ))
+
+    Ok(renewed(Html(html), &raw))
 }
 
 #[derive(serde::Deserialize)]
