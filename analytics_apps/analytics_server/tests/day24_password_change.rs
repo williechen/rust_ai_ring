@@ -168,7 +168,18 @@ async fn day24_password_change_is_atomic_revokes_all_sessions_and_requires_relog
     )
     .await;
     let c2 = cookie(&second);
+    sqlx::query(
+        "UPDATE uac_login_attempt SET failures='3',next_delay='60',blocked_until='99999999999'",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
     let done = send(app(pool.clone()), "/change-password", Some(&body), Some(&c)).await;
+    let attempts: i64 = sqlx::query_scalar("SELECT count(*) FROM uac_login_attempt")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(attempts, 0);
     assert_eq!(done.status(), StatusCode::SEE_OTHER);
     assert_eq!(done.headers()[header::LOCATION], "/login");
     assert!(
@@ -215,6 +226,11 @@ async fn day24_password_change_is_atomic_revokes_all_sessions_and_requires_relog
         .status(),
         StatusCode::UNAUTHORIZED
     );
+    // Advance only isolated fixture for old corrected-password success assertions.
+    sqlx::query("UPDATE uac_login_attempt SET blocked_until='0'")
+        .execute(&pool)
+        .await
+        .unwrap();
     let login = send(
         app(pool.clone()),
         "/login",

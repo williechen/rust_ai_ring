@@ -1,3 +1,4 @@
+pub mod login_attempt;
 pub mod viewer_access;
 
 pub fn add(left: u64, right: u64) -> u64 {

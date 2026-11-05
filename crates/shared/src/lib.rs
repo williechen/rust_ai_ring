@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod login_wait;
 
 use chat_domain::ChatMessage;
 use serde::{Deserialize, Serialize};

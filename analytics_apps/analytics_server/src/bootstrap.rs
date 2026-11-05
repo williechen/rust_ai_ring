@@ -309,6 +309,11 @@ mod day34_default_tests {
             ("admin", StatusCode::UNAUTHORIZED),
             ("changed-pass-34", StatusCode::SEE_OTHER),
         ] {
+            // Preserve successful retry assertion after advancing only the new wait fixture.
+            sqlx::query("UPDATE uac_login_attempt SET blocked_until='0'")
+                .execute(&pool)
+                .await
+                .unwrap();
             let result = app
                 .clone()
                 .oneshot(

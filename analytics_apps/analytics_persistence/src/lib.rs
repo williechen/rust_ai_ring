@@ -1,3 +1,4 @@
+pub mod login_attempt;
 pub mod login_session;
 pub mod navigation;
 pub mod page_permissions;

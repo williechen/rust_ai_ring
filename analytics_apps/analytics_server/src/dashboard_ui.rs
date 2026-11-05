@@ -230,7 +230,7 @@ pub fn render_dashboard(source_label: &'static str, total: i64) -> String {
 }
 
 #[component]
-fn LoginView() -> impl IntoView {
+fn LoginView(username: String, message: String) -> impl IntoView {
     view! {
         <html lang="zh-Hant">
             <head>
@@ -240,10 +240,11 @@ fn LoginView() -> impl IntoView {
             <body>
                 <main>
                     <h1>"Analytics 帳密登入"</h1>
+                    <p role="alert">{message}</p>
                     <form method="post" action="/login">
                         <div>
                             <label for="analytics-username">"帳號"</label>
-                            <input id="analytics-username" name="username"
+                            <input id="analytics-username" name="username" value=username
                                 autocomplete="username" required/>
                         </div>
                         <div>
@@ -260,7 +261,14 @@ fn LoginView() -> impl IntoView {
 }
 
 pub fn render_login() -> String {
-    format!("<!doctype html>{}", view! { <LoginView/> }.to_html())
+    render_login_result("", "")
+}
+
+pub fn render_login_result(username: &str, message: &str) -> String {
+    format!(
+        "<!doctype html>{}",
+        view! {<LoginView username=username.to_owned() message=message.to_owned()/>}.to_html()
+    )
 }
 
 #[component]

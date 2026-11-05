@@ -29,6 +29,11 @@ async fn day23_bootstrapped_password_is_restricted_before_first_change(pool: sql
         .await
         .unwrap();
     assert_eq!(count, 0);
+    // New persistent wait: advance only this isolated fixture before the old success assertions.
+    sqlx::query("UPDATE uac_login_attempt SET blocked_until='0'")
+        .execute(&pool)
+        .await
+        .unwrap();
     let ok = send(
         app(pool.clone()),
         "/login",

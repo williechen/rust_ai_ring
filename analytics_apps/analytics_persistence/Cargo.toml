@@ -19,6 +19,7 @@ leptos = { workspace = true, features = ["ssr"] }
 rpassword = "7.5"
 
 serde.workspace = true
+shared = { path = "../../crates/shared" }
 sha2.workspace = true
 sqlx.workspace = true
 

@@ -1,5 +1,6 @@
 use crate::IngestState;
 use crate::session_cookie::raw_cookie;
+use analytics_application::login_attempt as attempts;
 use analytics_persistence::summary_for_source;
 use analytics_persistence::summary_for_source_and_type;
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
@@ -45,6 +46,25 @@ async fn login_page() -> Html<String> {
     Html(crate::dashboard_ui::render_login())
 }
 
+fn login_feedback(status: StatusCode, name: &str, wait: &str) -> Response {
+    let message = if wait == "0" {
+        "帳號或密碼錯誤".to_owned()
+    } else {
+        format!("請等待 {wait} 秒後重試")
+    };
+    let mut res = (
+        status,
+        Html(crate::dashboard_ui::render_login_result(name, &message)),
+    )
+        .into_response();
+    if wait != "0" {
+        if let Ok(value) = wait.parse() {
+            res.headers_mut().insert(header::RETRY_AFTER, value);
+        }
+    }
+    res
+}
+
 async fn login(
     State(state): State<IngestState>,
     headers: HeaderMap,
@@ -54,85 +74,79 @@ async fn login(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    if form.username.len() > 64
-        || form.username.trim().is_empty()
-        || !form
-            .username
-            .trim()
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
-        || !(form.password == "admin" || (8..=128).contains(&form.password.len()))
-    {
-        return Err(StatusCode::UNAUTHORIZED);
+    let username = form.username.trim().to_owned();
+    if !analytics_domain::login_input::valid(&form.username, "admin") {
+        return Ok(login_feedback(StatusCode::UNAUTHORIZED, "", "0"));
     }
 
-    // Reject duplicate case-folded identities rather than guessing one.
-    let found: Vec<(String, String, bool, String)> = sqlx::query_as(
-        r#"SELECT id
-            ,user_pd
-            ,is_init_pd
-            ,user_status
-        FROM uac_user
-        WHERE lower(user_acnt)=lower($1)
-        LIMIT 2"#,
-    )
-    .bind(form.username.trim())
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    if found.len() != 1 {
-        return Err(StatusCode::UNAUTHORIZED);
+    let mut attempt =
+        analytics_persistence::login_attempt::LoginAttempt::begin(&state.pool, &username)
+            .await
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let Some(mut attempt) = attempt.take() else {
+        return Ok(login_feedback(StatusCode::UNAUTHORIZED, &username, "0"));
+    };
+    let now = attempt
+        .now()
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let wait = attempts::pending(&mut attempt, now)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    if wait != "0" {
+        attempt
+            .commit()
+            .await
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+        return Ok(login_feedback(
+            StatusCode::TOO_MANY_REQUESTS,
+            &username,
+            &wait,
+        ));
     }
 
-    let (id, encoded, restricted, status) = found.into_iter().next().unwrap();
-    if status != "active" {
-        return Err(StatusCode::UNAUTHORIZED);
-    }
-
+    let encoded = attempt.password_hash.clone();
     let fingerprint = digest(&encoded);
-    let verified = tokio::task::spawn_blocking(move || {
-        let parsed = PasswordHash::new(&encoded).map_err(|_| ())?;
-        Argon2::default()
-            .verify_password(form.password.as_bytes(), &parsed)
-            .map_err(|_| ())
-    })
-    .await
-    .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    verified.map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let restricted = attempt.initial;
+    let shape = analytics_domain::login_input::valid(&form.username, &form.password);
+    let verified = if shape {
+        tokio::task::spawn_blocking(move || {
+            let parsed = PasswordHash::new(&encoded).map_err(|_| ())?;
+            Argon2::default()
+                .verify_password(form.password.as_bytes(), &parsed)
+                .map_err(|_| ())
+        })
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
+        .is_ok()
+    } else {
+        false
+    };
+    if !verified {
+        let now = attempt
+            .now()
+            .await
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+        let wait = attempts::reject(&mut attempt, now)
+            .await
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+        attempt
+            .commit()
+            .await
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+        return Ok(login_feedback(StatusCode::UNAUTHORIZED, &username, &wait));
+    }
+    attempts::accepted(&mut attempt)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
 
     let raw = format!(
         "{}{}",
         uuid::Uuid::new_v4().simple(),
         uuid::Uuid::new_v4().simple()
     );
-    let mut tx = state
-        .pool
-        .begin()
-        .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    sqlx::query(
-        r#"DELETE FROM uac_login_session
-        WHERE expires_at <= floor(extract(epoch from now()))::bigint"#,
-    )
-    .execute(&mut *tx)
-    .await
-    .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    sqlx::query(
-        r#"INSERT INTO uac_login_session(token_hash
-            ,user_id
-            ,credential_fingerprint
-            ,restricted
-            ,expires_at
-        ) VALUES ($1,$2,$3,$4,floor(extract(epoch from now()))::bigint+1800)"#,
-    )
-    .bind(digest(&raw))
-    .bind(id)
-    .bind(fingerprint)
-    .bind(restricted)
-    .execute(&mut *tx)
-    .await
-    .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    tx.commit()
+    attempt
+        .session(&digest(&raw), &fingerprint)
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
 
@@ -348,6 +362,11 @@ async fn change_password(
         sqlx::Error::Database(ref d) if d.is_unique_violation() => StatusCode::CONFLICT,
         _ => StatusCode::SERVICE_UNAVAILABLE,
     })?;
+    sqlx::query("DELETE FROM uac_login_attempt WHERE user_id=$1")
+        .bind(&id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     sqlx::query("DELETE FROM uac_login_session WHERE user_id=$1")
         .bind(id)
         .execute(&mut *tx)
