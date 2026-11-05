@@ -4,6 +4,7 @@ mod menu_scope;
 pub mod pet_store;
 pub mod pet_windows;
 mod roam;
+mod settings;
 mod window_position;
 use pet_application::normalize_new_pet_name;
 
@@ -355,6 +356,8 @@ pub fn application(db: sqlx::SqlitePool) {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            settings::load_pet_settings,
+            settings::save_pet_settings,
             get_pet_state,
             send_pet_command,
             chat_with_pet,

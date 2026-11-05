@@ -8,6 +8,7 @@ mod file_scan_view;
 pub mod management_selection;
 mod saved_pet;
 mod scan_generation;
+mod settings_editor;
 
 pub use component::*;
 
@@ -511,7 +512,10 @@ fn App() -> impl IntoView {
             </section>
             <section id="pet-settings" aria-labelledby="pet-settings-title" tabindex="-1">
                 <h2 id="pet-settings-title">"設定"</h2>
-                <p>"目前可在管理區修改名稱與啟動預設；五欄與外觀設定尚未接通。"</p>
+                 <settings_editor::PetSettingsEditor selected_id=management_pet_id on_saved=Callback::new(move |(id,p):(String,pet_domain::profile::PetProfile)|{
+                    set_saved_pets.update(|rows|{if let Some(row)=rows.iter_mut().find(|r|r.id==id){row.name=p.name.clone();row.species=p.species.clone();}});
+                    if active_pet.get_untracked().as_ref().is_some_and(|pet|pet.id==id){set_active_pet.set(Some(SavedPet{id,name:p.name,species:p.species}));}
+                })/>
             </section>
             <section id="pet-memory" aria-labelledby="pet-memory-title" tabindex="-1">
                 <h2 id="pet-memory-title">"記憶"</h2>

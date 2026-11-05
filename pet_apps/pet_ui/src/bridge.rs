@@ -7,6 +7,11 @@ use crate::saved_pet::SavedPet;
 
 #[wasm_bindgen]
 extern "C" {
+    #[wasm_bindgen(js_namespace=window,js_name=loadPetSettings)]
+    fn load_pet_settings_js(id: &str) -> Promise;
+
+    #[wasm_bindgen(js_namespace=window,js_name=savePetSettings)]
+    fn save_pet_settings_js(id: &str, profile: JsValue) -> Promise;
 
     #[wasm_bindgen(
         js_namespace=window,
@@ -299,4 +304,22 @@ pub async fn activity_action(id: &str, choice: i8) -> Result<ActivityStatus, Str
     };
     let value = JsFuture::from(promise).await.map_err(js_error)?;
     serde_wasm_bindgen::from_value(value).map_err(|_| "活動資料格式錯誤".into())
+}
+
+pub async fn load_pet_settings(id: &str) -> Result<pet_domain::profile::PetProfile, String> {
+    let value = JsFuture::from(load_pet_settings_js(id))
+        .await
+        .map_err(js_error)?;
+    serde_wasm_bindgen::from_value(value).map_err(|_| "設定回應格式錯誤".into())
+}
+
+pub async fn save_pet_settings(
+    id: &str,
+    p: &pet_domain::profile::PetProfile,
+) -> Result<pet_domain::profile::PetProfile, String> {
+    let value = serde_wasm_bindgen::to_value(p).map_err(|_| "設定內容格式錯誤")?;
+    let value = JsFuture::from(save_pet_settings_js(id, value))
+        .await
+        .map_err(js_error)?;
+    serde_wasm_bindgen::from_value(value).map_err(|_| "設定回應格式錯誤".into())
 }

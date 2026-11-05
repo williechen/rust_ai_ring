@@ -130,6 +130,10 @@
       return invoke("list_pets");
     };
 
+    window.loadPetSettings = (id) => invoke("load_pet_settings", { id });
+
+    window.savePetSettings = (id, profile) => invoke("save_pet_settings", { id, profile });
+
     window.renamePet = (id, name) => invoke("rename_pet", { id, name });
 
     window.createPet = (name) => {
