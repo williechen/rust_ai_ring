@@ -9,6 +9,7 @@ async-trait.workspace = true
 chat-application = { path = "../chat_application" }
 chat-domain = { path = "../chat_domain" }
 
+shared = { path = "../../crates/shared" }
 
 sqlx.workspace = true
 

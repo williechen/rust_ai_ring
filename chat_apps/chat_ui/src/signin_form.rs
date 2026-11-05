@@ -45,8 +45,25 @@ pub(crate) fn SignInForm(next: String, username: String, message: String) -> imp
 
 /// 與正常入口共用表單；密碼沒有可回填的參數。
 pub fn render_login_failure(username: String, next: String) -> String {
-    format!("<!doctype html>{}", view! {
-        <html lang="zh-Hant"><head><meta charset="utf-8"/><title>"登入未完成"</title></head>
-        <body><main><SignInForm username next message="帳號或密碼不正確，請重新輸入。".to_string()/></main></body></html>
-    }.to_html())
+    render_result(username, next, "帳號或密碼不正確，請重新輸入。".to_owned())
+}
+
+pub fn render_login_wait(username: String, next: String, seconds: String, invalid: bool) -> String {
+    let message = if invalid {
+        format!("帳號或密碼不正確，尚須等待 {seconds} 秒後重試。")
+    } else {
+        format!("登入暫停，尚須等待 {seconds} 秒後重試。")
+    };
+    render_result(username, next, message)
+}
+
+fn render_result(username: String, next: String, message: String) -> String {
+    format!(
+        "<!doctype html>{}",
+        view! {
+            <html lang="zh-Hant"><head><meta charset="utf-8"/><title>"登入未完成"</title></head>
+            <body><main><SignInForm username next message/></main></body></html>
+        }
+        .to_html()
+    )
 }

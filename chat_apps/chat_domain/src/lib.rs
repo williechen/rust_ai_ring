@@ -1,3 +1,4 @@
+pub mod login_input;
 pub mod message_rules;
 
 use serde::{Deserialize, Serialize};

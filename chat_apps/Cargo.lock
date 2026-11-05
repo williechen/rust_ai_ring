@@ -292,6 +292,7 @@ version = "0.2.50"
 dependencies = [
  "async-trait",
  "chat-domain",
+ "shared",
  "thiserror 2.0.21",
  "tokio",
  "uuid",
@@ -312,6 +313,7 @@ dependencies = [
  "async-trait",
  "chat-application",
  "chat-domain",
+ "shared",
  "sqlx",
  "tokio",
 ]

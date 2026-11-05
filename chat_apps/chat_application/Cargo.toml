@@ -8,6 +8,8 @@ async-trait.workspace = true
 
 chat-domain = { path = "../chat_domain" }
 
+shared = { path = "../../crates/shared" }
+
 thiserror.workspace = true
 
 uuid.workspace = true

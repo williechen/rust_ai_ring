@@ -1,3 +1,4 @@
+pub mod login_attempt;
 pub mod member_session;
 pub mod room_access;
 

@@ -52,6 +52,10 @@ async fn failed_login_keeps_safe_room_and_username_then_retry_creates_one_sessio
         .await
         .unwrap();
     assert_eq!(count, 0);
+    sqlx::query("UPDATE mbr_login_attempt SET blocked_until='0'")
+        .execute(&pool)
+        .await
+        .unwrap();
     let response = app
         .clone()
         .oneshot(form(

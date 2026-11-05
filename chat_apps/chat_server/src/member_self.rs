@@ -297,6 +297,11 @@ async fn password(
         .execute(&mut *tx)
         .await
         .map_err(db_error)?;
+    sqlx::query("DELETE FROM mbr_login_attempt WHERE user_id=?1")
+        .bind(&id)
+        .execute(&mut *tx)
+        .await
+        .map_err(db_error)?;
     tx.commit().await.map_err(db_error)?;
     Ok((
         [

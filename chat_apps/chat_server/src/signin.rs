@@ -68,6 +68,29 @@ fn login_failure(username: &str, next: &str) -> Response {
         .into_response()
 }
 
+fn login_wait(username: &str, next: &str, seconds: String, invalid: bool) -> Response {
+    let target = safe_room_return(next).unwrap_or("").to_owned();
+    let status = if invalid {
+        StatusCode::UNAUTHORIZED
+    } else {
+        StatusCode::TOO_MANY_REQUESTS
+    };
+    (
+        status,
+        [
+            (header::CACHE_CONTROL, "no-store"),
+            (header::RETRY_AFTER, seconds.as_str()),
+        ],
+        Html(chat_ui::signin_form::render_login_wait(
+            username.to_owned(),
+            target,
+            seconds.clone(),
+            invalid,
+        )),
+    )
+        .into_response()
+}
+
 async fn login(
     State(pool): State<SqlitePool>,
     headers: HeaderMap,
@@ -78,30 +101,49 @@ async fn login(
     }
 
     let name = input.username.trim();
-    if name.is_empty() || name.len() > 32 || input.password.is_empty() || input.password.len() > 128
-    {
+    let valid = chat_domain::login_input::valid_credentials(name, &input.password);
+    if name.is_empty() || name.len() > 32 {
         return Ok(login_failure(name, &input.next));
     }
 
-    let found: Option<(String, String, bool, bool)> = sqlx::query_as(
-        r#"SELECT id
-                ,user_pd
-                ,(user_status='active')
-                ,is_init_pd
-            FROM mbr_user
-            WHERE lower(user_acnt)=lower(?1)"#,
-    )
-    .bind(name)
-    .fetch_optional(&pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    let Some((user_id, hash, active, initial)) = found else {
+    let Some(mut attempt) = chat_persistence::login_attempt::LoginAttempt::begin(&pool, name)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
+    else {
         return Ok(login_failure(name, &input.next));
     };
-    if !active {
-        return Ok(login_failure(name, &input.next));
+
+    let now = attempt
+        .now()
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+
+    let wait = chat_application::login_attempt::pending(&mut attempt, now)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    if wait != "0" {
+        attempt
+            .commit()
+            .await
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+        return Ok(login_wait(name, &input.next, wait, false));
     }
+    if !valid {
+        let now = attempt
+            .now()
+            .await
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+        let wait = chat_application::login_attempt::reject(&mut attempt, now)
+            .await
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+        attempt
+            .commit()
+            .await
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+        return Ok(login_wait(name, &input.next, wait, true));
+    }
+    let hash = attempt.password_hash.clone();
+    let initial = attempt.initial;
     let password = input.password;
     let verified = tokio::task::spawn_blocking(move || {
         let parsed = PasswordHash::new(&hash).map_err(|_| ())?;
@@ -113,8 +155,22 @@ async fn login(
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     if verified.is_err() {
-        return Ok(login_failure(name, &input.next));
+        let now = attempt
+            .now()
+            .await
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+        let wait = chat_application::login_attempt::reject(&mut attempt, now)
+            .await
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+        attempt
+            .commit()
+            .await
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+        return Ok(login_wait(name, &input.next, wait, true));
     }
+    chat_application::login_attempt::accepted(&mut attempt)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
 
     // 兩個獨立 UUIDv4 組成不可預測的 session bearer；不直接入庫。
     let token = format!(
@@ -124,10 +180,10 @@ async fn login(
     );
     let hashed = token_digest(&token);
     let id = uuid::Uuid::new_v4().to_string();
-    sqlx::query(
-        "INSERT INTO mbr_session (id,mbr_user_id,token_hash,expires_at) VALUES (?1,?2,?3,unixepoch()+86400)"
-    ).bind(id).bind(user_id).bind(hashed).execute(&pool).await
-        .map_err(|_|StatusCode::INTERNAL_SERVER_ERROR)?;
+    attempt
+        .session(&id, &hashed)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
 
     let cookie = format!("chat_session={token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=86400");
 
@@ -238,19 +294,7 @@ mod day23_tests {
             .await
             .unwrap();
 
-        sqlx::raw_sql(include_str!(
-            "../../migrations/20261018073931_create_auth_user.sql"
-        ))
-        .execute(&pool)
-        .await
-        .unwrap();
-
-        sqlx::raw_sql(include_str!(
-            "../../migrations/20261020152737_mbr_sessions.sql"
-        ))
-        .execute(&pool)
-        .await
-        .unwrap();
+        chat_persistence::migrate(&pool).await.unwrap();
 
         let encoded = argon2::Argon2::default()
             .hash_password(b"lesson-only-password")
@@ -283,6 +327,10 @@ mod day23_tests {
             .unwrap();
         assert_eq!(bad.status(), StatusCode::UNAUTHORIZED);
 
+        sqlx::query("UPDATE mbr_login_attempt SET blocked_until='0'")
+            .execute(&pool)
+            .await
+            .unwrap();
         let ok = app
             .clone()
             .oneshot(

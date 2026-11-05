@@ -1,3 +1,4 @@
+pub mod login_attempt;
 pub mod product_event;
 pub mod repository;
 
