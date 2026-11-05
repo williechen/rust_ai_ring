@@ -71,7 +71,7 @@ async fn five_fields_roundtrip_preserves_ownership_activity_defaults_and_unrelat
         .await
         .unwrap();
     assert!(active);
-    sqlx::raw_sql("CREATE TRIGGER fail_settings BEFORE NSERT ON pet_extra BEGIN SELECT RAISE(ABORT,'settings ixture'); END;").execute(&pool).await.unwrap();
+    sqlx::raw_sql("CREATE TRIGGER fail_settings BEFORE INSERT ON pet_extra BEGIN SELECT RAISE(ABORT,'settings ixture'); END;").execute(&pool).await.unwrap();
     assert!(
         settings::save(
             &store,

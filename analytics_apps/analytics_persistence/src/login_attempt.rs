@@ -12,7 +12,7 @@ pub struct LoginAttempt {
 impl LoginAttempt {
     pub async fn begin(pool: &PgPool, name: &str) -> Result<Option<Self>, String> {
         let mut tx = pool.begin().await.map_err(|_| "無法開始登入交易")?;
-        // Lock account before reading state: same account is serialized across pools/processes.
+        // 帳號列鎖將同帳號的跨連線、跨程序登入序列化。
         let rows:Vec<(String,String,bool,String)>=sqlx::query_as("SELECT id,user_pd,is_init_pd,user_status FROM uac_user WHERE lower(user_acnt)=lower($1) ORDER BY id LIMIT 2 FOR UPDATE").bind(name).fetch_all(&mut *tx).await.map_err(|_|"無法讀取帳號")?;
         if rows.len() != 1 || rows[0].3 != "active" {
             return Ok(None);

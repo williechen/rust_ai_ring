@@ -309,7 +309,7 @@ mod day34_default_tests {
             ("admin", StatusCode::UNAUTHORIZED),
             ("changed-pass-34", StatusCode::SEE_OTHER),
         ] {
-            // Preserve successful retry assertion after advancing only the new wait fixture.
+            // 測試資料先結束等待，再驗證正確密碼可登入。
             sqlx::query("UPDATE uac_login_attempt SET blocked_until='0'")
                 .execute(&pool)
                 .await

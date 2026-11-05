@@ -93,7 +93,7 @@ async fn reopen_no_extension_double_reset_and_rollback(pool: sqlx::PgPool) {
     );
     assert_eq!(state(&pool).await.1, "30");
     expire(&pool).await;
-    // A failing Session insert must roll back the success reset in the same transaction.
+    // Session 寫入失敗時，等待清零必須一併回滾。
     sqlx::query("CREATE FUNCTION reject_day52_session() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'fixture insert failure'; END $$").execute(&pool).await.unwrap();
     sqlx::query("CREATE TRIGGER reject_day52 BEFORE INSERT ON uac_login_session FOR EACH ROW EXECUTE FUNCTION reject_day52_session()").execute(&pool).await.unwrap();
     assert_eq!(
@@ -158,7 +158,7 @@ async fn concurrent_failures_are_one_failure_plus_one_pending(pool: sqlx::PgPool
     statuses.sort();
     assert_eq!(statuses, vec![401, 429]);
     assert_eq!(state(&pool).await.0, "1");
-    // Separate connections contend on the actual account lock, not a process-local map.
+    // 帳號列鎖在不同連線間生效，不依賴程序內狀態。
     let mut held = analytics_persistence::login_attempt::LoginAttempt::begin(&pool, "admin")
         .await
         .unwrap()

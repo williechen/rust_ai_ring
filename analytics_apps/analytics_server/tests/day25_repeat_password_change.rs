@@ -165,7 +165,7 @@ async fn day25_admin_can_change_password_again_after_initialization(pool: sqlx::
         .status(),
         StatusCode::UNAUTHORIZED
     );
-    // Test-only clock advance before the existing corrected-password assertion.
+    // 測試資料先結束等待，再驗證正確密碼可登入。
     sqlx::query("UPDATE uac_login_attempt SET blocked_until='0'")
         .execute(&pool)
         .await

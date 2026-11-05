@@ -226,7 +226,7 @@ async fn day24_password_change_is_atomic_revokes_all_sessions_and_requires_relog
         .status(),
         StatusCode::UNAUTHORIZED
     );
-    // Advance only isolated fixture for old corrected-password success assertions.
+    // 測試資料先結束等待，再驗證正確密碼可登入。
     sqlx::query("UPDATE uac_login_attempt SET blocked_until='0'")
         .execute(&pool)
         .await
