@@ -1,5 +1,6 @@
 pub mod lifecycle;
 pub mod pet_names;
+pub mod settings;
 
 /// 建立寵物的輸入規則；不持有 Tauri、SQLx 或 OS driver。
 pub fn normalize_new_pet_name(input: &str) -> Result<String, String> {

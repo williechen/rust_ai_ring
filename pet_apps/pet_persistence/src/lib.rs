@@ -1,5 +1,6 @@
 pub mod activity;
 pub mod pet_names;
+pub mod settings;
 pub use activity::set_caged;
 pub use activity::{ActivitySnapshot, ActivityStatus};
 

@@ -8,6 +8,7 @@ pub struct NamedPet {
 }
 
 pub trait PetNames {
+    fn find(&self, id: &str) -> impl Future<Output = Result<NamedPet, String>> + Send;
     fn rename(&self, id: &str, name: &str)
     -> impl Future<Output = Result<NamedPet, String>> + Send;
 }
@@ -16,4 +17,8 @@ pub trait PetNames {
 pub async fn rename_pet(store: &impl PetNames, id: &str, input: &str) -> Result<NamedPet, String> {
     let name = crate::normalize_new_pet_name(input)?;
     store.rename(id, &name).await
+}
+
+pub async fn read_pet(store: &impl PetNames, id: &str) -> Result<NamedPet, String> {
+    store.find(id).await
 }

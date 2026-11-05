@@ -23,21 +23,13 @@ impl PetStore {
     }
 
     pub async fn profile(&self, id: &str) -> Result<SavedPet, String> {
-        let row: Option<(String, String, String)> = sqlx::query_as(
-            r#"SELECT id
-                ,name
-                ,species 
-            FROM pet_profile 
-            WHERE id=?1 
-                AND owner_id='local-owner'"#,
-        )
-        .bind(id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|_| "無法讀取寵物")?;
-
-        row.map(|(id, name, species)| SavedPet { id, name, species })
-            .ok_or_else(|| "找不到寵物".into())
+        let adapter = pet_persistence::pet_names::SqlitePetNames(self.pool.clone());
+        let pet = pet_application::pet_names::read_pet(&adapter, id).await?;
+        Ok(SavedPet {
+            id: pet.id,
+            name: pet.name,
+            species: pet.species,
+        })
     }
 
     pub async fn active(&self) -> Result<Option<SavedPet>, String> {

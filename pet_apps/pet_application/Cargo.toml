@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+pet-domain = { path = "../pet_domain" }
 serde.workspace = true
 serde_json.workspace = true
 

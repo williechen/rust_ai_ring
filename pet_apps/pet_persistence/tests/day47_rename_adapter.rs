@@ -17,6 +17,18 @@ async fn rename_use_case_preserves_owner_activity_and_other_profiles(pool: sqlx:
     );
     assert!(rename_pet(&store, "b", "越權").await.is_err());
     assert!(rename_pet(&store, "a", " ").await.is_err());
+    assert_eq!(
+        pet_application::pet_names::read_pet(&store, "a")
+            .await
+            .unwrap()
+            .name,
+        "新名稱"
+    );
+    assert!(
+        pet_application::pet_names::read_pet(&store, "b")
+            .await
+            .is_err()
+    );
     let rows: Vec<(String, String, String, i64)> =
         sqlx::query_as("SELECT id,name,owner_id,is_default_closure FROM pet_profile ORDER BY id")
             .fetch_all(&pool)
