@@ -362,14 +362,10 @@ async fn change_password(
         sqlx::Error::Database(ref d) if d.is_unique_violation() => StatusCode::CONFLICT,
         _ => StatusCode::SERVICE_UNAVAILABLE,
     })?;
-    sqlx::query("DELETE FROM uac_login_attempt WHERE user_id=$1")
-        .bind(&id)
-        .execute(&mut *tx)
+    analytics_persistence::login_session::revoke_after_password_change(&mut tx, &id)
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    sqlx::query("DELETE FROM uac_login_session WHERE user_id=$1")
-        .bind(id)
-        .execute(&mut *tx)
+    analytics_persistence::account_audit::record_own_password_change(&mut tx, &id)
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     tx.commit()

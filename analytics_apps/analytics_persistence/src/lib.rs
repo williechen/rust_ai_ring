@@ -1,3 +1,4 @@
+pub mod account_audit;
 pub mod login_attempt;
 pub mod login_session;
 pub mod navigation;

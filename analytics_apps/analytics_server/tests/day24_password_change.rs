@@ -181,6 +181,18 @@ async fn day24_password_change_is_atomic_revokes_all_sessions_and_requires_relog
         .unwrap();
     assert_eq!(attempts, 0);
     assert_eq!(done.status(), StatusCode::SEE_OTHER);
+    let owner: String = sqlx::query_scalar("SELECT id FROM uac_user WHERE user_acnt='admin'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let audit: Vec<(String, String, String, bool)> = sqlx::query_as(
+        "SELECT actor_id,target_id,result,created_at IS NOT NULL
+         FROM analytics_account_audit WHERE action='change_own_password'",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(audit, vec![(owner.clone(), owner, "changed".into(), true)]);
     assert_eq!(done.headers()[header::LOCATION], "/login");
     assert!(
         done.headers()[header::SET_COOKIE]
@@ -339,6 +351,51 @@ async fn day24_duplicate_migration_stops_and_revocation_failure_rolls_back(pool:
         .status(),
         StatusCode::FORBIDDEN
     );
+
+    sqlx::query("DROP TRIGGER fixture_fail_revoke ON uac_login_session")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE uac_login_attempt SET failures='2'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::raw_sql(
+        "CREATE FUNCTION fixture_fail_password_audit() RETURNS trigger LANGUAGE plpgsql AS $$
+         BEGIN
+           IF NEW.action='change_own_password' THEN RAISE EXCEPTION 'fixture'; END IF;
+           RETURN NEW;
+         END $$;
+         CREATE TRIGGER fixture_fail_password_audit BEFORE INSERT ON analytics_account_audit
+         FOR EACH ROW EXECUTE FUNCTION fixture_fail_password_audit();",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let failure = send(app(pool.clone()), "/change-password", Some(&body), Some(&c)).await;
+    assert_eq!(failure.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert!(!failure.headers().contains_key(header::SET_COOKIE));
+    let after: (String, bool, String) =
+        sqlx::query_as("SELECT user_pd,is_init_pd,user_email FROM uac_user")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(after, row);
+    let sessions: i64 = sqlx::query_scalar("SELECT count(*) FROM uac_login_session")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(sessions, 1);
+    let failures: String = sqlx::query_scalar("SELECT failures FROM uac_login_attempt")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(failures, "2");
+    let audit_count: i64 = sqlx::query_scalar("SELECT count(*) FROM analytics_account_audit")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(audit_count, 0);
 
     #[sqlx::test(migrations = "../migrations")]
     async fn day31_change_page_has_connected_labels_and_existing_csrf(pool: sqlx::PgPool) {

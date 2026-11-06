@@ -310,9 +310,27 @@ pub async fn set_default_caged(
     Ok(state)
 }
 
+async fn startup_open_profiles(
+    conn: &mut SqliteConnection,
+) -> Result<Vec<(String, String, String)>, String> {
+    sqlx::query_as(
+        r#"SELECT id
+            ,name
+            ,species
+        FROM pet_profile
+        WHERE owner_id='local-owner'
+            AND COALESCE(is_default_closure,0)=0
+        ORDER BY name
+            ,id"#,
+    )
+    .fetch_all(conn)
+    .await
+    .map_err(|_| "無法讀取啟動寵物".to_owned())
+}
+
 pub async fn prepare_startup(pool: &SqlitePool) -> Result<Vec<(String, String, String)>, String> {
     let mut tx = pool
-        .begin()
+        .begin_with("BEGIN IMMEDIATE")
         .await
         .map_err(|_| "無法開始啟動交易".to_owned())?;
 
@@ -328,6 +346,15 @@ pub async fn prepare_startup(pool: &SqlitePool) -> Result<Vec<(String, String, S
 
     if invalid != 0 {
         return Err("預設資格資料不合法".into());
+    }
+
+    let local_ids: Vec<String> =
+        sqlx::query_scalar("SELECT id FROM pet_profile WHERE owner_id='local-owner' ORDER BY id")
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(|_| "無法讀取本機寵物".to_owned())?;
+    for id in local_ids {
+        ensure_pair(&mut tx, &id).await?;
     }
 
     sqlx::query(
@@ -348,19 +375,7 @@ pub async fn prepare_startup(pool: &SqlitePool) -> Result<Vec<(String, String, S
     .await
     .map_err(|_| "無法準備啟動活動".to_owned())?;
 
-    let rows = sqlx::query_as(
-        r#"SELECT id
-            ,name
-            ,species 
-        FROM pet_profile 
-        WHERE owner_id='local-owner' 
-            AND COALESCE(is_default_closure,0)=0 
-        ORDER BY name
-            ,id"#,
-    )
-    .fetch_all(&mut *tx)
-    .await
-    .map_err(|_| "無法讀取啟動寵物".to_owned())?;
+    let rows = startup_open_profiles(&mut tx).await?;
 
     tx.commit()
         .await

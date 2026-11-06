@@ -21,3 +21,19 @@ pub async fn lookup(pool: &PgPool, token_hash: &str) -> Result<Option<SessionRow
     .fetch_optional(pool)
     .await
 }
+
+/// 密碼變更的交易同時撤銷等待狀態與所有既有工作階段。
+pub async fn revoke_after_password_change(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    id: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("DELETE FROM uac_login_attempt WHERE user_id=$1")
+        .bind(id)
+        .execute(&mut **tx)
+        .await?;
+    sqlx::query("DELETE FROM uac_login_session WHERE user_id=$1")
+        .bind(id)
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
