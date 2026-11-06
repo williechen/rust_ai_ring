@@ -1,5 +1,4 @@
 use analytics_ui::navigation::NavigationPage;
-use leptos::attr::Allow;
 use leptos::prelude::*;
 
 use analytics_persistence::EventSummary;
