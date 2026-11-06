@@ -31,16 +31,20 @@ pub fn routes(pool: SqlitePool) -> Router {
         .merge(crate::member_self::routes(pool))
 }
 
-/// Valid, active SQLite member Session; never expose the bearer token.
+/// 同步延長有效工作階段與瀏覽器 Cookie。
 async fn session_status(
     State(pool): State<SqlitePool>,
     headers: HeaderMap,
-) -> Result<impl IntoResponse, StatusCode> {
-    crate::auth_session::active_member(&pool, &headers).await?;
+) -> Result<Response, StatusCode> {
+    let cookie = crate::auth_session::renew_member_cookie(&pool, &headers).await?;
     Ok((
         StatusCode::NO_CONTENT,
-        [(header::CACHE_CONTROL, "no-store")],
-    ))
+        [
+            (header::CACHE_CONTROL, "no-store"),
+            (header::SET_COOKIE, cookie.as_str()),
+        ],
+    )
+        .into_response())
 }
 
 /// Reject external URLs, fragments, queries and noncanonical room IDs.
@@ -185,7 +189,7 @@ async fn login(
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
 
-    let cookie = format!("chat_session={token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=86400");
+    let cookie = crate::auth_session::member_cookie(&token);
 
     let destination = if initial {
         "/account/password"
@@ -513,6 +517,22 @@ mod day40_session_entry_tests {
             .unwrap();
         assert_eq!(live.status(), StatusCode::NO_CONTENT);
         assert_eq!(live.headers()[header::CACHE_CONTROL], "no-store");
+        assert_eq!(
+            live.headers()
+                .get(header::SET_COOKIE)
+                .and_then(|value| value.to_str().ok()),
+            Some(
+                format!("chat_session={raw}; HttpOnly; SameSite=Lax; Path=/; Max-Age=86400")
+                    .as_str()
+            )
+        );
+        let remaining: i64 = sqlx::query_scalar(
+            "SELECT expires_at-unixepoch() FROM mbr_session WHERE id='day40-session'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!((86_390..=86_400).contains(&remaining));
         sqlx::query("UPDATE mbr_user SET user_status='disabled' WHERE id='day40-member'")
             .execute(&pool)
             .await
@@ -528,6 +548,7 @@ mod day40_session_entry_tests {
             .await
             .unwrap();
         assert_eq!(disabled.status(), StatusCode::UNAUTHORIZED);
+        assert!(!disabled.headers().contains_key(header::SET_COOKIE));
         sqlx::query("UPDATE mbr_user SET user_status='active' WHERE id='day40-member'")
             .execute(&pool)
             .await
@@ -546,5 +567,13 @@ mod day40_session_entry_tests {
             .await
             .unwrap();
         assert_eq!(expired.status(), StatusCode::UNAUTHORIZED);
+        assert!(!expired.headers().contains_key(header::SET_COOKIE));
+        let still_expired: bool = sqlx::query_scalar(
+            "SELECT expires_at<=unixepoch() FROM mbr_session WHERE id='day40-session'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(still_expired);
     }
 }

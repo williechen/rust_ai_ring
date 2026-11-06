@@ -2,6 +2,11 @@ use axum::http::{HeaderMap, StatusCode, header};
 use shared::auth::{cookie_token, token_digest};
 use sqlx::SqlitePool;
 
+pub(crate) fn member_cookie(raw: &str) -> String {
+    let seconds = chat_application::MEMBER_SESSION_IDLE_SECONDS;
+    format!("chat_session={raw}; HttpOnly; SameSite=Lax; Path=/; Max-Age={seconds}")
+}
+
 fn session_cookie(headers: &HeaderMap) -> Result<String, StatusCode> {
     headers
         .get(header::COOKIE)
@@ -18,6 +23,20 @@ pub async fn active_member(pool: &SqlitePool, headers: &HeaderMap) -> Result<Str
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     member.ok_or(StatusCode::UNAUTHORIZED)
+}
+
+pub(crate) async fn renew_member_cookie(
+    pool: &SqlitePool,
+    headers: &HeaderMap,
+) -> Result<String, StatusCode> {
+    let raw = session_cookie(headers)?;
+    let renewed = chat_persistence::member_session::renew(pool, &token_digest(&raw))
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    if !renewed {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    Ok(member_cookie(&raw))
 }
 
 pub fn csrf_for_logout(headers: &HeaderMap) -> Result<String, StatusCode> {

@@ -7,6 +7,9 @@ use uuid::Uuid;
 
 use crate::repository::{MessageRepository, RepositoryError, RoomRepository};
 
+/// 會員登入工作階段的閒置期限。
+pub const MEMBER_SESSION_IDLE_SECONDS: i64 = 86_400;
+
 #[derive(Debug, Clone, Default)]
 pub struct ChatService;
 

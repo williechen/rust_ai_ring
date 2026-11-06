@@ -50,7 +50,14 @@ impl LoginAttempt {
     }
 
     pub async fn session(mut self, id: &str, digest: &str) -> Result<(), String> {
-        sqlx::query("INSERT INTO mbr_session(id,mbr_user_id,token_hash,expires_at) VALUES(?1,?2,?3,unixepoch()+86400)").bind(id).bind(&self.user_id).bind(digest).execute(&mut *self.tx).await.map_err(|_|"無法建立登入工作階段")?;
+        sqlx::query("INSERT INTO mbr_session(id,mbr_user_id,token_hash,expires_at) VALUES(?1,?2,?3,unixepoch()+?4)")
+        .bind(id)
+        .bind(&self.user_id)
+        .bind(digest)
+        .bind(chat_application::MEMBER_SESSION_IDLE_SECONDS)
+        .execute(&mut *self.tx)
+        .await
+        .map_err(|_|"無法建立登入工作階段")?;
         self.commit().await
     }
 }

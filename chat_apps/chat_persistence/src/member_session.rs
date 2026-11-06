@@ -13,3 +13,19 @@ pub async fn active_member_id(
     .fetch_optional(pool)
     .await
 }
+
+/// 僅有效的會員工作階段可以延長期限。
+pub async fn renew(pool: &SqlitePool, digest: &str) -> Result<bool, sqlx::Error> {
+    let updated = sqlx::query(
+        "UPDATE mbr_session
+         SET expires_at=MAX(expires_at,unixepoch()+?2)
+         WHERE token_hash=?1 AND expires_at>unixepoch()
+         AND EXISTS(SELECT 1 FROM mbr_user u
+                    WHERE u.id=mbr_session.mbr_user_id AND u.user_status='active')",
+    )
+    .bind(digest)
+    .bind(chat_application::MEMBER_SESSION_IDLE_SECONDS)
+    .execute(pool)
+    .await?;
+    Ok(updated.rows_affected() == 1)
+}
