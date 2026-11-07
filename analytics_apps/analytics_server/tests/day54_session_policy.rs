@@ -1,19 +1,15 @@
 #![cfg(feature = "postgres-integration")]
 mod support;
 use axum::http::{StatusCode, header};
-use sha2::{Digest, Sha256};
+use shared::auth::token_digest;
 use support::http::{body_text, response_cookie, send};
 
 fn app(pool: sqlx::PgPool) -> axum::Router {
     support::app(pool, "fixture-chat", "fixture-pet")
 }
-
 fn csrf(cookie: &str) -> String {
     let raw = cookie.split_once('=').unwrap().1;
-    format!(
-        "{:x}",
-        Sha256::digest(format!("session-settings:{raw}").as_bytes())
-    )
+    token_digest(&format!("session-settings:{raw}"))
 }
 
 #[sqlx::test(migrations = "../migrations")]
@@ -94,10 +90,7 @@ async fn day54_idle_setting_is_shared_by_login_refresh_and_cookie(pool: sqlx::Pg
             .unwrap()
             .contains("Max-Age=300")
     );
-    let token_hash = format!(
-        "{:x}",
-        Sha256::digest(cookie.split_once('=').unwrap().1.as_bytes())
-    );
+    let token_hash = token_digest(cookie.split_once('=').unwrap().1);
     let remaining: i64 = sqlx::query_scalar(
         "SELECT expires_at-floor(extract(epoch from now()))::bigint
          FROM uac_login_session WHERE token_hash=$1",

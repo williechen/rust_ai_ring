@@ -241,7 +241,7 @@ pub(crate) async fn create(
     {
         return Err(StatusCode::FORBIDDEN);
     }
-    let result = create_inner(&state, &actor, &raw, form).await;
+    let result = create_inner(&state, &actor, &raw, seconds, form).await;
     if let Err(status) = &result {
         sqlx::query("INSERT INTO analytics_account_audit(id,actor_id,target_id,action,result) VALUES($1,$2,'uncreated','create_viewer_rejected',$3)")
             .bind(uuid::Uuid::new_v4().to_string()).bind(&actor).bind(status.as_str())
@@ -254,6 +254,7 @@ async fn create_inner(
     state: &IngestState,
     actor: &str,
     raw: &str,
+    seconds: i64,
     form: NewViewer,
 ) -> Result<Response, StatusCode> {
     let username = form.username.trim().to_ascii_lowercase();
