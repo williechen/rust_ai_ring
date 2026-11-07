@@ -124,7 +124,10 @@
     
     window.listenPetProfile = (callback) => window.__TAURI__.event.listen(
       "pet-profile-changed", (event) => { if (!windowPetId || event.payload.id === windowPetId) callback(event.payload); });
-
+    
+    window.startupRestoreFailures = () => invoke("startup_restore_failures");
+    
+    window.listenStartupRestoreFailures = (callback) =>listen("pet-startup-restore-failed", (event) => callback(event.payload));
 
     window.listPets = () => {
       return invoke("list_pets");

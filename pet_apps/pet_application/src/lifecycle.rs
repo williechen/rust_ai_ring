@@ -61,6 +61,30 @@ where
     Ok(())
 }
 
+/// 逐隻恢復，保留每個失敗的診斷，單一 UUID 不阻止下一隻。
+pub async fn restore_each<P, Run, Fut, Failure>(pets: Vec<P>, mut restore: Run, mut report: Failure)
+where
+    P: Clone,
+    Run: FnMut(P) -> Fut,
+    Fut: std::future::Future<Output = Result<(), String>>,
+    Failure: FnMut(P, String),
+{
+    for pet in pets {
+        let target = pet.clone();
+        if let Err(error) = restore(pet).await {
+            report(target, error);
+        }
+    }
+}
+
+/// 管理頁的啟動恢復失敗通知；僅攜帶寵物識別及不含憑證的錯誤訊息。
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct StartupRestoreFailure {
+    pub id: String,
+    pub name: String,
+    pub reason: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

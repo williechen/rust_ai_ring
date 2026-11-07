@@ -21,6 +21,7 @@ use crate::cage_status::record_cage_status;
 use crate::saved_pet::SavedPet;
 use crate::scan_generation::accept_scan_result;
 use control_navigation::ControlNavigation;
+use pet_application::lifecycle::StartupRestoreFailure;
 
 fn main() {
     mount_to_body(|| {
@@ -63,6 +64,7 @@ fn App() -> impl IntoView {
     let (saved_pets, set_saved_pets) = signal(Vec::<SavedPet>::new());
     let (pets_busy, set_pets_busy) = signal(false);
     let cage_status = RwSignal::new(HashMap::<String, String>::new());
+    let startup_failures = RwSignal::new(HashMap::<String, StartupRestoreFailure>::new());
 
     let (management_pet_id, set_management_pet_id) = signal(None::<String>);
 
@@ -93,6 +95,28 @@ fn App() -> impl IntoView {
     });
 
     if !bridge::is_pet_window() {
+        // 先訂閱再讀取快照，以免事件早於管理頁初始化而遺失。
+        spawn_local(async move {
+            if let Err(message) = bridge::listen_startup_restore_failures(move |failure| {
+                startup_failures.update(|rows| {
+                    rows.insert(failure.id.clone(), failure);
+                });
+            })
+            .await
+            {
+                set_new_pet_feedback.set(format!("無法監聽啟動恢復失敗：{message}"));
+            }
+            match bridge::startup_restore_failures().await {
+                Ok(rows) => startup_failures.update(|current| {
+                    for failure in rows {
+                        current.entry(failure.id.clone()).or_insert(failure);
+                    }
+                }),
+                Err(message) => {
+                    set_new_pet_feedback.set(format!("無法讀取啟動恢復失敗：{message}"))
+                }
+            }
+        });
         set_pets_busy.set(true);
         spawn_local(async move {
             match bridge::list_pets().await {
@@ -178,6 +202,21 @@ fn App() -> impl IntoView {
 
             <section id="pet-management" aria-labelledby="pet-management-title" tabindex="-1">
                 <h2 id="pet-management-title">"管理"</h2>
+                <Show when=move || !startup_failures.get().is_empty() fallback=|| ()>
+                    <section role="alert" aria-label="啟動恢復失敗">
+                        <h3>"部分寵物啟動時未能恢復"</h3>
+                        <ul>
+                            <For each=move || {
+                                let mut rows = startup_failures.get().into_values().collect::<Vec<_>>();
+                                rows.sort_by(|a, b| a.id.cmp(&b.id));
+                                rows
+                            } key=|failure| failure.id.clone()
+                            children=move |failure| view! {
+                                <li>{format!("{}（{}）：{}", failure.name, failure.id, failure.reason)}</li>
+                            }/>
+                        </ul>
+                    </section>
+                </Show>
                 <h3>"新增寵物"</h3>
                 <label>"寵物名稱"
                     <input

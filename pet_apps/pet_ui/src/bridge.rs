@@ -111,6 +111,13 @@ extern "C" {
 
     #[wasm_bindgen(js_namespace=window, js_name=listenPetProfile)]
     fn listen_pet_profile_js(callback: &Function) -> Promise;
+
+    #[wasm_bindgen(js_namespace=window,js_name=startupRestoreFailures)]
+    fn startup_restore_failures_js() -> Promise;
+
+    #[wasm_bindgen(js_namespace=window,js_name=listenStartupRestoreFailures)]
+    fn listen_startup_restore_failures_js(callback: &Function) -> Promise;
+
 }
 
 // 將 JavaScript 的錯誤轉換為 Rust 的字串
@@ -248,6 +255,32 @@ pub async fn listen_pet_profile(
         .await
         .map_err(js_error)?;
     closure.forget(); // 與此單一 App 視窗同壽命。
+    Ok(())
+}
+
+pub async fn startup_restore_failures()
+-> Result<Vec<pet_application::lifecycle::StartupRestoreFailure>, String> {
+    let rows = JsFuture::from(startup_restore_failures_js())
+        .await
+        .map_err(js_error)?;
+    serde_wasm_bindgen::from_value(rows).map_err(|_| "啟動恢復結果格式錯誤".to_owned())
+}
+
+/// 訂閱成功後取得快照；事件先到或快照先到皆以 UUID 去重。
+pub async fn listen_startup_restore_failures(
+    mut callback: impl FnMut(pet_application::lifecycle::StartupRestoreFailure) + 'static,
+) -> Result<(), String> {
+    let closure = Closure::<dyn FnMut(JsValue)>::new(move |value| {
+        if let Ok(failure) = serde_wasm_bindgen::from_value(value) {
+            callback(failure);
+        }
+    });
+    JsFuture::from(listen_startup_restore_failures_js(
+        closure.as_ref().unchecked_ref(),
+    ))
+    .await
+    .map_err(js_error)?;
+    closure.forget();
     Ok(())
 }
 

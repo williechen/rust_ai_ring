@@ -2993,6 +2993,7 @@ dependencies = [
  "gloo-timers",
  "js-sys",
  "leptos",
+ "pet-application",
  "pet-domain",
  "serde",
  "serde-wasm-bindgen",

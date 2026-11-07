@@ -6,7 +6,7 @@ pub mod pet_windows;
 mod roam;
 mod settings;
 mod window_position;
-use pet_application::normalize_new_pet_name;
+use pet_application::{lifecycle::StartupRestoreFailure, normalize_new_pet_name};
 
 use ai_core::{ChatRequest, MockChatModel};
 use pet_domain::{PetCommand, PetMachine, PetSnapshot};
@@ -180,6 +180,41 @@ async fn select_pet(
     Ok(saved)
 }
 
+#[derive(Default)]
+struct StartupRestoreFailures(
+    std::sync::Mutex<std::collections::HashMap<String, StartupRestoreFailure>>,
+);
+
+impl StartupRestoreFailures {
+    fn record(&self, failure: StartupRestoreFailure) -> Result<(), String> {
+        self.0
+            .lock()
+            .map_err(|_| "啟動失敗紀錄無法使用".to_owned())?
+            .insert(failure.id.clone(), failure);
+        Ok(())
+    }
+
+    fn snapshot(&self) -> Result<Vec<StartupRestoreFailure>, String> {
+        let mut rows: Vec<_> = self
+            .0
+            .lock()
+            .map_err(|_| "啟動失敗紀錄無法使用".to_owned())?
+            .values()
+            .cloned()
+            .collect();
+        rows.sort_by(|a, b| a.id.cmp(&b.id));
+        Ok(rows)
+    }
+}
+
+/// 管理頁重開時可讀回先於 WebView 掛載發生的啟動錯誤。
+#[tauri::command]
+fn startup_restore_failures(
+    reports: State<'_, StartupRestoreFailures>,
+) -> Result<Vec<StartupRestoreFailure>, String> {
+    reports.snapshot()
+}
+
 pub fn application(db: sqlx::SqlitePool) {
     tauri::Builder::default()
         .on_window_event(|window, event| {
@@ -228,6 +263,7 @@ pub fn application(db: sqlx::SqlitePool) {
         })
         .manage(Mutex::new(PetMachine::default()))
         .manage(pet_windows::Runtime::default())
+        .manage(StartupRestoreFailures::default())
         .manage(AiState::new(Arc::new(MockChatModel)))
         .manage(pet_store::PetStore { pool: db })
         .setup(|app| {
@@ -237,23 +273,47 @@ pub fn application(db: sqlx::SqlitePool) {
                 let _operation = pet_windows::lifecycle_guard().await;
                 match store.prepare_startup().await {
                     Ok(pets) => {
-                        for pet in pets {
-                            // 每個 UUID 由既有 open() 建立獨立原生視窗與 Runtime。
-                            // 單隻失敗不應讓其他未回籠寵物無法恢復。
-                            let result = async {
-                                let snapshot = store.snapshot(&pet.id).await?;
-                                pet_application::lifecycle::persist_then_apply(
-                                    || store.set_caged(&pet.id, false),
-                                    || pet_windows::open(&handle, &pet),
-                                    || store.restore(&pet.id, &snapshot),
-                                )
-                                .await
-                            }
-                            .await;
-                            if let Err(error) = result {
-                                eprintln!("重啟恢復寵物 {} 失敗：{error}", pet.id);
-                            }
-                        }
+                        let restore_store = store.clone();
+                        let restore_handle = handle.clone();
+                        let report_handle = handle.clone();
+                        // 只抽離逐隻迴圈，保留每隻既有的活動快照／補償流程。
+                        pet_application::lifecycle::restore_each(
+                            pets,
+                            move |pet| {
+                                let store = restore_store.clone();
+                                let handle = restore_handle.clone();
+                                async move {
+                                    let snapshot = store.snapshot(&pet.id).await?;
+                                    pet_application::lifecycle::persist_then_apply(
+                                        || store.set_caged(&pet.id, false),
+                                        || pet_windows::open(&handle, &pet),
+                                        || store.restore(&pet.id, &snapshot),
+                                    )
+                                    .await
+                                }
+                            },
+                            move |pet, error| {
+                                let failure = StartupRestoreFailure {
+                                    id: pet.id.clone(),
+                                    name: pet.name,
+                                    reason: error,
+                                };
+                                // 先持久於此程序的查詢快照，再發事件以涵蓋 UI 尚未載入的情況。
+                                if let Err(e) = report_handle
+                                    .state::<StartupRestoreFailures>()
+                                    .record(failure.clone())
+                                {
+                                    eprintln!("保存寵物 {} 啟動失敗紀錄異常：{e}", failure.id);
+                                }
+                                if let Err(e) = report_handle
+                                    .emit("pet-startup-restore-failed", failure.clone())
+                                {
+                                    eprintln!("通知寵物 {} 啟動失敗異常：{e}", failure.id);
+                                }
+                                eprintln!("重啟恢復寵物 {} 失敗：{}", failure.id, failure.reason);
+                            },
+                        )
+                        .await;
                     }
                     Err(error) => {
                         // DB 失敗時不可誤認沒有寵物，更不可將其標成回籠。
@@ -369,6 +429,7 @@ pub fn application(db: sqlx::SqlitePool) {
             create_pet,
             rename_pet,
             list_pets,
+            startup_restore_failures,
             pet_cage_status_by_id,
             active_pet,
             select_pet,
@@ -452,5 +513,63 @@ mod day32_control_selection_tests {
         ] {
             assert_eq!(control_menu_pet_id(invalid), None);
         }
+    }
+}
+
+#[cfg(test)]
+mod day54_restore_reports_tests {
+    use super::*;
+    use std::sync::{Arc, Mutex};
+
+    fn failure(id: &str, reason: &str) -> pet_application::lifecycle::StartupRestoreFailure {
+        pet_application::lifecycle::StartupRestoreFailure {
+            id: id.to_owned(),
+            name: format!("寵物{id}"),
+            reason: reason.to_owned(),
+        }
+    }
+
+    #[test]
+    fn report_snapshot_is_per_uuid_sorted_and_same_uuid_replaces_older_error() {
+        let reports = StartupRestoreFailures::default();
+        reports.record(failure("b", "開窗失敗")).unwrap();
+        reports.record(failure("a", "讀取失敗")).unwrap();
+        reports.record(failure("b", "補償失敗")).unwrap();
+        let rows = reports.snapshot().unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].id, "a");
+        assert_eq!(rows[1].id, "b");
+        assert_eq!(rows[1].reason, "補償失敗");
+    }
+
+    #[tokio::test]
+    async fn failed_uuid_is_reported_and_next_uuid_is_still_attempted() {
+        let reports = Arc::new(StartupRestoreFailures::default());
+        let attempts = Arc::new(Mutex::new(Vec::<String>::new()));
+        let for_attempt = attempts.clone();
+        let for_report = reports.clone();
+        pet_application::lifecycle::restore_each(
+            vec!["a".to_string(), "b".to_string(), "c".to_string()],
+            move |id| {
+                let attempts = for_attempt.clone();
+                async move {
+                    attempts.lock().unwrap().push(id.clone());
+                    if id == "b" {
+                        Err("原生視窗失敗，活動已回滾".into())
+                    } else {
+                        Ok(())
+                    }
+                }
+            },
+            move |id, reason| {
+                for_report.record(failure(&id, &reason)).unwrap();
+            },
+        )
+        .await;
+        assert_eq!(*attempts.lock().unwrap(), vec!["a", "b", "c"]);
+        let rows = reports.snapshot().unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id, "b");
+        assert!(rows[0].reason.contains("已回滾"));
     }
 }
