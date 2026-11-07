@@ -391,3 +391,106 @@ async fn failed_session_revocation_rolls_password_back() {
         .unwrap();
     assert_eq!(sessions, 1);
 }
+
+#[tokio::test]
+async fn day54_profile_get_renews_only_an_authorized_live_session() {
+    use axum::http::header;
+
+    let (pool, app, cookie) = fixture().await;
+    // 將有效 Session 縮短到一分鐘，驗證真正的頁面請求會續期。
+    sqlx::query("UPDATE mbr_session SET expires_at=unixepoch()+60 WHERE id='fixture-session'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let response = send(app.clone(), "/account/profile", None, &cookie).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+    let raw = cookie.strip_prefix("chat_session=").unwrap();
+    let expected = format!("chat_session={raw}; HttpOnly; SameSite=Lax; Path=/; Max-Age=86400");
+    assert_eq!(
+        response
+            .headers()
+            .get(header::SET_COOKIE)
+            .and_then(|value| value.to_str().ok()),
+        Some(expected.as_str())
+    );
+    let body = to_bytes(response.into_body(), 65536).await.unwrap();
+    let html = String::from_utf8(body.to_vec()).unwrap();
+    assert!(html.contains("修改本人資料"));
+    assert!(html.contains("action=\"/account/profile\""));
+    assert!(html.contains("name=\"csrf\""));
+    assert!(html.contains(&csrf(&cookie, "member-profile")));
+    assert!(html.contains("儲存本人資料"));
+
+    let remaining: i64 = sqlx::query_scalar(
+        "SELECT expires_at-unixepoch() FROM mbr_session WHERE id='fixture-session'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!((86_390..=86_400).contains(&remaining));
+    let stored_digest: String =
+        sqlx::query_scalar("SELECT token_hash FROM mbr_session WHERE id='fixture-session'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(stored_digest, token_digest(raw));
+
+    // 有效 Cookie 但被個人 deny：不能延長 SQLite，也不能發 Set-Cookie。
+    sqlx::query("UPDATE mbr_session SET expires_at=unixepoch()+70 WHERE id='fixture-session'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let before_deny: i64 =
+        sqlx::query_scalar("SELECT expires_at FROM mbr_session WHERE id='fixture-session'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    sqlx::query(
+        "UPDATE mbr_user_perm SET perm_filter='deny'
+         WHERE user_id='self-member' AND perm_id='member-profile-update'",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let denied = send(app.clone(), "/account/profile", None, &cookie).await;
+    assert_eq!(denied.status(), StatusCode::FORBIDDEN);
+    assert!(!denied.headers().contains_key(header::SET_COOKIE));
+    let after_deny: i64 =
+        sqlx::query_scalar("SELECT expires_at FROM mbr_session WHERE id='fixture-session'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(after_deny, before_deny);
+
+    // 恢復授權但 Session 已過期：不能復活到期列。
+    sqlx::query(
+        "UPDATE mbr_user_perm SET perm_filter='allow'
+         WHERE user_id='self-member' AND perm_id='member-profile-update'",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE mbr_session SET expires_at=unixepoch()-1 WHERE id='fixture-session'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let before_expired: i64 =
+        sqlx::query_scalar("SELECT expires_at FROM mbr_session WHERE id='fixture-session'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let expired = send(app.clone(), "/account/profile", None, &cookie).await;
+    assert_eq!(expired.status(), StatusCode::UNAUTHORIZED);
+    assert!(!expired.headers().contains_key(header::SET_COOKIE));
+    let after_expired: i64 =
+        sqlx::query_scalar("SELECT expires_at FROM mbr_session WHERE id='fixture-session'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(after_expired, before_expired);
+
+    let anonymous = send(app, "/account/profile", None, "").await;
+    assert_eq!(anonymous.status(), StatusCode::UNAUTHORIZED);
+    assert!(!anonymous.headers().contains_key(header::SET_COOKIE));
+}

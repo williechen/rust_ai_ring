@@ -145,18 +145,19 @@ fn page(title: &str, form: &str) -> Html<String> {
 async fn profile_page(
     State(pool): State<SqlitePool>,
     headers: HeaderMap,
-) -> Result<impl IntoResponse, StatusCode> {
+) -> Result<Response, StatusCode> {
     require_action(&pool, &headers, PROFILE).await?;
+    let html = chat_ui::account::render_profile(csrf(&headers, "member-profile")?);
+    // 授權完成後才延長同一 Session，拒絕的請求不能續期。
+    let cookie = crate::auth_session::renew_member_cookie(&pool, &headers).await?;
     Ok((
-        [(header::CACHE_CONTROL, "no-store")],
-        page(
-            "修改本人資料",
-            &format!(
-                "<form method=\"post\" action=\"/account/profile\"><input type=\"hidden\" name=\"csrf\" value=\"{}\"><label>顯示名稱<input name=\"display_name\" required maxlength=\"32\"></label><label>Email<input type=\"email\" name=\"email\" required maxlength=\"254\"></label><button>儲存本人資料</button></form>",
-                csrf(&headers, "member-profile")?
-            ),
-        ),
-    ))
+        [
+            (header::CACHE_CONTROL, "no-store"),
+            (header::SET_COOKIE, cookie.as_str()),
+        ],
+        Html(html),
+    )
+        .into_response())
 }
 
 async fn password_page(
