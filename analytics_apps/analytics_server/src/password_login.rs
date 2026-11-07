@@ -22,16 +22,15 @@ pub(crate) fn digest(value: &str) -> String {
         .map(|b| format!("{b:02x}"))
         .collect()
 }
-
-fn cookie(raw: &str) -> String {
-    format!("analytics_session={raw}; HttpOnly; SameSite=Strict; Path=/; Max-Age=1800")
+fn cookie(raw: &str, seconds: i64) -> String {
+    format!("analytics_session={raw}; HttpOnly; SameSite=Strict; Path=/; Max-Age={seconds}")
 }
 
-pub(crate) fn renewed(response: impl IntoResponse, raw: &str) -> Response {
+pub(crate) fn renewed(response: impl IntoResponse, raw: &str, seconds: i64) -> Response {
     let mut response = response.into_response();
     response.headers_mut().insert(
         header::SET_COOKIE,
-        cookie(raw).parse().expect("validated hex token"),
+        cookie(raw, seconds).parse().expect("validated hex token"),
     );
     response
 }
@@ -145,7 +144,7 @@ async fn login(
         uuid::Uuid::new_v4().simple(),
         uuid::Uuid::new_v4().simple()
     );
-    attempt
+    let seconds = attempt
         .session(&digest(&raw), &fingerprint)
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
@@ -157,6 +156,7 @@ async fn login(
             "/dashboard"
         }),
         &raw,
+        seconds,
     ))
 }
 
@@ -164,7 +164,7 @@ async fn login(
 pub(crate) async fn session(
     state: &IngestState,
     headers: &HeaderMap,
-) -> Result<(bool, String), StatusCode> {
+) -> Result<(bool, String, i64), StatusCode> {
     let raw = raw_cookie(headers).ok_or(StatusCode::UNAUTHORIZED)?;
     let found = analytics_persistence::login_session::lookup(&state.pool, &digest(&raw))
         .await
@@ -174,28 +174,12 @@ pub(crate) async fn session(
     if digest(&current) != fingerprint {
         return Err(StatusCode::UNAUTHORIZED);
     }
-    let refreshed = sqlx::query(
-        r#"UPDATE uac_login_session
-            SET expires_at=floor(extract(epoch from now()))::bigint+1800
-        WHERE token_hash=$1
-            AND expires_at>floor(extract(epoch from now()))::bigint
-            AND EXISTS (
-                SELECT 1
-                FROM uac_user
-                WHERE id=$2
-                    AND user_pd=$3 
-                    AND user_status='active')"#,
-    )
-    .bind(digest(&raw))
-    .bind(id)
-    .bind(current)
-    .execute(&state.pool)
-    .await
-    .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    if refreshed.rows_affected() != 1 {
-        return Err(StatusCode::UNAUTHORIZED);
-    }
-    Ok((restricted || must_change, raw))
+    let seconds =
+        analytics_persistence::login_session::refresh(&state.pool, &digest(&raw), &id, &current)
+            .await
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
+            .ok_or(StatusCode::UNAUTHORIZED)?;
+    Ok((restricted || must_change, raw, seconds))
 }
 
 /// A live person Session and source grant are required on every business query.
@@ -203,8 +187,8 @@ pub(crate) async fn require_source_session(
     state: &IngestState,
     headers: &HeaderMap,
     source: &str,
-) -> Result<String, StatusCode> {
-    let (restricted, raw) = session(state, headers).await?;
+) -> Result<(String, i64), StatusCode> {
+    let (restricted, raw, seconds) = session(state, headers).await?;
     if restricted {
         return Err(StatusCode::FORBIDDEN);
     }
@@ -226,14 +210,14 @@ pub(crate) async fn require_source_session(
     if !allowed {
         return Err(StatusCode::FORBIDDEN);
     }
-    Ok(raw)
+    Ok((raw, seconds))
 }
 
 async fn change_page(
     State(state): State<IngestState>,
     headers: HeaderMap,
 ) -> Result<Response, StatusCode> {
-    let (restricted, raw) = session(&state, &headers).await?;
+    let (restricted, raw, seconds) = session(&state, &headers).await?;
     let csrf = digest(&format!("change-password:{raw}"));
     let can_update = crate::page_acl::allowed(
         &state,
@@ -251,7 +235,7 @@ async fn change_page(
         pages,
         can_update,
     );
-    Ok(renewed(Html(html), &raw))
+    Ok(renewed(Html(html), &raw, seconds))
 }
 
 #[derive(Deserialize)]
@@ -271,7 +255,7 @@ async fn change_password(
     if headers.get(header::ORIGIN).and_then(|h| h.to_str().ok()) != Some(ORIGIN) {
         return Err(StatusCode::FORBIDDEN);
     }
-    let (_, raw) = session(&state, &headers).await?;
+    let (_, raw, _seconds) = session(&state, &headers).await?;
     if form.csrf != digest(&format!("change-password:{raw}")) {
         return Err(StatusCode::FORBIDDEN);
     }
@@ -395,13 +379,13 @@ async fn dashboard(
     headers: HeaderMap,
     Query(query): Query<DashboardSourceQuery>,
 ) -> Response {
-    let (restricted, raw) = match session(&state, &headers).await {
+    let (restricted, raw, seconds) = match session(&state, &headers).await {
         Ok(v) => v,
         Err(StatusCode::UNAUTHORIZED) => return Redirect::to("/login").into_response(),
         Err(e) => return e.into_response(),
     };
     if restricted {
-        return renewed(Redirect::to("/change-password"), &raw);
+        return renewed(Redirect::to("/change-password"), &raw, seconds);
     }
 
     let default_source = if query.source.is_none() {
@@ -480,7 +464,7 @@ async fn dashboard(
         pages,
         can_export,
     );
-    renewed(Html(html), &raw)
+    renewed(Html(html), &raw, seconds)
 }
 
 async fn summary(
@@ -488,14 +472,14 @@ async fn summary(
     Path(source): Path<String>,
     headers: HeaderMap,
 ) -> Result<Response, StatusCode> {
-    let raw = require_source_session(&state, &headers, &source).await?;
+    let (raw, seconds) = require_source_session(&state, &headers, &source).await?;
     if !matches!(source.as_str(), "web_chat" | "desktop_pet") {
         return Err(StatusCode::BAD_REQUEST);
     }
     let rows = summary_for_source(&state.pool, &source)
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    Ok(renewed(Json(rows), &raw))
+    Ok(renewed(Json(rows), &raw, seconds))
 }
 
 #[derive(Deserialize)]
@@ -533,9 +517,120 @@ async fn logout(
         .into_response())
 }
 
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SessionSettingsForm {
+    idle_seconds: i64,
+    csrf: String,
+}
+
+async fn session_settings_page(
+    State(state): State<IngestState>,
+    headers: HeaderMap,
+) -> Result<Response, StatusCode> {
+    let (restricted, raw, seconds) = session(&state, &headers).await?;
+    if restricted {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let configured = analytics_persistence::session_settings::read(&state.pool)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let can_update = crate::page_acl::allowed(
+        &state,
+        &raw,
+        "/settings/session",
+        crate::page_acl::Crud::Update,
+    )
+    .await
+    .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let pages = crate::page_acl::pages(&state, &raw).await?;
+    let html = crate::dashboard_ui::render_session_settings(
+        configured,
+        digest(&format!("session-settings:{raw}")),
+        digest(&format!("logout:{raw}")),
+        pages,
+        can_update,
+    );
+    Ok(renewed(Html(html), &raw, seconds))
+}
+
+async fn update_session_settings(
+    State(state): State<IngestState>,
+    headers: HeaderMap,
+    Form(form): Form<SessionSettingsForm>,
+) -> Result<Response, StatusCode> {
+    if headers.get(header::ORIGIN).and_then(|v| v.to_str().ok()) != Some(ORIGIN) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let (restricted, raw, _) = session(&state, &headers).await?;
+    if restricted || form.csrf != digest(&format!("session-settings:{raw}")) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    if !analytics_domain::session_policy::valid_idle_seconds(form.idle_seconds) {
+        return Err(StatusCode::UNPROCESSABLE_ENTITY);
+    }
+    let mut tx = state
+        .pool
+        .begin()
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    // 寫設定前在同一交易鎖定 Session 與帳號，並重新核對權限。
+    let row: Option<(String, String, String, bool, bool)> = sqlx::query_as(
+        "SELECT u.id,u.user_pd,s.credential_fingerprint,s.restricted,u.is_init_pd
+         FROM uac_user u JOIN uac_login_session s ON s.user_id=u.id
+         WHERE s.token_hash=$1
+           AND s.expires_at>floor(extract(epoch from now()))::bigint
+           AND u.user_status='active'
+         FOR UPDATE OF u,s",
+    )
+    .bind(digest(&raw))
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let (actor, encoded, fingerprint, restricted, initial) = row.ok_or(StatusCode::UNAUTHORIZED)?;
+    if restricted || initial {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    if digest(&encoded) != fingerprint {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let grant: bool = sqlx::query_scalar(crate::page_acl::PERMISSION_SQL)
+        .bind(digest(&raw))
+        .bind("/settings/session")
+        .bind("update")
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    if !grant {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    analytics_persistence::session_settings::update(&mut tx, form.idle_seconds)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    sqlx::query(
+        "INSERT INTO analytics_account_audit(id,actor_id,target_id,action,result)
+         VALUES($1,$2,$2,'set_session_idle','updated')",
+    )
+    .bind(uuid::Uuid::new_v4().to_string())
+    .bind(actor)
+    .execute(&mut *tx)
+    .await
+    .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    tx.commit()
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    // 讀回同一 policy 並再次刷新，成功回應 Cookie 與資料庫 TTL 一致。
+    let (_, raw, seconds) = session(&state, &headers).await?;
+    Ok(renewed(Redirect::to("/settings/session"), &raw, seconds))
+}
+
 pub fn build(state: IngestState) -> Router {
     Router::new()
         .route("/navigation", get(crate::page_acl::navigation))
+        .route(
+            "/settings/session",
+            get(session_settings_page).post(update_session_settings),
+        )
         .route("/accounts/new", get(crate::accounts::page))
         .route("/accounts", post(crate::accounts::create))
         .route("/accounts/{id}/disable", post(crate::accounts::disable))

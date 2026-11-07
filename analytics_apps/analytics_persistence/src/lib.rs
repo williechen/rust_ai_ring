@@ -3,6 +3,7 @@ pub mod login_attempt;
 pub mod login_session;
 pub mod navigation;
 pub mod page_permissions;
+pub mod session_settings;
 pub mod viewer_access;
 
 /// PostgreSQL 聚合查詢結果，供 JSON API 與 Leptos SSR 共用。

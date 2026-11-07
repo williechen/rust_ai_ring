@@ -193,7 +193,7 @@ async fn upgrade_from_exact_f6_migrations_preserves_checksums_and_deny(pool: sql
     let viewer_update:i64=sqlx::query_scalar("SELECT count(*) FROM uac_role_acl WHERE role_id='analytics-viewer' AND acl_id='analytics-password-update'").fetch_one(&pool).await.unwrap();
     assert_eq!(viewer_update, 0);
     let definitions:(i64,i64)=sqlx::query_as("SELECT count(*) FILTER(WHERE acl_category='page'),count(*) FILTER(WHERE acl_category='action') FROM uac_acl").fetch_one(&pool).await.unwrap();
-    assert_eq!(definitions, (11, 44));
+    assert_eq!(definitions, (12, 48));
     let grants:i64=sqlx::query_scalar("SELECT count(*) FROM uac_role_acl WHERE role_id='analytics-admin' AND (acl_id IN('analytics-roles','analytics-acls') OR acl_id IN(SELECT id FROM uac_acl WHERE acl_parent_id IN('analytics-roles','analytics-acls')))").fetch_one(&pool).await.unwrap();
     assert_eq!(grants, 10);
     std::fs::remove_dir_all(dir).unwrap();

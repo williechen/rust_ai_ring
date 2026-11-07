@@ -44,10 +44,17 @@ impl LoginAttempt {
             .await
             .map_err(|_| "無法提交等待資料".into())
     }
-    pub async fn session(mut self, token_hash: &str, fingerprint: &str) -> Result<(), String> {
+    pub async fn session(mut self, token_hash: &str, fingerprint: &str) -> Result<i64, String> {
         sqlx::query("DELETE FROM uac_login_session WHERE expires_at<=floor(extract(epoch from clock_timestamp()))::bigint").execute(&mut *self.tx).await.map_err(|_|"無法清理Session")?;
-        sqlx::query("INSERT INTO uac_login_session(token_hash,user_id,credential_fingerprint,restricted,expires_at) VALUES($1,$2,$3,$4,floor(extract(epoch from clock_timestamp()))::bigint+1800)").bind(token_hash).bind(&self.user_id).bind(fingerprint).bind(self.initial).execute(&mut *self.tx).await.map_err(|_|"無法建立Session")?;
-        self.commit().await
+        let seconds: i64 = sqlx::query_scalar(
+            "SELECT idle_seconds FROM analytics_session_policy WHERE id=1 FOR SHARE",
+        )
+        .fetch_one(&mut *self.tx)
+        .await
+        .map_err(|_| "無法讀取閒置期限")?;
+        sqlx::query("INSERT INTO uac_login_session(token_hash,user_id,credential_fingerprint,restricted,expires_at) VALUES($1,$2,$3,$4,floor(extract(epoch from clock_timestamp()))::bigint+$5)").bind(token_hash).bind(&self.user_id).bind(fingerprint).bind(self.initial).bind(seconds).execute(&mut *self.tx).await.map_err(|_|"無法建立Session")?;
+        self.commit().await?;
+        Ok(seconds)
     }
 }
 

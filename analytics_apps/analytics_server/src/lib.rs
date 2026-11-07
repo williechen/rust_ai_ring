@@ -205,7 +205,7 @@ async fn source_kind_summary(
     headers: HeaderMap,
 ) -> Result<axum::response::Response, StatusCode> {
     // 先驗人員 Session，再驗來源／事件類型，最後才碰統計資料。
-    let raw = password_login::require_source_session(&state, &headers, &source).await?;
+    let (raw, seconds) = password_login::require_source_session(&state, &headers, &source).await?;
     if !matches!(source.as_str(), "web_chat" | "desktop_pet") {
         return Err(StatusCode::BAD_REQUEST);
     }
@@ -215,7 +215,7 @@ async fn source_kind_summary(
     let rows = summary_for_source_and_type(&state.pool, &source, &event_type)
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    Ok(password_login::renewed(Json(rows), &raw))
+    Ok(password_login::renewed(Json(rows), &raw, seconds))
 }
 
 #[cfg(test)]

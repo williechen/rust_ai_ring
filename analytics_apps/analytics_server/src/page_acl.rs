@@ -43,6 +43,7 @@ fn operation(route: &str, method: &Method) -> Option<Crud> {
         ("/accounts/{id}/disable", &Method::POST) => Some(Crud::Delete),
         ("/accounts", &Method::DELETE) => Some(Crud::Delete),
         ("/change-password", &Method::POST) => Some(Crud::Update),
+        ("/settings/session", &Method::POST) => Some(Crud::Update),
         (_, &Method::GET | &Method::HEAD) => Some(Crud::Read),
         _ => None,
     }
@@ -64,6 +65,7 @@ pub(crate) async fn require(
             "/accounts/new"
         }
         "/change-password" => "/change-password",
+        "/settings/session" => "/settings/session",
         "/api/v1/events/{source}/summary"
         | "/api/v1/events/{source}/summary/{event_type}"
         | "/api/v1/events/{source}/export.csv" => route,
@@ -72,7 +74,7 @@ pub(crate) async fn require(
     let Some(crud) = operation(route, request.method()) else {
         return StatusCode::METHOD_NOT_ALLOWED.into_response();
     };
-    let (restricted, raw) = match session(&state, request.headers()).await {
+    let (restricted, raw, _seconds) = match session(&state, request.headers()).await {
         Ok(v) => v,
         Err(StatusCode::UNAUTHORIZED) if page == "/dashboard" => {
             return Redirect::to("/login").into_response();
@@ -292,12 +294,16 @@ fn render_navigation(items: Vec<TreeRow>) -> String {
 pub(crate) async fn navigation(
     State(state): State<IngestState>,
     headers: axum::http::HeaderMap,
-) -> Result<axum::response::Html<String>, StatusCode> {
-    let (_, raw) = session(&state, &headers).await?;
-    Ok(axum::response::Html(
-        tree(&state, &raw)
-            .await
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?,
+) -> Result<Response, StatusCode> {
+    let (_, raw, seconds) = session(&state, &headers).await?;
+    Ok(crate::password_login::renewed(
+        axum::response::Html(
+            tree(&state, &raw)
+                .await
+                .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?,
+        ),
+        &raw,
+        seconds,
     ))
 }
 

@@ -20,7 +20,7 @@ pub async fn export_summary(
     Query(query): Query<ExportQuery>,
     headers: HeaderMap,
 ) -> Result<Response, StatusCode> {
-    let raw = require_source_session(&state, &headers, &source).await?;
+    let (raw, seconds) = require_source_session(&state, &headers, &source).await?;
     if !matches!(source.as_str(), "web_chat" | "desktop_pet") {
         return Err(StatusCode::BAD_REQUEST);
     }
@@ -44,5 +44,5 @@ pub async fn export_summary(
             .parse()
             .expect("source allowlist"),
     );
-    Ok(crate::password_login::renewed(response, &raw))
+    Ok(crate::password_login::renewed(response, &raw, seconds))
 }

@@ -346,6 +346,56 @@ pub(crate) fn render_change_password_authorized(
     )
 }
 
+#[component]
+fn SessionSettingsView(
+    seconds: i64,
+    csrf: String,
+    logout_csrf: String,
+    pages: Vec<NavigationPage>,
+    can_update: bool,
+) -> impl IntoView {
+    view! {
+        <html lang="zh-Hant"><head>
+            <meta charset="utf-8"/><title>"工作階段設定"</title>
+            <style>{include_str!("dashboard.css")}</style>
+        </head><body>
+            <ManagementShell pages logout_csrf>
+                <section aria-labelledby="session-settings-title">
+                    <h1 id="session-settings-title">"管理工作階段閒置秒數"</h1>
+                    <p>"範圍 60 至 86400 秒；有效登入與續期套用目前設定。"</p>
+                    {if can_update {
+                        view! { <form method="post" action="/settings/session">
+                            <input type="hidden" name="csrf" value=csrf/>
+                            <label for="session-seconds">"閒置秒數"</label>
+                            <input id="session-seconds" type="number" name="idle_seconds"
+                                min="60" max="86400" required value=seconds/>
+                            <button type="submit">"儲存閒置期限"</button>
+                        </form> }.into_any()
+                    } else {
+                        view! { <p>"沒有修改工作階段設定的權限。"</p> }.into_any()
+                    }}
+                </section>
+            </ManagementShell>
+        </body></html>
+    }
+}
+
+pub(crate) fn render_session_settings(
+    seconds: i64,
+    csrf: String,
+    logout_csrf: String,
+    pages: Vec<NavigationPage>,
+    can_update: bool,
+) -> String {
+    format!(
+        "<!doctype html>{}",
+        view! {
+            <SessionSettingsView seconds csrf logout_csrf pages can_update/>
+        }
+        .to_html()
+    )
+}
+
 #[cfg(test)]
 mod day43_source_switch_tests {
     use super::*;

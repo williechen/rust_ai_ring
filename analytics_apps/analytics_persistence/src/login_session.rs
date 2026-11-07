@@ -22,6 +22,30 @@ pub async fn lookup(pool: &PgPool, token_hash: &str) -> Result<Option<SessionRow
     .await
 }
 
+pub async fn refresh(
+    pool: &PgPool,
+    digest: &str,
+    user_id: &str,
+    password_hash: &str,
+) -> Result<Option<i64>, sqlx::Error> {
+    // 在同一 UPDATE statement 取得與到期時間一致的設定秒數。
+    sqlx::query_scalar(
+        r#"UPDATE uac_login_session AS s
+           SET expires_at=floor(extract(epoch from now()))::bigint+cfg.idle_seconds
+           FROM analytics_session_policy AS cfg
+           WHERE cfg.id=1 AND s.token_hash=$1
+             AND s.expires_at>floor(extract(epoch from now()))::bigint
+             AND EXISTS (SELECT 1 FROM uac_user
+                         WHERE id=$2 AND user_pd=$3 AND user_status='active')
+           RETURNING cfg.idle_seconds"#,
+    )
+    .bind(digest)
+    .bind(user_id)
+    .bind(password_hash)
+    .fetch_optional(pool)
+    .await
+}
+
 /// 密碼變更的交易同時撤銷等待狀態與所有既有工作階段。
 pub async fn revoke_after_password_change(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,

@@ -15,8 +15,8 @@ use leptos::prelude::*;
 async fn account_manager(
     state: &IngestState,
     headers: &HeaderMap,
-) -> Result<(String, String), StatusCode> {
-    let (restricted, raw) = session(state, headers).await?;
+) -> Result<(String, String, i64), StatusCode> {
+    let (restricted, raw, seconds) = session(state, headers).await?;
     if restricted {
         return Err(StatusCode::FORBIDDEN);
     }
@@ -28,7 +28,7 @@ async fn account_manager(
             .fetch_optional(&state.pool)
             .await
             .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    Ok((actor.ok_or(StatusCode::UNAUTHORIZED)?, raw))
+    Ok((actor.ok_or(StatusCode::UNAUTHORIZED)?, raw, seconds))
 }
 
 #[derive(Default, serde::Deserialize)]
@@ -43,7 +43,7 @@ pub(crate) async fn page(
     headers: HeaderMap,
     Query(query): Query<Notice>,
 ) -> Result<Response, StatusCode> {
-    let (_, raw) = account_manager(&state, &headers).await?;
+    let (_, raw, seconds) = account_manager(&state, &headers).await?;
     let csrf = digest(&format!("create-account:{raw}"));
     let message = if query.created.as_deref() == Some("1") {
         "已建立唯讀帳號；請安全交付初始密碼，首次登入須改密碼。"
@@ -133,7 +133,7 @@ pub(crate) async fn page(
         </html>
     }.to_html();
 
-    Ok(renewed(Html(html), &raw))
+    Ok(renewed(Html(html), &raw, seconds))
 }
 
 #[derive(serde::Deserialize)]
@@ -148,7 +148,7 @@ pub(crate) async fn disable(
     headers: HeaderMap,
     Form(form): Form<DisableViewer>,
 ) -> Result<Response, StatusCode> {
-    let (actor, raw) = account_manager(&state, &headers).await?;
+    let (actor, raw, seconds) = account_manager(&state, &headers).await?;
     if actor == id
         || headers.get(header::ORIGIN).and_then(|h| h.to_str().ok())
             != Some("http://127.0.0.1:3100")
@@ -204,7 +204,11 @@ pub(crate) async fn disable(
         .bind(uuid::Uuid::new_v4().to_string()).bind(&actor).bind(&id)
         .execute(&mut *tx).await.map_err(db_error)?;
     tx.commit().await.map_err(db_error)?;
-    Ok(renewed(Redirect::to("/accounts/new?disabled=1"), &raw))
+    Ok(renewed(
+        Redirect::to("/accounts/new?disabled=1"),
+        &raw,
+        seconds,
+    ))
 }
 
 #[derive(serde::Deserialize)]
@@ -231,7 +235,7 @@ pub(crate) async fn create(
     headers: HeaderMap,
     Form(form): Form<NewViewer>,
 ) -> Result<Response, StatusCode> {
-    let (actor, raw) = account_manager(&state, &headers).await?;
+    let (actor, raw, seconds) = account_manager(&state, &headers).await?;
     if headers.get(header::ORIGIN).and_then(|h| h.to_str().ok()) != Some("http://127.0.0.1:3100")
         || form.csrf != digest(&format!("create-account:{raw}"))
     {
@@ -327,7 +331,11 @@ async fn create_inner(
     sqlx::query("INSERT INTO analytics_account_audit(id,actor_id,target_id,action,result) VALUES($1,$2,$3,'create_viewer','created')")
         .bind(uuid::Uuid::new_v4().to_string()).bind(actor).bind(&id).execute(&mut *tx).await.map_err(db_error)?;
     tx.commit().await.map_err(db_error)?;
-    Ok(renewed(Redirect::to("/accounts/new?created=1"), &raw))
+    Ok(renewed(
+        Redirect::to("/accounts/new?created=1"),
+        &raw,
+        seconds,
+    ))
 }
 
 #[derive(serde::Deserialize)]
@@ -344,7 +352,7 @@ pub(crate) async fn update_sources(
     Form(form): Form<SourceForm>,
 ) -> Result<Response, StatusCode> {
     use analytics_application::viewer_access::{AccessError, Actor, SourceChanges, SourceChoice};
-    let (actor, raw) = account_manager(&state, &headers).await?;
+    let (actor, raw, seconds) = account_manager(&state, &headers).await?;
     if headers.get(header::ORIGIN).and_then(|h| h.to_str().ok()) != Some("http://127.0.0.1:3100")
         || form.csrf != digest(&format!("update-sources:{raw}:{id}"))
     {
@@ -371,5 +379,9 @@ pub(crate) async fn update_sources(
         AccessError::NotFound => StatusCode::NOT_FOUND,
         AccessError::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
     })?;
-    Ok(renewed(Redirect::to("/accounts/new?updated=1"), &raw))
+    Ok(renewed(
+        Redirect::to("/accounts/new?updated=1"),
+        &raw,
+        seconds,
+    ))
 }
