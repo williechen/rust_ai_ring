@@ -121,7 +121,7 @@ async fn already_upgraded_database_merges_generated_duplicates_and_reopens() {
          ('old-walk','a','local-owner','散步',1,0,'2020-01-01','2020-01-02'),
          ('old-sit','a','local-owner','坐下',0,0,'2020-02-01','2020-02-02'),
          ('old-play','a','local-owner','玩耍',1,0,'2020-03-01','2020-03-02'),
-          ('old-train','a','local-owner','訓練',0,1,'2020-03-03','2020-03-04'),
+         ('old-train','a','local-owner','訓練',0,1,'2020-03-03','2020-03-04'),
          ('other-walk','a','other-owner','walk',1,0,'2020-04-01','2020-04-02');
          INSERT INTO pet_extra(id,pet_id,owner_id,category,content) VALUES
          ('mood-1','a','local-owner','personality','喜'),
@@ -194,14 +194,6 @@ async fn already_upgraded_database_merges_generated_duplicates_and_reopens() {
                 "2020-02-02".into()
             ),
             (
-                "old-walk".into(),
-                "walk".into(),
-                0,
-                0,
-                "2020-01-01".into(),
-                "2020-01-02".into()
-            ),
-            (
                 "old-train".into(),
                 "train".into(),
                 0,
@@ -209,6 +201,14 @@ async fn already_upgraded_database_merges_generated_duplicates_and_reopens() {
                 "2020-03-03".into(),
                 "2020-03-04".into()
             ),
+            (
+                "old-walk".into(),
+                "walk".into(),
+                0,
+                0,
+                "2020-01-01".into(),
+                "2020-01-02".into()
+            )
         ]
     );
     let current: Vec<(i64, Vec<u8>)> =
