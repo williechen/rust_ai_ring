@@ -3,20 +3,7 @@ mod support;
 use analytics_server::{IngestState, IngestTokens, bootstrap, password_login};
 use axum::http::StatusCode;
 use std::sync::Arc;
-use support::http::{body_text, response_cookie, send};
-
-fn csrf(html: &str, action: &str) -> String {
-    html.split(&format!("action=\"{action}\""))
-        .nth(1)
-        .expect("正式表單須存在")
-        .split("name=\"csrf\" value=\"")
-        .nth(1)
-        .unwrap()
-        .split('"')
-        .next()
-        .unwrap()
-        .into()
-}
+use support::http::{body_text, form_csrf, response_cookie, send};
 
 #[sqlx::test(migrations = "../migrations")]
 async fn source_edits_take_effect_for_existing_session_and_respect_update_deny(pool: sqlx::PgPool) {
@@ -45,7 +32,7 @@ async fn source_edits_take_effect_for_existing_session_and_respect_update_deny(p
     assert_eq!(login.status(), StatusCode::SEE_OTHER);
     let admin_cookie = response_cookie(&login);
     let page = body_text(send(app.clone(), "/accounts/new", None, Some(&admin_cookie)).await).await;
-    let token = csrf(&page, "/accounts");
+    let token = form_csrf(&page, "/accounts");
     assert_eq!(send(app.clone(),"/accounts",Some(&format!("username=reader47&password=reader-password&email=reader47%40example.test&chat=on&csrf={token}")),Some(&admin_cookie)).await.status(),StatusCode::SEE_OTHER);
     let id: String = sqlx::query_scalar("SELECT id FROM uac_user WHERE user_acnt='reader47'")
         .fetch_one(&pool)
@@ -89,7 +76,7 @@ async fn source_edits_take_effect_for_existing_session_and_respect_update_deny(p
     );
     let action = format!("/accounts/{id}/sources");
     let page = body_text(send(app.clone(), "/accounts/new", None, Some(&admin_cookie)).await).await;
-    let token = csrf(&page, &action);
+    let token = form_csrf(&page, &action);
     assert_eq!(
         send(
             app.clone(),
@@ -216,7 +203,7 @@ async fn source_edits_take_effect_for_existing_session_and_respect_update_deny(p
     sqlx::query("INSERT INTO uac_user_acl(user_id,acl_id,acl_filter,created_at) VALUES($1,'analytics-accounts','allow',now())").bind(&id).execute(&pool).await.unwrap();
     let reader_page =
         body_text(send(app.clone(), "/accounts/new", None, Some(&reader_cookie)).await).await;
-    let reader_token = csrf(&reader_page, "/accounts/target47/sources");
+    let reader_token = form_csrf(&reader_page, "/accounts/target47/sources");
     assert_eq!(
         send(
             app.clone(),

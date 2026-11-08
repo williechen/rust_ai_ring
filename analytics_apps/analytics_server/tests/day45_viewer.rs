@@ -220,8 +220,9 @@ async fn admin_creates_viewer_first_change_and_source_revoke_affects_same_sessio
     assert_eq!(page.status(), StatusCode::OK);
     let html = body_text(page).await;
     assert!(html.contains("Pet 全部事件類型"));
-    assert!(html.contains("data-acl-page=\"analytics-pet\""));
-    assert!(!html.contains("data-acl-page=\"analytics-chat\""));
+    assert!(html.contains(">來源分析</a>"));
+    assert!(html.contains("value=\"desktop_pet\""));
+    assert!(!html.contains("value=\"web_chat\""));
     // Independent user addition can grant a capability absent from the viewer role.
     sqlx::query("INSERT INTO uac_user_acl(user_id,acl_id,acl_filter,created_at) SELECT id,'analytics-accounts','allow',now() FROM uac_user WHERE user_acnt='reader'").execute(&pool).await.unwrap();
     let delegated = send(app.clone(), "/accounts/new", None, Some(&reader)).await;

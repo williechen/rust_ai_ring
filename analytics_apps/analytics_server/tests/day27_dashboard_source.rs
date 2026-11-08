@@ -92,7 +92,7 @@ async fn day27_session_admin_can_switch_real_source_counts(pool: sqlx::PgPool) {
     assert_eq!(pet.status(), StatusCode::OK);
     let pet_html = body_text(pet).await;
     assert!(pet_html.contains("全部事件類型：2 筆已提交事件"));
-    assert!(pet_html.contains("/dashboard?source=web_chat"));
+    assert!(pet_html.contains("value=\"web_chat\""));
 
     let forbidden = get(app(pool), "/dashboard?source=unknown", Some(&cookie)).await;
     assert_eq!(forbidden.status(), StatusCode::BAD_REQUEST);

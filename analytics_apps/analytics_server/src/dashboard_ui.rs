@@ -4,7 +4,7 @@ use leptos::prelude::*;
 use analytics_persistence::EventSummary;
 
 use crate::dashboard_summary::summary_count_label;
-use crate::dashboard_url::{encode_query_component, export_csv_url, source_switch_url};
+use crate::dashboard_url::{encode_query_component, export_csv_url};
 use crate::management_shell::ManagementShell;
 
 /// 只格式化既有篩選文案，不影響來源與事件類型的授權。
@@ -29,10 +29,10 @@ fn DashboardView(
     pages: Vec<NavigationPage>,
     can_export: bool,
 ) -> impl IntoView {
-    let chat_current = (source_label == "Chat").then_some("page");
-    let pet_current = (source_label == "Pet").then_some("page");
-    let chat_source_url = source_switch_url("web_chat", &event_type);
-    let pet_source_url = source_switch_url("desktop_pet", &event_type);
+    let sources = [
+        ("web_chat", "Chat", allow_chat),
+        ("desktop_pet", "Pet", allow_pet),
+    ];
     let clear_url = format!("/dashboard?source={source}");
     let export_url = export_csv_url(&source, &event_type);
     let filter_description = filter_description(&event_type);
@@ -49,17 +49,17 @@ fn DashboardView(
             </head>
             <body>
                 <ManagementShell pages logout_csrf>
-                    <nav aria-label="事件來源">
-                        {allow_chat.then(|| view! {
-                            <a href=chat_source_url aria-current=chat_current>"Chat 事件"</a>
-                        })}
-                        {allow_pet.then(|| view! {
-                            <a href=pet_source_url aria-current=pet_current>"Pet 事件"</a>
-                        })}
-                    </nav>
+                    <h2>"來源分析"</h2>
                     {can_export.then(|| view! { <a href=export_url>"匯出目前篩選 CSV"</a> })}
                     <form method="get" action="/dashboard">
-                        <input type="hidden" name="source" value=source/>
+                        <label for="analytics-source">"來源"</label>
+                        <select id="analytics-source" name="source">
+                            {sources.into_iter().filter(|(_, _, allowed)| *allowed)
+                                .map(|(id, name, _)| {
+                                    let selected = source == id;
+                                    view! { <option value=id selected=selected>{name}</option> }
+                                }).collect_view()}
+                        </select>
                         <label for="event-type">"事件類型（精確比對）"</label>
                         <input
                             id="event-type"
@@ -402,11 +402,10 @@ mod day43_source_switch_tests {
     #[test]
     fn source_navigation_preserves_exact_utf8_filter_and_escapes_markup() {
         let html = render_dashboard_filtered("Chat", 1, "web_chat", "chat.中文 &");
-        assert!(html.contains("source=desktop_pet&amp;event_type=chat.%E4%B8%AD%E6%96%87%20%26"));
-        assert!(html.contains("source=web_chat&amp;event_type=chat.%E4%B8%AD%E6%96%87%20%26"));
-        assert!(!html.contains("event_type=chat.中文 &"));
-        let all = render_dashboard_filtered("Chat", 0, "web_chat", "");
-        assert!(all.contains("/dashboard?source=desktop_pet"));
+        assert!(html.contains("name=\"source\""));
+        assert!(html.contains("value=\"desktop_pet\""));
+        assert!(html.contains("value=\"chat.中文 &amp;\""));
+        assert!(html.contains("event_type=chat.%E4%B8%AD%E6%96%87%20%26"));
     }
 }
 
@@ -441,7 +440,8 @@ mod day29_tests {
     fn active_source_is_marked_for_accessibility() {
         let html = render_dashboard("Pet", 3);
         assert!(html.contains("desktop_pet"));
-        assert!(html.contains("aria-current=\"page\""));
+        assert!(html.contains("for=\"analytics-source\""));
+        assert!(html.contains("value=\"desktop_pet\" selected"));
         assert!(html.contains("全部事件類型：3 筆已提交事件"));
     }
 }
@@ -492,7 +492,8 @@ mod day32_filter_tests {
         assert_eq!(html.matches("<!doctype html>").count(), 1);
         assert!(html.contains("method=\"get\""));
         assert!(html.contains("action=\"/dashboard\""));
-        assert!(html.contains("name=\"source\" value=\"web_chat\""));
+        assert!(html.contains("name=\"source\""));
+        assert!(html.contains("value=\"web_chat\""));
         assert!(html.contains("for=\"event-type\""));
         assert!(html.contains("id=\"event-type\""));
         assert!(html.contains("name=\"event_type\""));
@@ -602,7 +603,7 @@ mod day48_source_navigation_acl_tests {
     use super::*;
 
     #[test]
-    fn source_links_only_show_authorized_sources() {
+    fn source_picker_only_shows_authorized_sources() {
         let only_pet = render_dashboard_with_rows_csrf_acl(
             "Pet",
             0,
@@ -613,8 +614,8 @@ mod day48_source_navigation_acl_tests {
             false,
             true,
         );
-        assert!(only_pet.contains("Pet 事件"));
-        assert!(!only_pet.contains("Chat 事件"));
+        assert!(only_pet.contains("value=\"desktop_pet\""));
+        assert!(!only_pet.contains("value=\"web_chat\""));
         assert!(!only_pet.contains("source=web_chat"));
         let only_chat = render_dashboard_with_rows_csrf_acl(
             "Chat",
@@ -626,8 +627,8 @@ mod day48_source_navigation_acl_tests {
             true,
             false,
         );
-        assert!(only_chat.contains("Chat 事件"));
-        assert!(!only_chat.contains("Pet 事件"));
+        assert!(only_chat.contains("value=\"web_chat\""));
+        assert!(!only_chat.contains("value=\"desktop_pet\""));
         assert!(!only_chat.contains("source=desktop_pet"));
     }
 }

@@ -14,7 +14,17 @@ pub struct NavigationPage {
 #[component]
 pub fn Navigation(pages: Vec<NavigationPage>) -> impl IntoView {
     let mut groups: BTreeMap<String, (String, BTreeMap<String, NavigationPage>)> = BTreeMap::new();
-    for page in pages {
+    for mut page in pages {
+        // 來源授權仍分別核對，一般導覽只呈現共用的分析入口。
+        match page.path.as_str() {
+            "/api/v1/events/web_chat"
+            | "/api/v1/events/desktop_pet"
+            | "/api/v1/events/{source}/summary"
+            | "/api/v1/events/{source}/summary/{event_type}"
+            | "/api/v1/events/{source}/export.csv" => continue,
+            "/dashboard" => page.page_name = "來源分析".into(),
+            _ => {}
+        }
         groups
             .entry(page.category_id.clone())
             .or_insert_with(|| (page.category_name.clone(), BTreeMap::new()))
@@ -28,8 +38,6 @@ pub fn Navigation(pages: Vec<NavigationPage>) -> impl IntoView {
                 <li data-acl-category=category_id>{name}<ul>
                     {pages.into_iter().map(|(id, page)| {
                         let href = match page.path.as_str() {
-                            "/api/v1/events/web_chat" => Some("/dashboard?source=web_chat".to_owned()),
-                            "/api/v1/events/desktop_pet" => Some("/dashboard?source=desktop_pet".to_owned()),
                             "/dashboard" | "/accounts/new" | "/change-password" => Some(page.path.clone()),
                             _ => None,
                         };
@@ -66,21 +74,29 @@ mod tests {
         });
     }
     #[test]
-    fn source_pages_link_to_existing_dashboard_routes() {
+    fn sources_share_one_dashboard_navigation_entry() {
         Owner::new().with(|| {
-            let pages = ["web_chat", "desktop_pet"]
-                .into_iter()
-                .map(|source| NavigationPage {
-                    category_id: "c".into(),
-                    category_name: "來源".into(),
-                    page_id: source.into(),
-                    page_name: source.into(),
-                    path: format!("/api/v1/events/{source}"),
-                })
-                .collect();
+            let pages = [
+                "/dashboard",
+                "/api/v1/events/web_chat",
+                "/api/v1/events/desktop_pet",
+                "/api/v1/events/{source}/summary",
+                "/api/v1/events/{source}/summary/{event_type}",
+                "/api/v1/events/{source}/export.csv",
+            ]
+            .into_iter()
+            .map(|path| NavigationPage {
+                category_id: "c".into(),
+                category_name: "資訊分析".into(),
+                page_id: path.into(),
+                page_name: path.into(),
+                path: path.into(),
+            })
+            .collect();
             let html = view! { <Navigation pages=pages /> }.to_html();
-            assert!(html.contains("href=\"/dashboard?source=web_chat\""));
-            assert!(html.contains("href=\"/dashboard?source=desktop_pet\""));
+            assert_eq!(html.matches("data-acl-page=").count(), 1);
+            assert!(html.contains("href=\"/dashboard\">來源分析</a>"));
+            assert!(!html.contains("/api/v1/events/"));
         });
     }
 }

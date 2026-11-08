@@ -329,7 +329,7 @@ mod day49_navigation_tests {
                 "<分類>".into(),
                 "page".into(),
                 "<頁面>".into(),
-                "/dashboard".into(),
+                "/accounts/new".into(),
                 Some(action.into()),
                 Some("刪除".into()),
             )
@@ -339,7 +339,7 @@ mod day49_navigation_tests {
         assert!(!html.contains("刪除"));
         assert_eq!(html.matches("data-acl-category=").count(), 1);
         assert_eq!(html.matches("data-acl-page=").count(), 1);
-        assert!(html.contains("href=\"/dashboard\""));
+        assert!(html.contains("href=\"/accounts/new\""));
         assert!(html.contains("&lt;分類&gt;"));
         assert!(html.contains("&lt;頁面&gt;"));
     }

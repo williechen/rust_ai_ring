@@ -54,3 +54,16 @@ pub async fn body_text(response: Response) -> String {
     )
     .unwrap()
 }
+
+pub fn form_csrf(html: &str, action: &str) -> String {
+    html.split(&format!("action=\"{action}\""))
+        .nth(1)
+        .expect("正式表單須存在")
+        .split("name=\"csrf\" value=\"")
+        .nth(1)
+        .unwrap()
+        .split('"')
+        .next()
+        .unwrap()
+        .into()
+}
