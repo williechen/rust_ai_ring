@@ -1,6 +1,7 @@
 pub mod login_attempt;
 pub mod member_session;
 pub mod room_access;
+pub mod ws_message;
 
 use async_trait::async_trait;
 use chat_application::repository::{MessageRepository, RepositoryError, RoomRepository};

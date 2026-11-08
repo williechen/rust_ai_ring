@@ -1,6 +1,9 @@
 use std::time::Duration;
 
-use crate::{auth_session::active_member, state::AppState};
+use crate::{
+    auth_session::{active_member, session_cookie},
+    state::AppState,
+};
 use axum::{
     Extension,
     extract::{
@@ -11,15 +14,9 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use chat_domain::message_rules::{room_matches_connection, valid_message_content};
-use shared::{ClientEvent, ServerEvent};
+use shared::{ClientEvent, ServerEvent, auth::token_digest};
 use sqlx::SqlitePool;
 use tokio::{sync::broadcast, time::MissedTickBehavior};
-
-use crate::hub::RoomHub;
-use chat_application::{
-    ChatService,
-    repository::{MessageRepository, RepositoryError, RoomRepository},
-};
 
 async fn send_event(
     socket: &mut WebSocket,
@@ -128,7 +125,7 @@ async fn handle_socket(
                 };
                 if let Message::Text(text) = message
                     && let Err(error) = handle_client_event(
-                        &mut socket, &state, text.as_str(), room_id.clone(), member_id
+                        &mut socket, &state, text.as_str(), room_id.clone(), member_id, &pool, &headers
                     ).await {
                         eprintln!("client message error: {error}");
                         break;
@@ -158,20 +155,37 @@ async fn handle_socket(
     state.room_hub.cleanup(room_id, &room_sender);
 }
 
-async fn persist_ws_message(
-    service: &ChatService,
-    rooms: &dyn RoomRepository,
-    messages: &dyn MessageRepository,
-    hub: &RoomHub,
+async fn persist_member_event(
+    state: &AppState,
+    pool: &SqlitePool,
+    headers: &HeaderMap,
     room_id: String,
     content: String,
     member_id: String,
-) -> Result<(), RepositoryError> {
-    let message = service.send_member_message(room_id.clone(), content, member_id);
-    chat_application::persist_in_existing_room(rooms, messages, message, move |saved| {
-        hub.publish(room_id, ServerEvent::MessageCreated(saved))
-    })
-    .await
+) -> Result<bool, sqlx::Error> {
+    let Ok(raw) = session_cookie(headers) else {
+        return Ok(false);
+    };
+    let message =
+        state
+            .chat_service
+            .send_member_message(room_id.clone(), content, member_id.clone());
+    if !chat_persistence::ws_message::save_authorized(
+        pool,
+        &token_digest(&raw),
+        &member_id,
+        &room_id,
+        &message.id,
+        &message.content,
+    )
+    .await?
+    {
+        return Ok(false);
+    }
+    state
+        .room_hub
+        .publish(room_id, ServerEvent::MessageCreated(message));
+    Ok(true)
 }
 
 async fn handle_client_event(
@@ -180,6 +194,8 @@ async fn handle_client_event(
     text: &str,
     event_room_id: String,
     member_id: String,
+    pool: &SqlitePool,
+    headers: &HeaderMap,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let event: ClientEvent = serde_json::from_str(text)?;
 
@@ -212,28 +228,24 @@ async fn handle_client_event(
                 return Ok(());
             }
 
-            if let Err(error) = persist_ws_message(
-                state.chat_service.as_ref(),
-                state.room_repository.as_ref(),
-                state.message_repository.as_ref(),
-                &state.room_hub,
-                room_id,
-                content,
-                member_id,
+            let (code, message) =
+                match persist_member_event(state, pool, headers, room_id, content, member_id).await
+                {
+                    Ok(true) => return Ok(()),
+                    Ok(false) => ("session_expired", "登入或聊天室權限已失效，訊息未送出"),
+                    Err(error) => {
+                        eprintln!("message persistence failed: {error}");
+                        ("message_persistence_failed", "訊息儲存失敗，請稍後重試")
+                    }
+                };
+            send_event(
+                socket,
+                ServerEvent::Error {
+                    code: code.into(),
+                    message: message.into(),
+                },
             )
-            .await
-            {
-                eprintln!("message persistence failed: {error}");
-                send_event(
-                    socket,
-                    ServerEvent::Error {
-                        code: "message_persistence_failed".to_owned(),
-                        message: "訊息儲存失敗，請稍後重試".to_owned(),
-                    },
-                )
-                .await?;
-                return Ok(());
-            }
+            .await?;
         }
         ClientEvent::Typing { room_id, active } => {
             match typing_event_for_room(&event_room_id, &room_id, active) {
@@ -260,77 +272,6 @@ async fn handle_client_event(
 
 #[cfg(test)]
 mod test {
-    // 加到 apps/server/src/ws.rs 既有 #[cfg(test)] mod test 內。
-    #[sqlx::test(migrations = "../migrations")]
-    async fn ws_message_requires_room_at_write_time(pool: sqlx::SqlitePool) {
-        use super::persist_ws_message;
-        use crate::hub::RoomHub;
-        use chat_application::repository::RepositoryError;
-        use chat_application::{ChatService, CreateRoom, create_room};
-        use shared::ServerEvent;
-
-        let rooms = chat_persistence::SqliteRoomRepository::new(pool.clone());
-        let messages = chat_persistence::SqliteMessageRepository::new(pool.clone());
-        let hub = RoomHub::new(8);
-        let (_, mut events) = hub.subscribe("room-day11".into());
-        let service = ChatService::new();
-
-        // 握手後若房間已不存在，寫入時仍須拒絕。
-        let denied = persist_ws_message(
-            &service,
-            &rooms,
-            &messages,
-            &hub,
-            "room-day11".into(),
-            "不應寫入".into(),
-            "member-fixture".into(),
-        )
-        .await;
-        assert!(matches!(denied, Err(RepositoryError::RoomAccessError(_))));
-        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM messages")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-        assert_eq!(count.0, 0);
-        assert!(events.try_recv().is_err());
-
-        create_room(
-            &rooms,
-            CreateRoom {
-                id: "room-day11".into(),
-                category_room_id: "default-category".into(),
-                name: "測試房間".into(),
-            },
-        )
-        .await
-        .unwrap();
-
-        persist_ws_message(
-            &service,
-            &rooms,
-            &messages,
-            &hub,
-            "room-day11".into(),
-            "確實寫入".into(),
-            "member-fixture".into(),
-        )
-        .await
-        .unwrap();
-
-        match events.try_recv().expect("應通知訂閱者一次") {
-            ServerEvent::MessageCreated(message) => {
-                assert_eq!(message.room_id, "room-day11");
-                assert_eq!(message.content, "確實寫入");
-            }
-            other => panic!("意外事件: {other:?}"),
-        }
-        assert!(events.try_recv().is_err());
-        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM messages")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-        assert_eq!(count.0, 1);
-    }
 
     #[test]
     fn typing_is_only_forwarded_to_connection_room() {
@@ -396,7 +337,9 @@ mod test {
 mod day47_member_author_tests {
     use super::*;
     use axum::http::{StatusCode, header};
+    use chat_application::repository::MessageRepository;
     use chat_domain::MessageAuthor;
+    use std::sync::Arc;
 
     #[sqlx::test(migrations = "../migrations")]
     async fn session_identity_is_persisted_and_revocation_denies_later_events(pool: SqlitePool) {
@@ -420,21 +363,28 @@ mod day47_member_author_tests {
         .await
         .unwrap();
         let messages = chat_persistence::SqliteMessageRepository::new(pool.clone());
-        let hub = RoomHub::new(8);
-        let (_, mut events) = hub.subscribe("room47".into());
+        let state = AppState::new(
+            leptos_config::LeptosOptions::builder()
+                .output_name("fixture")
+                .build(),
+            Arc::new(rooms),
+            Arc::new(chat_persistence::SqliteMessageRepository::new(pool.clone())),
+        );
+        let (_, mut events) = state.room_hub.subscribe("room47".into());
         let member = authorize_socket(&pool, &headers, "room47").await.unwrap();
         assert_eq!(member, "member47");
-        persist_ws_message(
-            &ChatService::new(),
-            &rooms,
-            &messages,
-            &hub,
-            "room47".into(),
-            "會員訊息".into(),
-            member,
-        )
-        .await
-        .unwrap();
+        assert!(
+            persist_member_event(
+                &state,
+                &pool,
+                &headers,
+                "room47".into(),
+                "會員訊息".into(),
+                member
+            )
+            .await
+            .unwrap()
+        );
         let history = messages.list_by_room("room47").await.unwrap();
         assert_eq!(history.len(), 1);
         assert_eq!(
@@ -461,3 +411,6 @@ mod day47_member_author_tests {
         assert!(events.try_recv().is_err());
     }
 }
+
+#[cfg(test)]
+mod write_tests;

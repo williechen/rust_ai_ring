@@ -7,7 +7,7 @@ pub(crate) fn member_cookie(raw: &str) -> String {
     format!("chat_session={raw}; HttpOnly; SameSite=Lax; Path=/; Max-Age={seconds}")
 }
 
-fn session_cookie(headers: &HeaderMap) -> Result<String, StatusCode> {
+pub(crate) fn session_cookie(headers: &HeaderMap) -> Result<String, StatusCode> {
     headers
         .get(header::COOKIE)
         .and_then(|value| value.to_str().ok())
