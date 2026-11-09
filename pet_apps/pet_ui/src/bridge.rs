@@ -35,13 +35,13 @@ extern "C" {
         js_namespace = window,
         js_name = getPetState
     )]
-    fn get_pet_state_js() -> Promise;
+    fn get_pet_state_js(id: Option<String>) -> Promise;
 
     #[wasm_bindgen(
         js_namespace = window,
         js_name = sendPetCommand
     )]
-    fn send_pet_command_js(command: JsValue) -> Promise;
+    fn send_pet_command_js(command: JsValue, id: Option<String>) -> Promise;
 
     #[wasm_bindgen(
         js_namespace = window,
@@ -60,15 +60,6 @@ extern "C" {
         js_name = chatWithPet
     )]
     fn chat_with_pet_js(message: &str) -> Promise;
-
-    #[wasm_bindgen(
-        js_namespace = window,
-        js_name = scanFilePreview
-    )]
-    fn scan_file_preview_js() -> Promise;
-
-    #[wasm_bindgen(js_namespace = window, js_name = scanDuplicatePreview)]
-    fn scan_duplicate_preview_js() -> Promise;
 
     #[wasm_bindgen(js_namespace = window, js_name = listPets)]
     fn list_pets_js() -> Promise;
@@ -127,16 +118,29 @@ fn js_error(value: JsValue) -> String {
 
 // 獲取寵物的當前狀態
 pub async fn get_pet_state() -> Result<PetSnapshot, String> {
-    let value = JsFuture::from(get_pet_state_js()).await.map_err(js_error)?;
+    get_pet_state_for(None).await
+}
+
+pub async fn get_pet_state_for(id: Option<String>) -> Result<PetSnapshot, String> {
+    let value = JsFuture::from(get_pet_state_js(id))
+        .await
+        .map_err(js_error)?;
 
     serde_wasm_bindgen::from_value(value).map_err(|error| error.to_string())
 }
 
 // 發送指令給寵物並獲取更新後的狀態
 pub async fn send_pet_command(command: PetCommand) -> Result<PetSnapshot, String> {
+    send_pet_command_for(command, None).await
+}
+
+pub async fn send_pet_command_for(
+    command: PetCommand,
+    id: Option<String>,
+) -> Result<PetSnapshot, String> {
     let command = serde_wasm_bindgen::to_value(&command).map_err(|error| error.to_string())?;
 
-    let value = JsFuture::from(send_pet_command_js(command))
+    let value = JsFuture::from(send_pet_command_js(command, id))
         .await
         .map_err(js_error)?;
 
@@ -183,22 +187,63 @@ pub async fn chat_with_pet(message: String) -> Result<String, String> {
         .ok_or_else(|| "Failed to convert chat_with_pet result to string".to_string())
 }
 
-pub async fn scan_file_preview() -> Result<String, String> {
-    let value = JsFuture::from(scan_file_preview_js())
-        .await
-        .map_err(js_error)?;
-    let view: crate::file_scan_view::FileScanView =
-        serde_wasm_bindgen::from_value(value).map_err(|error| error.to_string())?;
-    Ok(view.summary())
+#[derive(Clone, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DirectoryEntry {
+    pub name: String,
+    pub is_directory: bool,
+    pub size_bytes: Option<u64>,
+    pub modified_at: Option<u64>,
 }
 
-pub async fn scan_duplicate_preview() -> Result<String, String> {
-    let value = JsFuture::from(scan_duplicate_preview_js())
+#[derive(serde::Deserialize)]
+pub struct DirectoryListing {
+    pub entries: Vec<DirectoryEntry>,
+    pub skipped: usize,
+}
+
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_namespace = window, js_name = browseAuthorizedDirectory)]
+    fn browse_authorized_directory_js(path: JsValue) -> Promise;
+}
+
+pub async fn browse_authorized_directory(path: &[String]) -> Result<DirectoryListing, String> {
+    let path = serde_wasm_bindgen::to_value(path).map_err(|_| "目錄路徑格式不正確")?;
+    let result = JsFuture::from(browse_authorized_directory_js(path))
         .await
         .map_err(js_error)?;
-    let result: crate::duplicate_preview::DuplicatePreviewView =
-        serde_wasm_bindgen::from_value(value).map_err(|e| e.to_string())?;
-    Ok(result.summary())
+    serde_wasm_bindgen::from_value(result).map_err(|_| "目錄清單格式不正確".into())
+}
+
+#[derive(Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComparisonRow {
+    pub original: Vec<String>,
+    pub proposed: Vec<String>,
+    pub size_bytes: u64,
+}
+
+#[derive(Clone, serde::Deserialize)]
+pub struct DirectoryComparison {
+    pub original: Vec<ComparisonRow>,
+    pub organized: Vec<ComparisonRow>,
+    pub duplicates: Vec<ComparisonRow>,
+    pub skipped: usize,
+}
+
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_namespace = window, js_name = compareAuthorizedDirectory)]
+    fn compare_authorized_directory_js(path: JsValue) -> Promise;
+}
+
+pub async fn compare_authorized_directory(path: &[String]) -> Result<DirectoryComparison, String> {
+    let path = serde_wasm_bindgen::to_value(path).map_err(|_| "目錄路徑格式不正確")?;
+    let value = JsFuture::from(compare_authorized_directory_js(path))
+        .await
+        .map_err(js_error)?;
+    serde_wasm_bindgen::from_value(value).map_err(|_| "目錄比對格式不正確".into())
 }
 
 pub async fn open_controls() -> Result<(), String> {
@@ -320,11 +365,15 @@ pub async fn find_saved_pet(id: &str) -> Result<(), String> {
     Ok(())
 }
 
-#[derive(serde::Deserialize)]
+#[derive(Clone, serde::Deserialize)]
 pub struct ActivityStatus {
     pub outside: bool,
     pub roaming: bool,
+    #[serde(default)]
+    pub sitting: bool,
     pub default_caged: bool,
+    pub walk_label: Option<String>,
+    pub sit_label: Option<String>,
 }
 
 pub async fn activity_action(id: &str, choice: i8) -> Result<ActivityStatus, String> {

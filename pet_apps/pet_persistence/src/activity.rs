@@ -7,7 +7,10 @@ pub const SIT: &str = "sit"; //坐下
 pub struct ActivityStatus {
     pub outside: bool,
     pub roaming: bool,
+    pub sitting: bool,
     pub default_caged: bool,
+    pub walk_label: Option<String>,
+    pub sit_label: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -158,10 +161,30 @@ async fn status_in(conn: &mut SqliteConnection, id: &str) -> Result<ActivityStat
         return Err("預設資格資料不合法".into());
     }
 
+    let labels: Vec<(String, String)> = sqlx::query_as(
+        "SELECT code, value FROM codemap
+         WHERE category = 'activity' AND code IN (?1, ?2) AND length(trim(value)) > 0
+         ORDER BY CASE WHEN id = 'initial-' || code THEN 0 ELSE 1 END, id",
+    )
+    .bind(WALK)
+    .bind(SIT)
+    .fetch_all(&mut *conn)
+    .await
+    .map_err(|_| "無法讀取活動名稱".to_owned())?;
+    let label = |code| {
+        labels
+            .iter()
+            .find(|(key, _)| key == code)
+            .map(|(_, text)| text.clone())
+    };
+
     Ok(ActivityStatus {
         outside,
         roaming: walk && !sit,
+        sitting: sit,
         default_caged: pref == 1,
+        walk_label: label(WALK),
+        sit_label: label(SIT),
     })
 }
 

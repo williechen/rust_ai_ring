@@ -1,4 +1,5 @@
 mod chat;
+pub mod file_browser;
 mod file_organizer;
 mod menu_scope;
 pub mod pet_store;
@@ -77,6 +78,38 @@ async fn chat_with_pet(
         .await
         .map_err(|error| error.to_string())?;
     Ok(response.text)
+}
+
+fn authorized_browser_root() -> Result<file_organizer::AuthorizedRoot, String> {
+    let configured = std::env::var_os("PET_AUTHORIZED_ROOT").ok_or("尚未設定授權目錄")?;
+    let absolute = std::path::absolute(configured).map_err(|_| "授權目錄無效")?;
+    let root = file_organizer::AuthorizedRoot::new(&absolute).map_err(|_| "授權目錄無法使用")?;
+    if root.path() != absolute {
+        return Err("授權目錄不可使用符號連結".into());
+    }
+    Ok(root)
+}
+
+#[tauri::command]
+async fn browse_authorized_directory(
+    path: Vec<String>,
+) -> Result<file_browser::DirectoryListing, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        file_browser::browse(&authorized_browser_root()?, &path)
+    })
+    .await
+    .map_err(|_| "目錄讀取工作中斷")?
+}
+
+#[tauri::command]
+async fn compare_authorized_directory(
+    path: Vec<String>,
+) -> Result<file_browser::DirectoryComparison, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        file_browser::compare(&authorized_browser_root()?, &path)
+    })
+    .await
+    .map_err(|_| "目錄比對工作中斷")?
 }
 
 #[tauri::command]
@@ -421,6 +454,8 @@ pub fn application(db: sqlx::SqlitePool) {
             get_pet_state,
             send_pet_command,
             chat_with_pet,
+            browse_authorized_directory,
+            compare_authorized_directory,
             scan_file_preview,
             scan_duplicate_preview,
             open_control_window,

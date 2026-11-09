@@ -2,8 +2,8 @@ pub mod activity;
 pub mod chat;
 pub mod control;
 
-mod frames;
-mod pose;
+pub(crate) mod frames;
+pub(crate) mod pose;
 mod snapshot;
 
 pub use activity::*;

@@ -25,9 +25,9 @@
       return id;
      };
 
-    window.getPetState = async () => invoke("get_saved_pet_state", { id: await currentPetId() });
+    window.getPetState = async (id) => invoke("get_saved_pet_state", { id: id ?? await currentPetId() });
     
-    window.sendPetCommand = async (command) => invoke("send_saved_pet_command", { id: await currentPetId(), command });
+    window.sendPetCommand = async (command, id) => invoke("send_saved_pet_command", { id: id ?? await currentPetId(), command });
     
     window.listenPetState = (callback) => listen("saved-pet-state", async (event) => {
       try { if (event.payload.id === await currentPetId()) callback(event.payload.snapshot); } catch (_) {}
@@ -71,25 +71,25 @@
       return invoke("quit_pet");
     };
 
-    let petContextMenu = null;
-
     async function getPetContextMenu() {
-      if (petContextMenu) return petContextMenu;
       const { Menu } = window.__TAURI__.menu;
       const id = await currentPetId();
-      petContextMenu = await Menu.new({
+      const activity = await window.petActivityStatus(id).catch(() => null);
+      return Menu.new({
         items: [
           { id: `pet:${id}:open_control`, text: "開啟控制窗" },
           { id: `pet:${id}:interact`, text: "互動" },
-          { id: `pet:${id}:walk`, text: "散步（允許漫遊）" },
-          { id: `pet:${id}:sit`, text: "坐下（停止漫遊）" },
+          { id: `pet:${id}:walk`, text: activity?.walk_label || "開始漫遊" },
+          { id: `pet:${id}:sit`, text: activity?.sit_label || "停止漫遊" },
           { id: `pet:${id}:cage`, text: "回籠子" },
           { id: `pet:${id}:sleep`, text: "睡覺" },
           { id: `pet:${id}:wake`, text: "醒來" },
         ],
       });
-      return petContextMenu;
     }
+
+     window.browseAuthorizedDirectory = (path) => invoke("browse_authorized_directory", { path });
+    window.compareAuthorizedDirectory = (path) => invoke("compare_authorized_directory", { path });
     
     window.showPetContextMenu = async (x, y) => {
       const menu = await getPetContextMenu();

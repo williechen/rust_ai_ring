@@ -2,8 +2,13 @@ mod activity_target;
 mod bridge;
 mod cage_status;
 mod component;
+mod control_activity;
 mod control_navigation;
+#[cfg(test)]
 mod duplicate_preview;
+mod file_browser;
+mod file_comparison;
+#[cfg(test)]
 mod file_scan_view;
 pub mod management_selection;
 mod saved_pet;
@@ -19,8 +24,7 @@ use std::collections::HashMap;
 
 use crate::cage_status::record_cage_status;
 use crate::saved_pet::SavedPet;
-use crate::scan_generation::accept_scan_result;
-use control_navigation::ControlNavigation;
+use control_navigation::{ControlNavigation, ControlPage};
 use pet_application::lifecycle::StartupRestoreFailure;
 
 fn main() {
@@ -48,15 +52,7 @@ fn App() -> impl IntoView {
     let (chat_response, set_chat_response) = signal::<Option<String>>(None);
     let (chat_error, set_chat_error) = signal::<Option<String>>(None);
 
-    let (duplicate_status, set_duplicate_status) = signal::<Option<String>>(None);
-    let (duplicate_loading, set_duplicate_loading) = signal(false);
-
-    let (scan_loading, set_scan_loading) = signal(false);
-    let (scan_status, set_scan_status) = signal::<Option<String>>(None);
-
-    // 放在 App 的 signals 區塊；確認只針對目前顯示的掃描結果。
-    let (confirmed, set_confirmed) = signal(false);
-    let (generation, set_generation) = signal(0_u64);
+    let (file_directory, set_file_directory) = signal(None::<Vec<String>>);
 
     let (new_pet_name, set_new_pet_name) = signal(String::new());
     let (new_pet_feedback, set_new_pet_feedback) = signal(String::new());
@@ -193,14 +189,151 @@ fn App() -> impl IntoView {
         .into_any();
     }
 
+    let page = RwSignal::new(ControlPage::Interaction);
+    let (startup_view, set_startup_view) = signal(false);
     view! {
         <main class="control-shell">
             <style>{include_str!("control.css")}</style>
-            <h1>"寵物控制台"</h1>
-            <ControlNavigation />
-            <p>"控制台關閉後寵物仍運作；檔案功能目前只提供唯讀預覽"</p>
+           <header class="control-heading">
+                <span class="control-mark" aria-hidden="true">"P"</span>
+                <h1>"Pet｜桌面陪伴"</h1>
+            </header>
+            <ControlNavigation page />
+            <div class="control-context" hidden=move || !matches!(page.get(), ControlPage::Interaction | ControlPage::Settings | ControlPage::Memory)>
+                <label class="control-pet-picker">
+                    <span>"目前寵物"</span>
+                    <select disabled=move || pets_busy.get() || saved_pets.with(Vec::is_empty)
+                        prop:value=move || management_pet_id.get().unwrap_or_default()
+                        on:change=move |event| {
+                            let id = event_target_value(&event);
+                            if id.is_empty() {
+                                set_management_pet_id.set(None);
+                            } else {
+                                let _ = management_selection::choose_management_pet(
+                                    &id, &saved_pets.get_untracked(), set_management_pet_id,
+                                );
+                            }
+                        }>
+                        <option value="">"選擇寵物"</option>
+                        <For each=move || saved_pets.get() key=|pet| (pet.id.clone(), pet.name.clone())
+                            children=move |pet| {
+                                let id = pet.id.clone();
+                                view! {
+                                    <option value=pet.id prop:selected=move || management_pet_id.with(|selected| selected.as_ref() == Some(&id))>{pet.name}</option>
+                                }
+                            } />
+                    </select>
+                </label>
+                <p class="control-context-note">"選擇對象只會切換管理畫面。"</p>
+            </div>
 
-            <section id="pet-management" aria-labelledby="pet-management-title" tabindex="-1">
+            <section id="pet-interaction" role="tabpanel" aria-labelledby="pet-interaction-tab" tabindex="0"
+                hidden=move || page.get() != ControlPage::Interaction>
+            <div class="control-section-heading">
+                <div>
+                    <h2 id="pet-interaction-title">"陪伴與互動"</h2>
+                    <p>"切換活動只會影響所選寵物。"</p>
+                </div>
+            </div>
+
+            <For each=move || {
+                activity_target::activity_target(&saved_pets.get(), management_pet_id.get().as_deref())
+                    .into_iter().collect::<Vec<_>>()
+            } key=String::clone
+                children=move |id| view! {
+                    {
+                        let display_id = id.clone();
+                        let pet = Signal::derive(move || saved_pets.with(|pets| pets.iter().find(|row| row.id == display_id).cloned()));
+                        view! { <control_activity::ActivityWorkspace id pet busy=pets_busy set_busy=set_pets_busy page /> }
+                    }
+                } />
+            <Show when=move || management_pet_id.with(Option::is_none)>
+                <p class="control-empty">
+                    {move || if saved_pets.with(Vec::is_empty) {
+                        "請先從管理區新增寵物。"
+                    } else {
+                        "請先選擇一隻寵物，查看生活窗預覽和目前活動。"
+                    }}
+                </p>
+            </Show>
+
+            <details class="control-live-actions">
+                <summary>"生活窗互動與聊天"</summary>
+                <ErrorMessage error />
+                <p>{move || active_pet.get().map(|pet| format!("作用對象：{}", pet.name)).unwrap_or_else(|| "尚無作用中的生活窗。".into())}</p>
+                <PetControls snapshot set_snapshot set_error />
+            <button
+                class="chat-trigger"
+                type="button"
+                on:click=move |_| {set_chat_open.set(true);}
+            >"聊天"</button>
+
+            <ChatBubble
+                 chat_open
+                 set_chat_open
+                 chat_input
+                 set_chat_input
+                 chat_loading
+                 set_chat_loading
+                 chat_response
+                 set_chat_response
+                 chat_error
+                 set_chat_error
+            />
+            </details>
+
+            </section>
+            <section id="pet-settings" role="tabpanel" aria-labelledby="pet-settings-tab" tabindex="0"
+                hidden=move || page.get() != ControlPage::Settings>
+                <h2 id="pet-settings-title">{move || saved_pets.with(|rows| {
+                    let id = management_pet_id.get();
+                    rows.iter().find(|pet| Some(&pet.id) == id.as_ref())
+                        .map(|pet| format!("{}的設定", pet.name)).unwrap_or_else(|| "寵物設定".into())
+                })}</h2>
+                <p class="control-context-note">"編輯這隻寵物的資料，儲存前不會寫入。"</p>
+                <div class="settings-jump" role="group" aria-label="設定分類">
+                    <button type="button" aria-pressed=move || (!startup_view.get()).to_string()
+                        aria-controls="pet-settings-profile" on:click=move |_| set_startup_view.set(false)>"資料與外觀"</button>
+                    <button type="button" aria-pressed=move || startup_view.get().to_string()
+                        aria-controls="pet-startup" on:click=move |_| set_startup_view.set(true)>"啟動預設"</button>
+                </div>
+                <div id="pet-settings-profile" hidden=move || startup_view.get()>
+                 <settings_editor::PetSettingsEditor selected_id=management_pet_id on_saved=Callback::new(move |(id,p):(String,pet_domain::profile::PetProfile)|{
+                    set_saved_pets.update(|rows|{if let Some(row)=rows.iter_mut().find(|r|r.id==id){row.name=p.name.clone();row.species=p.species.clone();}});
+                    if active_pet.get_untracked().as_ref().is_some_and(|pet|pet.id==id){set_active_pet.set(Some(SavedPet{id,name:p.name,species:p.species}));}
+                })/>
+                </div>
+                <section id="pet-startup" hidden=move || !startup_view.get()>
+                    <h3>"啟動預設"</h3>
+                    <p class="control-context-note">"啟動預設與目前出籠狀態分開。"</p>
+                    <control_activity::StartupPreferences selected=management_pet_id />
+                </section>
+            </section>
+            <section id="pet-memory" role="tabpanel" aria-labelledby="pet-memory-tab" tabindex="0"
+                hidden=move || page.get() != ControlPage::Memory>
+                <h2 id="pet-memory-title">"記憶"</h2>
+                <p>"記憶查詢與管理尚未接通。"</p>
+            </section>
+            <section id="pet-files" role="tabpanel" aria-labelledby="pet-files-tab" tabindex="0"
+                hidden=move || page.get() != ControlPage::Files>
+            <h2 id="pet-files-title">"檔案管理"</h2>
+            <p class="control-context-note">"瀏覽本機已授權的目錄。"</p>
+            <file_browser::FileBrowser active=Signal::derive(move || page.get() == ControlPage::Files)
+                on_directory=Callback::new(move |directory| set_file_directory.set(directory)) />
+            <fieldset class="file-operation-layout" disabled aria-describedby="file-operations-status">
+                <legend>"檔案操作"</legend>
+                <p id="file-operations-status">"按鈕位置已就緒，待接線。"</p>
+                <button type="button">"開啟"</button>
+                <button type="button">"新增資料夾"</button>
+                <button type="button">"重新命名"</button>
+                <button type="button">"複製"</button>
+                <button type="button">"移動"</button>
+                <button type="button">"移至垃圾桶"</button>
+            </fieldset>
+            <file_comparison::FileComparison directory=file_directory />
+            </section>
+            <section id="pet-management" role="tabpanel" aria-labelledby="pet-management-tab" tabindex="0"
+                hidden=move || page.get() != ControlPage::Management>
                 <h2 id="pet-management-title">"管理"</h2>
                 <Show when=move || !startup_failures.get().is_empty() fallback=|| ()>
                     <section role="alert" aria-label="啟動恢復失敗">
@@ -416,213 +549,20 @@ fn App() -> impl IntoView {
                 </ul>
             </section>
 
-            <section id="pet-interaction" aria-labelledby="pet-interaction-title" tabindex="-1">
-            <h2 id="pet-interaction-title">"互動與聊天"</h2>
-            <p>{move || snapshot.get().map(|s| format!("目前狀態: {:?}, 最近更新: {:?}", s.state, s.revision)).unwrap_or_else(|| "讀取中…".into())}</p>
-
-            <PetControls
-                snapshot
-                set_snapshot
-                set_error
-            />
-
-            {move || activity_target::activity_target(
-                &saved_pets.get(), management_pet_id.get().as_deref()
-            ).map(|id| view! {
-                <section aria-label="所選寵物活動">
-                    <h3>"所選寵物的散步／坐下操作"</h3>
-                    <ActivityControls id busy=pets_busy set_busy=set_pets_busy statuses=cage_status />
-                </section>
-            })}
-
-            <button
-                class="chat-trigger"
-                type="button"
-                on:click=move |_| {set_chat_open.set(true);}
-            >"聊天"</button>
-
-            <ChatBubble
-                 chat_open
-                 set_chat_open
-                 chat_input
-                 set_chat_input
-                 chat_loading
-                 set_chat_loading
-                 chat_response
-                 set_chat_response
-                 chat_error
-                 set_chat_error
-            />
-
-            </section>
-            <section id="pet-files" aria-labelledby="pet-files-title" tabindex="-1">
-            <h2 id="pet-files-title">"檔案管理"</h2>
-            <button
-                type="button"
-                disabled=move || scan_loading.get() || duplicate_loading.get()
-                on:click=move |_| {
-                    if scan_loading.get_untracked() || duplicate_loading.get_untracked() { return; }
-                    let request = generation.get_untracked().wrapping_add(1);
-                    set_generation.set(request);
-                    set_scan_loading.set(true);
-                    set_scan_status.set(None);
-                    set_error.set(None);
-                    // 新掃描一律使前一份確認失效，也不保留另一類舊摘要。
-                    set_confirmed.set(false);
-                    set_scan_status.set(None);
-                    set_duplicate_status.set(None);
-                    spawn_local(async move {
-                        let result = bridge::scan_file_preview().await;
-                        set_scan_loading.set(false);
-                        if !accept_scan_result(request, generation.get_untracked()) {
-                            return;
-                        }
-                        match result {
-                            Ok(summary) => set_scan_status.set(Some(summary)),
-                            // 不把平台錯誤中的私人路徑顯示於畫面。
-                            Err(_) => set_error.set(Some("掃描失敗，請確認已授權目錄後重試。".into())),
-                        }
-                        set_scan_loading.set(false);
-                    });
-                }
-            >"預覽授權目錄"</button>
-            <Show when=move || scan_loading.get() fallback=|| ()>
-                <p role="status">"正在掃描授權目錄…"</p>
-            </Show>
-            <Show when=move || scan_status.get().is_some() fallback=|| ()>
-                <p role="status">{move || scan_status.get().unwrap_or_default()}</p>
-            </Show>
-
-            <button
-                type="button"
-                disabled=move || duplicate_loading.get() || scan_loading.get()
-                on:click=move |_| {
-                    // 清除過時預覽；同時只允許一次使用者請求。
-                    if duplicate_loading.get_untracked() || scan_loading.get_untracked()  { return; }
-                    let request = generation.get_untracked().wrapping_add(1);
-                    set_generation.set(request);
-                    set_duplicate_loading.set(true);
-                    set_duplicate_status.set(None);
-                    set_error.set(None);
-                    // 新掃描一律使前一份確認失效，也不保留另一類舊摘要。
-                    set_confirmed.set(false);
-                    set_scan_status.set(None);
-                    set_duplicate_status.set(None);
-                    spawn_local(async move {
-                        let result = bridge::scan_duplicate_preview().await;
-                        set_duplicate_loading.set(false);
-                        if !accept_scan_result(request, generation.get_untracked()) {
-                            return;
-                        }
-                        match result {
-                            Ok(summary) => set_duplicate_status.set(Some(summary)),
-                            Err(_) => set_error.set(Some("預覽失敗，請確認授權目錄後重試。".into())),
-                        }
-                        set_duplicate_loading.set(false);
-                    });
-                }
-            >"檢查重複檔案"</button>
-            <Show when=move || duplicate_loading.get() fallback=|| ()>
-                <p role="status">"正在檢查重複檔案…"</p>
-            </Show>
-            <Show when=move || duplicate_status.get().is_some() fallback=|| ()>
-                <pre class="duplicate-preview" role="status">
-                    {move || duplicate_status.get().unwrap_or_default()}
-                </pre>
-            </Show>
-
-            <button type="button"
-                disabled=move || scan_loading.get() || duplicate_loading.get()
-                    || (scan_status.get().is_none() && duplicate_status.get().is_none())
-                on:click=move |_| set_confirmed.set(true)
-            >"確認本次預覽"</button>
-            <button type="button"
-                disabled=move || scan_loading.get() || duplicate_loading.get()
-                on:click=move |_| {
-                    set_confirmed.set(false);
-                    set_scan_status.set(None);
-                    set_duplicate_status.set(None);
-                }
-            >"取消／清除本次預覽"</button>
-            <Show when=move || confirmed.get() fallback=|| ()>
-                <p role="status">"已確認本次預覽；尚未執行移動、刪除或還原。"</p>
-            </Show>
-
-            </section>
-            <section id="pet-settings" aria-labelledby="pet-settings-title" tabindex="-1">
-                <h2 id="pet-settings-title">"設定"</h2>
-                 <settings_editor::PetSettingsEditor selected_id=management_pet_id on_saved=Callback::new(move |(id,p):(String,pet_domain::profile::PetProfile)|{
-                    set_saved_pets.update(|rows|{if let Some(row)=rows.iter_mut().find(|r|r.id==id){row.name=p.name.clone();row.species=p.species.clone();}});
-                    if active_pet.get_untracked().as_ref().is_some_and(|pet|pet.id==id){set_active_pet.set(Some(SavedPet{id,name:p.name,species:p.species}));}
-                })/>
-            </section>
-            <section id="pet-memory" aria-labelledby="pet-memory-title" tabindex="-1">
-                <h2 id="pet-memory-title">"記憶"</h2>
-                <p>"記憶查詢與管理尚未接通。"</p>
-            </section>
-            <section id="pet-updates" aria-labelledby="pet-updates-title" tabindex="-1">
+<section id="pet-updates" role="tabpanel" aria-labelledby="pet-updates-tab" tabindex="0"
+                hidden=move || page.get() != ControlPage::Updates>
                 <h2 id="pet-updates-title">"更新"</h2>
                 <p>"版本檢查與簽章更新尚未接通。"</p>
             </section>
 
-            <ErrorMessage error />
-
-            <button
-                type="button"
-                on:click=move |_| spawn_local(async move {
+            <footer class="control-footer">
+                <span>"關閉控制台，陪伴繼續"</span>
+                <button type="button" on:click=move |_| spawn_local(async move {
                     let _ = bridge::quit_pet().await;
-                })
-            >"寵物回寵了"</button>
+                })>"結束寵物程式"</button>
+            </footer>
         </main>
     }.into_any()
-}
-
-#[component]
-fn ActivityControls(
-    id: String,
-    busy: ReadSignal<bool>,
-    set_busy: WriteSignal<bool>,
-    statuses: RwSignal<HashMap<String, String>>,
-) -> impl IntoView {
-    let id = StoredValue::new(id);
-    let action = move |choice: i8| {
-        if busy.get_untracked() {
-            return;
-        }
-        set_busy.set(true);
-        let id = id.get_value();
-        spawn_local(async move {
-            let text = match bridge::activity_action(&id, choice).await {
-                Ok(s) => format!(
-                    "{}；{}；啟動預設{}",
-                    if s.outside { "已出籠" } else { "已回籠" },
-                    if s.roaming {
-                        "散步，可漫遊"
-                    } else {
-                        "不漫遊"
-                    },
-                    if s.default_caged {
-                        "留在籠內"
-                    } else {
-                        "出籠"
-                    }
-                ),
-                Err(error) => format!("活動操作失敗：{error}"),
-            };
-            statuses.update(|values| {
-                values.insert(id, text);
-            });
-            set_busy.set(false);
-        });
-    };
-    view! {<div>
-        <button type="button" disabled=move||busy.get() on:click=move |_|action(0)>"查詢活動與預設"</button>
-        <button type="button" disabled=move||busy.get() on:click=move |_|action(1)>"散步（可漫遊）"</button>
-        <button type="button" disabled=move||busy.get() on:click=move |_|action(2)>"坐下（停止漫遊）"</button>
-        <button type="button" disabled=move||busy.get() on:click=move |_|action(3)>"啟動時預設出籠"</button>
-        <button type="button" disabled=move||busy.get() on:click=move |_|action(4)>"啟動時預設留籠"</button>
-
-    </div>}
 }
 
 #[component]

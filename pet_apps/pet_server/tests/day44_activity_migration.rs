@@ -217,7 +217,7 @@ async fn already_upgraded_database_merges_generated_duplicates_and_reopens() {
             .await
             .unwrap();
     assert_eq!(&current[..prior.len()], prior);
-    assert_eq!(current.len(), 7);
+    assert_eq!(current.len(), 8);
     let labels: Vec<(String, String)> = sqlx::query_as(
         "SELECT code,value FROM codemap WHERE category='activity' ORDER BY code,value",
     )
@@ -346,7 +346,7 @@ async fn dictionary_conversion_is_atomic_and_rejects_future_display_names() {
             .await
             .unwrap();
     assert_eq!(&after[..6], before);
-    assert_eq!(after.len(), 7);
+    assert_eq!(after.len(), 8);
     let restored: Vec<String> = sqlx::query_scalar(
         "SELECT value FROM codemap WHERE category='activity' AND code='walk' ORDER BY id",
     )

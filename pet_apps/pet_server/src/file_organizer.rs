@@ -98,7 +98,7 @@ impl AuthorizedRoot {
         Ok(Self { canonical })
     }
 
-    fn path(&self) -> &Path {
+    pub(crate) fn path(&self) -> &Path {
         &self.canonical
     }
 }
@@ -284,7 +284,10 @@ fn revalidate_scanned_file(item: &ScannedFile) -> Result<(), FileOrganizerError>
 }
 
 fn sha256_file(path: &Path) -> Result<String, Error> {
-    let file = fs::File::open(path)?;
+    sha256_reader(fs::File::open(path)?)
+}
+
+pub(crate) fn sha256_reader(file: impl Read) -> Result<String, Error> {
     let mut reader = BufReader::new(file);
     let mut hasher = Sha256::new();
     let mut buffer = [0_u8; 64 * 1024];

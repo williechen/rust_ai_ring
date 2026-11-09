@@ -64,6 +64,7 @@ pub fn PetSettingsEditor(
     on_saved: Callback<(String, PetProfile)>,
 ) -> impl IntoView {
     let draft = RwSignal::new(Draft::default());
+    let saved = RwSignal::new(Draft::default());
     let loaded = RwSignal::new(None::<String>);
     let busy = RwSignal::new(false);
     let status = RwSignal::new("請先在管理區選擇寵物".to_string());
@@ -91,7 +92,9 @@ pub fn PetSettingsEditor(
                 }
                 match result {
                     Ok(p) => {
-                        draft.set(p.into());
+                        let incoming: Draft = p.into();
+                        saved.set(incoming.clone());
+                        draft.set(incoming);
                         loaded.set(Some(id));
                         status.set("已載入所選寵物設定".into());
                     }
@@ -105,23 +108,39 @@ pub fn PetSettingsEditor(
         }
     });
     view! {
-     <style>".pet-settings-form label{display:flex;flex-direction:column;gap:4px;margin:10px 0}.pet-settings-form textarea{min-height:72px;resize:vertical}.pet-settings-form fieldset{min-width:0}.pet-settings-form input,.pet-settings-form textarea{max-width:100%;box-sizing:border-box}"</style>
-     <p>"目前支援種類：tortoise（烏龜）。喜好、個性、興趣以換行或逗號分隔；外觀覆寫尚未接通。"</p>
-     <p role="status">{move||status.get()}</p>
-     <button type="button" disabled=move||busy.get()||selected_id.get().is_none() on:click=move|_|reload.update(|n|*n+=1)>"重新讀取設定"</button>
-     <form class="pet-settings-form" on:submit=move|e:leptos::ev::SubmitEvent|{
-      e.prevent_default();if busy.get_untracked(){return;}
-      let Some(id)=loaded.get_untracked().filter(|id|selected_id.get_untracked().as_ref()==Some(id)) else{return;};
-      let version=seq.get_untracked();let p=draft.get_untracked().profile();busy.set(true);status.set("正在儲存設定…".into());
-      spawn_local(async move{
-       let result=bridge::save_pet_settings(&id,&p).await;
-       if !current(seq.get_untracked(),version,&selected_id.get_untracked(),&id){return;}
-       match result {Ok(p)=>{draft.set(p.clone().into());on_saved.run((id,p));status.set("已儲存設定".into());},Err(e)=>status.set(format!("儲存失敗：{e}"))};busy.set(false);
-      });
-     }>
-      <fieldset disabled=move||busy.get()||loaded.get().is_none()><SettingsFields draft/><button type="submit">"儲存五欄設定"</button></fieldset>
-     </form>
-    }
+       <style>".pet-settings-form label{display:flex;flex-direction:column;gap:4px;margin:10px 0}.pet-settings-form textarea{min-height:72px;resize:vertical}.pet-settings-form fieldset{min-width:0}.pet-settings-form input,.pet-settings-form textarea{max-width:100%;box-sizing:border-box}"</style>
+       <p class="control-context-note">"喜好、個性和興趣可用換行或逗號分隔。"</p>
+       <p role="status">{move||status.get()}</p>
+       <button type="button" disabled=move||busy.get()||selected_id.get().is_none() on:click=move|_|reload.update(|n|*n+=1)>"重新讀取設定"</button>
+       <form class="pet-settings-form" on:submit=move|e:leptos::ev::SubmitEvent|{
+        e.prevent_default();if busy.get_untracked(){return;}
+        let Some(id)=loaded.get_untracked().filter(|id|selected_id.get_untracked().as_ref()==Some(id)) else{return;};
+        let version=seq.get_untracked();let p=draft.get_untracked().profile();busy.set(true);status.set("正在儲存設定…".into());
+        spawn_local(async move{
+             let result=bridge::save_pet_settings(&id,&p).await;
+             if !current(seq.get_untracked(),version,&selected_id.get_untracked(),&id){return;}
+         match result {Ok(p)=>{
+            let committed: Draft = p.clone().into();
+           saved.set(committed.clone());
+            draft.set(committed);
+            on_saved.run((id,p));
+            status.set("已儲存設定".into());
+         },Err(e)=>status.set(format!("儲存失敗：{e}"))};busy.set(false);
+        });
+       }>
+         <fieldset disabled=move||busy.get()||loaded.get().is_none()>
+      <SettingsFields draft />
+      <details><summary>"外觀覆寫（選用）"</summary><p>"目前尚未接通外觀儲存。"</p></details>
+      <div class="settings-actions">
+          <button type="button" on:click=move |_| {
+              draft.set(saved.get_untracked());
+              status.set("已取消未儲存變更".into());
+          }>"取消變更"</button>
+          <button class="control-primary" type="submit">"儲存設定"</button>
+      </div>
+    </fieldset>
+       </form>
+      }
 }
 
 #[cfg(test)]
