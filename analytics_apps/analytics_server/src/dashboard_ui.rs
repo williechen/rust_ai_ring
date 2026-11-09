@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use analytics_ui::navigation::NavigationPage;
 use leptos::prelude::*;
 
@@ -32,7 +34,7 @@ fn DashboardView(
 ) -> impl IntoView {
     let mut sources = BTreeMap::new();
     let mut events = BTreeMap::new();
-   for (category, key, label) in dictionary {
+    for (category, key, label) in dictionary {
         match category.as_str() {
             "source_app" => {
                 sources.insert(key, label);
@@ -168,7 +170,7 @@ pub(crate) fn render_dashboard_unavailable(retry: String) -> String {
                     <meta charset="utf-8"/>
                     <meta name="viewport" content="width=device-width, initial-scale=1"/>
                     <title>"來源分析暫時無法讀取"</title>
-                    <style>{include_str!("dashboard.css")}</style>
+                    <style>{include_str!("css/dashboard.css")}</style>
                 <link rel="stylesheet" href="/assets/source-report.css"/>
                 </head>
                 <body>
@@ -185,7 +187,6 @@ pub(crate) fn render_dashboard_unavailable(retry: String) -> String {
         .to_html()
     )
 }
-
 
 pub fn render_dashboard_filtered(
     source_label: &'static str,
@@ -396,7 +397,7 @@ fn ChangePasswordView(
     };
     view! {
         <html lang="zh-Hant">
-            <head><meta charset="utf-8"/><title>"修改密碼"</title><style>{include_str!("dashboard.css")}</style></head>
+            <head><meta charset="utf-8"/><title>"修改密碼"</title><style>{include_str!("css/dashboard.css")}</style></head>
             <body><ManagementShell pages logout_csrf>
                 <h1>{heading}</h1>
                 {if can_update { view! { <form method="post" action="/change-password">
@@ -468,7 +469,7 @@ fn SessionSettingsView(
     view! {
         <html lang="zh-Hant"><head>
             <meta charset="utf-8"/><title>"工作階段設定"</title>
-            <style>{include_str!("dashboard.css")}</style>
+            <style>{include_str!("css/dashboard.css")}</style>
         </head><body>
             <ManagementShell pages logout_csrf>
                 <section aria-labelledby="session-settings-title">

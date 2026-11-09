@@ -34,7 +34,7 @@ use room_cards::RoomCards;
 use room_heading::room_heading;
 #[cfg(target_arch = "wasm32")]
 use room_history_state::merge_history;
-use room_list_state::{filter_rooms, room_status_text};
+use room_list_state::{RoomListItem, filter_rooms, room_status_text};
 use session_entry::{SessionEntry, session_entry_display};
 
 #[cfg(any(target_arch = "wasm32", test))]
@@ -52,10 +52,10 @@ use crate::{author_display::author_label, room_list_state::clear_room_search};
 
 #[cfg(any(target_arch = "wasm32", test))]
 fn apply_room_search(
-    previous: Vec<(String, String)>,
+    previous: Vec<RoomListItem>,
     submitted: String,
-    result: Result<Vec<(String, String)>, String>,
-    set_rows: WriteSignal<Vec<(String, String)>>,
+    result: Result<Vec<RoomListItem>, String>,
+    set_rows: WriteSignal<Vec<RoomListItem>>,
     set_has_snapshot: WriteSignal<bool>,
     set_status: WriteSignal<String>,
     set_loading: WriteSignal<bool>,
@@ -386,7 +386,7 @@ pub fn ChatPage(room_id: String) -> impl IntoView {
 fn RoomList(#[prop(default = false)] cards: bool) -> impl IntoView {
     let params = use_params_map();
     let (query, set_query) = signal(String::new());
-    let (rows, set_rows) = signal(Vec::<(String, String)>::new());
+    let (rows, set_rows) = signal(Vec::<RoomListItem>::new());
     let (loading, set_loading) = signal(false);
     let (has_snapshot, set_has_snapshot) = signal(false);
     let (status, set_status) = signal(String::from("請讀取房間列表"));
@@ -466,6 +466,7 @@ fn RoomList(#[prop(default = false)] cards: bool) -> impl IntoView {
     view! {
         <section>
             <h2>"房間列表"</h2>
+            <div class="room-toolbar">
             <input
                 type="search"
                 aria-label="搜尋房間"
@@ -476,6 +477,7 @@ fn RoomList(#[prop(default = false)] cards: bool) -> impl IntoView {
 
             <button
                 type="button"
+                class="room-search-primary"
                 disabled=move || loading.get()
                 on:click=move |_| { query_room() }
             >"查詢房間"</button>
@@ -490,6 +492,7 @@ fn RoomList(#[prop(default = false)] cards: bool) -> impl IntoView {
                 disabled=move || loading.get() || query.get().is_empty()
                 on:click=move |_| refresh_rooms()
             >"清除搜尋"</button>
+            </div>
             <div class="room-results" aria-live="polite">
             {move || {
                 let all = rows.get();
@@ -507,13 +510,14 @@ fn RoomList(#[prop(default = false)] cards: bool) -> impl IntoView {
                     } else {
                         view! {
                     <ul>
-                        {visible.into_iter().map(|(id, name)| view! {
+                        {visible.into_iter().map(|RoomListItem { id, name, category_label }| view! {
                         <li>
                             <a
                                 rel="external"
                                 aria-current=if params.read().get("room_id").as_deref() == Some(id.as_str()) { Some("page") } else { None }
                                 href=format!("/room/{id}")
                             >{name}</a>
+                            {category_label.map(|label| view! { <span class="room-category">{label}</span> })}
                         </li>
                         }).collect_view()}
                     </ul>
@@ -587,11 +591,11 @@ mod day37_search_tests {
         let owner = Owner::new();
         owner.with(|| {
             for result in [
-                Ok(vec![("new".to_owned(), "貓房".to_owned())]),
+                Ok(vec![test_room("new", "貓房")]),
                 Ok(vec![]),
                 Err("離線".to_owned()),
             ] {
-                let old = vec![("old".to_owned(), "原房間".to_owned())];
+                let old = vec![test_room("old", "原房間")];
                 let (rows, set_rows) = signal(old.clone());
                 let (snapshot, set_snapshot) = signal(true);
                 let (status, set_status) = signal("查詢中…".to_owned());
@@ -682,6 +686,8 @@ mod day38_room_status_tests {
 #[cfg(test)]
 mod day40_home_entry_tests {
     use super::*;
+    use crate::room_list_state::test_room;
+
     #[test]
     fn entry_does_not_claim_manage_without_confirmed_session() {
         assert_eq!(session_entry_display(SessionEntry::Checking).1, "登入");
@@ -703,12 +709,14 @@ mod day49_room_cards_tests {
     #[test]
     fn public_cards_use_real_rooms_and_escape_names() {
         Owner::new().with(|| {
-            let html = view! { <RoomCards rooms=vec![("room-a".into(), "<房間>".into()), ("room-b".into(), "第二間".into())] active_room="room-b".to_owned() /> }.to_html();
+            let html = view! { <RoomCards rooms=vec![RoomListItem { category_label: Some("<程式設計>".into()), ..test_room("room-a", "<房間>") }, test_room("room-b", "第二間")] active_room="room-b".to_owned() /> }.to_html();
             assert_eq!(html.matches(r#"class="room-card""#).count(), 2);
             assert!(html.contains(r#"href="/room/room-a""#));
             assert!(html.contains(r#"href="/room/room-b""#));
             assert!(html.contains("&lt;房間&gt;"));
             assert!(!html.contains("<房間>"));
+            assert!(html.contains("&lt;程式設計&gt;"));
+            assert!(!html.contains("<程式設計>"));
             assert_eq!(html.matches(r#"aria-current="page""#).count(), 1);
             assert!(!html.contains("在線"));
         });

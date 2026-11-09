@@ -1,3 +1,4 @@
+use crate::room_list_state::RoomListItem;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
 
@@ -26,13 +27,14 @@ pub async fn room_history(id: &str) -> Result<Vec<chat_domain::ChatMessage>, Str
 }
 
 /// 公開房間清單與搜尋共用既有的查詢端點。
-pub async fn list_rooms() -> Result<Vec<(String, String)>, String> {
+pub async fn list_rooms() -> Result<Vec<RoomListItem>,
     search_rooms("").await
 }
 
-pub async fn search_rooms(query: &str) -> Result<Vec<(String, String)>, String> {
+pub async fn search_rooms(query: &str) -> Result<Vec<RoomListItem>, String> {
     let params = web_sys::UrlSearchParams::new().map_err(|_| "無法建立查詢")?;
     params.append("q", query);
+    params.append("labels", "true");
     let url = format!("/api/rooms?{}", params.to_string());
     let window = web_sys::window().ok_or("無法取得瀏覽器")?;
     let value = JsFuture::from(window.fetch_with_str(&url))
@@ -52,7 +54,7 @@ pub async fn search_rooms(query: &str) -> Result<Vec<(String, String)>, String> 
         .map(|row| {
             let id = row["id"].as_str().ok_or("缺少房間 ID")?;
             let name = row["name"].as_str().ok_or("缺少房間名稱")?;
-            // 此學習入口沿用現有 UUID／fixture ID，不把任意字串當 URL。
+
             if id.is_empty()
                 || !id
                     .bytes()
@@ -60,7 +62,11 @@ pub async fn search_rooms(query: &str) -> Result<Vec<(String, String)>, String> 
             {
                 return Err("房間 ID 不適用目前入口".into());
             }
-            Ok((id.to_owned(), name.to_owned()))
+            Ok(RoomListItem {
+                id: id.into(),
+                name: name.into(),
+                category_label: row["category_label"].as_str().map(str::to_owned),
+            })
         })
         .collect()
 }
