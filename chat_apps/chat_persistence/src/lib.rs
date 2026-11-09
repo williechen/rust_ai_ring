@@ -25,6 +25,7 @@ pub async fn migrate(pool: &sqlx::SqlitePool) -> Result<(), sqlx::Error> {
 pub struct RoomRow {
     pub id: String,
     pub category_room_id: String,
+    pub category_label: Option<String>,
     pub name: String,
 }
 
@@ -33,6 +34,7 @@ impl From<RoomRow> for Room {
         Self {
             id: row.id,
             category_room_id: row.category_room_id,
+            category_label: row.category_label,
             name: row.name,
         }
     }
@@ -55,6 +57,7 @@ impl RoomRepository for SqliteRoomRepository {
         sqlx::query_as::<_, RoomRow>(
             r#"SELECT id
                     , category_room_id
+                    , NULL AS category_label
                     , name
                 FROM rooms
                 WHERE id = $1
@@ -92,7 +95,9 @@ impl RoomRepository for SqliteRoomRepository {
 
     async fn list(&self) -> Result<Vec<Room>, RepositoryError> {
         sqlx::query_as::<_, RoomRow>(
-            "SELECT id, category_room_id, name FROM rooms ORDER BY name, id",
+            "SELECT r.id, r.category_room_id, r.name, c.value AS category_label
+             FROM rooms r JOIN codemap c ON c.category='room_category' AND c.code=r.category_room_id
+             ORDER BY r.name, r.id",
         )
         .fetch_all(&self.pool)
         .await
@@ -110,14 +115,10 @@ impl RoomRepository for SqliteRoomRepository {
         let pattern = format!("%{literal}%");
 
         sqlx::query_as::<_, RoomRow>(
-            r"SELECT id
-               , category_room_id
-               , name
-            FROM rooms
-            WHERE name
-            LIKE ?1
-            ESCAPE '\'
-            ORDER BY name, id",
+            r"SELECT r.id, r.category_room_id, r.name, c.value AS category_label
+            FROM rooms r JOIN codemap c ON c.category='room_category' AND c.code=r.category_room_id
+            WHERE r.name LIKE ?1 ESCAPE '\'
+            ORDER BY r.name, r.id",
         )
         .bind(pattern)
         .fetch_all(&self.pool)
@@ -250,6 +251,7 @@ mod tests {
         let room = Room {
             id: "room-create-test".to_string(),
             category_room_id: "default-category".to_string(),
+            category_label: None,
             name: "Created Room".to_string(),
         };
 

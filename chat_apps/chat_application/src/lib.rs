@@ -71,6 +71,7 @@ pub async fn create_room(
     let room = Room {
         id: input.id,
         category_room_id: input.category_room_id,
+        category_label: None,
         name: input.name,
     };
     room_repository.create(&room).await?;
@@ -142,6 +143,7 @@ mod tests {
             Ok(Some(Room {
                 id: id.into(),
                 category_room_id: "c1".into(),
+                category_label: None,
                 name: "room".into(),
             }))
         }
@@ -180,6 +182,7 @@ mod tests {
             Ok(Some(Room {
                 id: "another-room".into(),
                 category_room_id: "category".into(),
+                 category_label: None,
                 name: "其他房間".into(),
             }))
         }

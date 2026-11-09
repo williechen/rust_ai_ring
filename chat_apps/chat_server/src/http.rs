@@ -48,6 +48,8 @@ pub async fn create_room(
 pub struct RoomDetails {
     pub id: String,
     pub category_room_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub category_label: Option<String>,
     pub name: String,
 }
 
@@ -55,6 +57,8 @@ pub struct RoomDetails {
 pub struct RoomSearch {
     #[serde(default)]
     q: String,
+    #[serde(default)]
+    labels: bool,
 }
 
 pub async fn get_room(
@@ -78,6 +82,7 @@ pub async fn get_room(
     Ok(Json(RoomDetails {
         id: room.id,
         category_room_id: room.category_room_id,
+        category_label: None,
         name: room.name,
     }))
 }
@@ -109,6 +114,7 @@ pub async fn list_rooms(
             .map(|room| RoomDetails {
                 id: room.id,
                 category_room_id: room.category_room_id,
+                category_label: room.category_label.filter(|_| search.labels),
                 name: room.name,
             })
             .collect(),
@@ -277,6 +283,8 @@ mod room_details_tests {
             .await
             .unwrap();
         chat_persistence::migrate(&pool).await.unwrap();
+        sqlx::query("INSERT INTO codemap(category,code,value) VALUES ('room_category','category-14','測試分類')")
+            .execute(&pool).await.unwrap();
         let rooms = Arc::new(chat_persistence::SqliteRoomRepository::new(pool.clone()));
         chat_application::create_room(
             rooms.as_ref(),
@@ -347,7 +355,7 @@ mod room_details_tests {
     #[tokio::test]
     async fn list_rooms_returns_persisted_room() {
         let (state, pool) = fixture().await;
-        let response = list_rooms(State(state), Query(RoomSearch { q: "".to_string() }))
+        let response = list_rooms(State(state), Query(RoomSearch::default()))
             .await
             .into_response();
         assert_eq!(response.status(), StatusCode::OK);
