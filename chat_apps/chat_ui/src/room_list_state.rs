@@ -1,7 +1,23 @@
-pub(super) fn filter_rooms(rows: &[(String, String)], query: &str) -> Vec<(String, String)> {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct RoomListItem {
+    pub id: String,
+    pub name: String,
+    pub category_label: Option<String>,
+}
+
+#[cfg(test)]
+pub(crate) fn test_room(id: &str, name: &str) -> RoomListItem {
+    RoomListItem {
+        id: id.into(),
+        name: name.into(),
+        category_label: None,
+    }
+}
+
+pub(super) fn filter_rooms(rows: &[RoomListItem], query: &str) -> Vec<RoomListItem> {
     let needle = query.trim().to_lowercase();
     rows.iter()
-        .filter(|(_, name)| name.to_lowercase().contains(&needle))
+        .filter(|room| room.name.to_lowercase().contains(&needle))
         .cloned()
         .collect()
 }
@@ -20,10 +36,10 @@ pub(super) fn room_list_feedback(loaded: bool, total: usize, visible: usize) -> 
 
 #[cfg(any(target_arch = "wasm32", test))]
 pub(super) fn refresh_result_view(
-    previous: Vec<(String, String)>,
+    previous: Vec<RoomListItem>,
     previous_query: String,
-    result: Result<Vec<(String, String)>, String>,
-) -> (Vec<(String, String)>, String, String) {
+    result: Result<Vec<RoomListItem>, String>,
+) -> (Vec<RoomListItem>, String, String) {
     match result {
         Ok(next) => {
             let status = if next.is_empty() {
@@ -52,7 +68,7 @@ pub(super) fn room_status_text(status: &str, loaded: bool, total: usize, visible
 }
 
 /// Reset the local search without discarding the last successful room snapshot.
-pub(super) fn clear_room_search(loaded: bool, rows: &[(String, String)]) -> (String, String) {
+pub(super) fn clear_room_search(loaded: bool, rows: &[RoomListItem]) -> (String, String) {
     (
         String::new(),
         room_list_feedback(loaded, rows.len(), rows.len()).to_owned(),
@@ -66,8 +82,8 @@ mod tests {
     #[test]
     fn filter_preserves_ids_and_handles_all_original_queries() {
         let rooms = vec![
-            ("room_1".into(), "Rust 技術交流".into()),
-            ("room_2".into(), "生活閒聊".into()),
+            test_room("room_1", "Rust 技術交流"),
+            test_room("room_2", "生活閒聊"),
         ];
         for query in [" 技術 ", "技術", "RUST"] {
             assert_eq!(
@@ -84,11 +100,8 @@ mod tests {
 
     #[test]
     fn empty_success_replaces_rows_and_clears_query() {
-        let (rows, query, status) = refresh_result_view(
-            vec![("old".into(), "舊房間".into())],
-            "old".into(),
-            Ok(vec![]),
-        );
+        let (rows, query, status) =
+            refresh_result_view(vec![test_room("old", "舊房間")], "old".into(), Ok(vec![]));
         assert!(rows.is_empty());
         assert_eq!(query, "");
         assert_eq!(status, "尚無房間");
@@ -98,19 +111,12 @@ mod tests {
     fn failures_preserve_complete_snapshot_query_and_retry_message() {
         for (old, error, previous_query) in [
             (
-                vec![
-                    ("one".into(), "同名房間".into()),
-                    ("two".into(), "同名房間".into()),
-                ],
+                vec![test_room("one", "同名房間"), test_room("two", "同名房間")],
                 "讀取失敗：503",
                 "同名",
             ),
-            (
-                vec![("room_1".into(), "Rust 技術交流".into())],
-                "503",
-                "Rust",
-            ),
-            (vec![("a".into(), "Rust".into())], "503", "Rust"),
+            (vec![test_room("room_1", "Rust 技術交流")], "503", "Rust"),
+            (vec![test_room("a", "Rust")], "503", "Rust"),
         ] {
             let (rows, query, status) =
                 refresh_result_view(old.clone(), previous_query.into(), Err(error.into()));
@@ -124,16 +130,16 @@ mod tests {
     #[test]
     fn success_replaces_links_and_returns_full_snapshot() {
         for fresh in [
-            vec![("room_2".into(), "生活閒聊".into())],
-            vec![("a".into(), "Rust".into()), ("b".into(), "Pet".into())],
+            vec![test_room("room_2", "生活閒聊")],
+            vec![test_room("a", "Rust"), test_room("b", "Pet")],
         ] {
             let (rows, query, status) = refresh_result_view(
-                vec![("old".into(), "old".into())],
+                vec![test_room("old", "old")],
                 "Rust".into(),
                 Ok(fresh.clone()),
             );
             assert_eq!(rows, fresh);
-            assert_eq!(rows[0].0, fresh[0].0);
+            assert_eq!(rows[0].id, fresh[0].id);
             assert_eq!(query, "");
             assert_eq!(status, "請選擇房間");
             assert_eq!(filter_rooms(&rows, &query).len(), fresh.len());
@@ -162,7 +168,7 @@ mod day43_clear_room_search_tests {
     use super::*;
     #[test]
     fn clear_restores_all_visible_rooms_without_discarding_snapshot() {
-        let rows = vec![("a".into(), "Rust".into()), ("b".into(), "Pet".into())];
+        let rows = vec![test_room("a", "Rust"), test_room("b", "Pet")];
         assert_eq!(filter_rooms(&rows, "Rust").len(), 1);
         let (query, feedback) = clear_room_search(true, &rows);
         assert_eq!(query, "");

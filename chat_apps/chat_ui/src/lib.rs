@@ -14,6 +14,7 @@ mod session_entry;
 mod author_display;
 mod composer_key;
 mod room_cards;
+mod room_directory;
 mod room_heading;
 #[cfg(all(test, feature = "ssr"))]
 mod signin_contract;
@@ -29,7 +30,9 @@ use leptos_router::{
     hooks::{use_params_map, use_query_map},
     path,
 };
+#[cfg(all(test, feature = "ssr"))]
 use room_cards::RoomCards;
+use room_directory::RoomDirectory;
 #[cfg(target_arch = "wasm32")]
 use room_heading::room_heading;
 #[cfg(target_arch = "wasm32")]
@@ -79,7 +82,7 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
                 <meta name="viewport" content="width=device-width, initial-scale=1"/>
                 <title>"Rust AI Chat"</title>
                 <HydrationScripts options />
-                <style>{include_str!("chat.css")}</style>
+                <style>{include_str!("css/chat.css")}</style>
             </head>
             <body>
                 <App />
@@ -98,11 +101,21 @@ pub fn hydrate() {
 pub fn App() -> impl IntoView {
     view! {
         <Router>
-            <main class="app">
-                <h1>
-                    <a href="/" rel="external">"Rust AI Chat"</a>
-                </h1>
-                <SiteNavigation />
+            <header class="site-header">
+                <div class="site-header-inner">
+                    <a class="site-brand" href="/" rel="external">
+                        <span class="site-mark" aria-hidden="true">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5H5l1.7-3.3a7.5 7.5 0 1 1 13.3-4.2Z" />
+                                <path d="M9 11.5h7m-7 3h4" />
+                            </svg>
+                        </span>
+                        "Rust AI Chat"
+                    </a>
+                    <SiteNavigation />
+                </div>
+            </header>
+            <main class="app" id="main">
                 <Routes fallback=|| view!{
                     <p>"404 - Page Not Found"</p>
                 }>
@@ -150,8 +163,8 @@ fn AuthNavigation(state: SessionEntry, logout_csrf: Option<String>) -> impl Into
 
     view! {
         <nav aria-label="主要導覽">
-            <a href="/" rel="external">"首頁"</a>
-            <a href=href rel="external">{label}</a>
+            <a href="/" rel="external">"聊天室"</a>
+            <a class="site-session" href=href rel="external">{label}</a>
             {if state == SessionEntry::SignedIn {
                 logout_csrf.map(|csrf| view! {
                     <form method="post" action="/logout">
@@ -160,7 +173,7 @@ fn AuthNavigation(state: SessionEntry, logout_csrf: Option<String>) -> impl Into
                     </form>
                 })
             } else { None }}
-            <span role="status">{status}</span>
+            <span class="site-status" role="status">{status}</span>
         </nav>
     }
 }
@@ -168,8 +181,7 @@ fn AuthNavigation(state: SessionEntry, logout_csrf: Option<String>) -> impl Into
 #[component]
 fn HomePage() -> impl IntoView {
     view! {
-        <p>"探索公開聊天室；進入前仍須登入與權限確認。"</p>
-        <RoomList cards=true />
+        <RoomDirectory />
     }
 }
 
@@ -383,7 +395,7 @@ pub fn ChatPage(room_id: String) -> impl IntoView {
 }
 
 #[component]
-fn RoomList(#[prop(default = false)] cards: bool) -> impl IntoView {
+fn RoomList() -> impl IntoView {
     let params = use_params_map();
     let (query, set_query) = signal(String::new());
     let (rows, set_rows) = signal(Vec::<RoomListItem>::new());
@@ -505,10 +517,6 @@ fn RoomList(#[prop(default = false)] cards: bool) -> impl IntoView {
                 );
                 view! {
                     <p class="room-result-feedback" role="status">{feedback}</p>
-                    {if cards {
-                        view! { <RoomCards rooms=visible active_room=params.read().get("room_id").unwrap_or_default() /> }.into_any()
-                    } else {
-                        view! {
                     <ul>
                         {visible.into_iter().map(|RoomListItem { id, name, category_label }| view! {
                         <li>
@@ -521,8 +529,6 @@ fn RoomList(#[prop(default = false)] cards: bool) -> impl IntoView {
                         </li>
                         }).collect_view()}
                     </ul>
-                        }.into_any()
-                    }}
                 }
             }}
             </div>
@@ -584,6 +590,8 @@ mod day32_history_disclosure_tests {
 
 #[cfg(test)]
 mod day37_search_tests {
+    use crate::room_list_state::test_room;
+
     use super::*;
 
     #[test]
