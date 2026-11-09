@@ -413,6 +413,21 @@ async fn dashboard(
         return StatusCode::BAD_REQUEST.into_response();
     }
 
+    let unavailable = || {
+        let retry = format!(
+            "/dashboard?source={source}&event_type={}",
+            crate::dashboard_url::encode_query_component(kind)
+        );
+        renewed(
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Html(crate::dashboard_ui::render_dashboard_unavailable(retry)),
+            ),
+            &raw,
+            seconds,
+        )
+    };
+
     let rows = if kind.is_empty() {
         summary_for_source(&state.pool, source).await
     } else {
@@ -420,10 +435,10 @@ async fn dashboard(
     };
     let rows = match rows {
         Ok(v) => v,
-        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        Err(_) => return unavailable(),
     };
     let Some(total) = crate::summary_total(&rows) else {
-        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+        return unavailable();
     };
 
     // 導覽連結依同一 Session 的即時來源權限決定，不能依畫面隱藏替代後端 ACL。
@@ -452,7 +467,23 @@ async fn dashboard(
         Ok(allowed) => allowed,
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
-    let html = crate::dashboard_ui::render_dashboard_authorized(
+    let visible_sources: Vec<String> = [("web_chat", allow_chat), ("desktop_pet", allow_pet)]
+        .into_iter()
+        .filter(|(_, allowed)| *allowed)
+        .map(|(code, _)| code.to_owned())
+        .collect();
+    let visible_events: Vec<String> = rows.iter().map(|row| row.event_type.clone()).collect();
+    let dictionary = match analytics_persistence::dashboard_dictionary(
+        &state.pool,
+        &visible_sources,
+        &visible_events,
+    )
+    .await
+    {
+        Ok(dictionary) => dictionary,
+        Err(_) => return unavailable(),
+    };
+    let html = crate::dashboard_ui::render_dashboard_dictionary(
         source_label,
         total,
         source,
@@ -463,6 +494,7 @@ async fn dashboard(
         allow_pet,
         pages,
         can_export,
+        dictionary,
     );
     renewed(Html(html), &raw, seconds)
 }
@@ -626,6 +658,15 @@ async fn update_session_settings(
 
 pub fn build(state: IngestState) -> Router {
     Router::new()
+    .route(
+            "/assets/source-report.css",
+            get(|| async {
+                (
+                    [(header::CONTENT_TYPE, "text/css; charset=utf-8")],
+                    include_str!("css/source_report.css"),
+                )
+            }),
+        )
         .route("/navigation", get(crate::page_acl::navigation))
         .route(
             "/settings/session",

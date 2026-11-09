@@ -28,82 +28,164 @@ fn DashboardView(
     allow_pet: bool,
     pages: Vec<NavigationPage>,
     can_export: bool,
+    dictionary: Vec<(String, String, String)>,
 ) -> impl IntoView {
-    let sources = [
+    let mut sources = BTreeMap::new();
+    let mut events = BTreeMap::new();
+   for (category, key, label) in dictionary {
+        match category.as_str() {
+            "source_app" => {
+                sources.insert(key, label);
+            }
+            "event_type" => {
+                events.insert(key, label);
+            }
+            _ => {}
+        }
+    }
+    let selected_source = sources
+        .get(&source)
+        .cloned()
+        .unwrap_or_else(|| source_label.to_owned());
+    let source_options = [
         ("web_chat", "Chat", allow_chat),
         ("desktop_pet", "Pet", allow_pet),
-    ];
+    ]
+    .into_iter()
+    .filter(|(_, _, allowed)| *allowed)
+    .map(|(id, fallback, _)| {
+        let name = sources
+            .get(id)
+            .map(|label| format!("{label} · {id}"))
+            .unwrap_or_else(|| fallback.into());
+        let selected = source == id;
+        view! { <option value=id selected=selected>{name}</option> }
+    })
+    .collect_view();
     let clear_url = format!("/dashboard?source={source}");
     let export_url = export_csv_url(&source, &event_type);
     let filter_description = filter_description(&event_type);
 
     let count_label = summary_count_label(source_label, &event_type, total);
+    let kinds = rows.len();
     let filter_source = source.clone();
 
     view! {
         <html lang="zh-Hant">
             <head>
                 <meta charset="utf-8"/>
+                 <meta name="viewport" content="width=device-width, initial-scale=1"/>
                 <title>"Analytics 管理後台"</title>
-                <style>{include_str!("dashboard.css")}</style>
+                // TODO: 有兩個樣式內容 為何不能放一起
+                <style>{include_str!("css/dashboard.css")}</style>
+                <link rel="stylesheet" href="/assets/source-report.css"/>
             </head>
             <body>
                 <ManagementShell pages logout_csrf>
-                    <h2>"來源分析"</h2>
-                    {can_export.then(|| view! { <a href=export_url>"匯出目前篩選 CSV"</a> })}
-                    <form method="get" action="/dashboard">
-                        <label for="analytics-source">"來源"</label>
-                        <select id="analytics-source" name="source">
-                            {sources.into_iter().filter(|(_, _, allowed)| *allowed)
-                                .map(|(id, name, _)| {
-                                    let selected = source == id;
-                                    view! { <option value=id selected=selected>{name}</option> }
-                                }).collect_view()}
-                        </select>
-                        <label for="event-type">"事件類型（精確比對）"</label>
-                        <input
-                            id="event-type"
-                            name="event_type"
-                            value=event_type
-                            maxlength="128"
-                            placeholder="例如 chat.message.persisted"
-                        />
-                        <button type="submit">"篩選"</button>
-                        <a href=clear_url>"清除篩選"</a>
-                    </form>
-                    <p>{filter_description}</p>
-                    <p class="summary-count" aria-live="polite">{count_label}</p>
-                    <table>
-                        <caption>"已提交事件類型明細"</caption>
-                        <thead><tr><th scope="col">"事件類型"</th><th scope="col">"已提交筆數"</th></tr></thead>
-                        <tbody>
-                            {rows.into_iter().map(|(kind, count)| {
-                                let detail_url = format!(
-                                    "/dashboard?source={}&event_type={}",
-                                    filter_source,
-                                    encode_query_component(&kind)
-                                );
-                                view! { <tr>
-                                    <td>
-                                        <a href=detail_url>{kind}</a>
-                                    </td>
-                                    <td>{count}</td>
-                                </tr> }
-                            }).collect_view()}
-                        </tbody>
-                    </table>
-                    <p role="status">
-                        {if total == 0 {
-                            "沒有符合條件的已提交事件"
-                        } else {
-                            "查詢完成"
-                        }}
-                    </p>
-                    </ManagementShell>
+                    <div class="source-report">
+                        <header class="report-heading">
+                            <p>"資訊分析"</p>
+                            <h2>"來源分析"</h2>
+                            <span class="report-source">{selected_source}</span>
+                        </header>
+                        <section class="report-card" aria-labelledby="report-filters-title">
+                            <h3 id="report-filters-title">"查詢條件"</h3>
+                            <form class="report-filters" method="get" action="/dashboard">
+                                <div class="report-field">
+                                    <label for="analytics-source">"來源"</label>
+                                    <select id="analytics-source" name="source">{source_options}</select>
+                                </div>
+                                <div class="report-field">
+                                    <label for="event-type">"事件類型（精確比對）"</label>
+                                    <input
+                                        id="event-type"
+                                        name="event_type"
+                                        value=event_type
+                                        maxlength="128"
+                                        placeholder="例如 chat.message.persisted"
+                                    />
+                                </div>
+                                <div class="report-actions">
+                                    <button type="submit" class="report-primary">"篩選"</button>
+                                    <a href=clear_url>"清除篩選"</a>
+                                </div>
+                            </form>
+                       </section>
+                        <section class="report-card" aria-labelledby="report-results-title">
+                            <header class="report-results-head">
+                                <div>
+                                    <h3 id="report-results-title">"查詢結果"</h3>
+                                    <p>{filter_description}</p>
+                                </div>
+                                {can_export.then(|| view! { <a class="report-export" href=export_url>"匯出目前篩選 CSV"</a> })}
+                            </header>
+                            <div class="report-summary">
+                                <p class="summary-count" aria-live="polite">{count_label}</p>
+                                <span>{format!("{kinds} 個事件類型")}</span>
+                            </div>
+                            <div class="report-table-wrap" role="region" aria-label="事件類型明細" tabindex="0">
+                                <table>
+                                    <caption>"已提交事件類型明細"</caption>
+                                    <thead><tr><th scope="col">"事件類型"</th><th scope="col">"已提交筆數"</th></tr></thead>
+                                    <tbody>
+                                        {rows.into_iter().map(|(kind, count)| {
+                                            let detail_url = format!(
+                                                "/dashboard?source={}&event_type={}",
+                                                filter_source,
+                                                encode_query_component(&kind)
+                                            );
+                                            let label = events.get(&kind).filter(|label| *label != &kind).cloned();
+                                            view! { <tr>
+                                                <td>
+                                                    <a href=detail_url class="report-event">
+                                                        {label.map(|text| view! { <strong>{text}</strong> })}
+                                                        <code>{kind}</code>
+                                                    </a>
+                                                </td>
+                                                <td>{count}</td>
+                                            </tr> }
+                                        }).collect_view()}
+                                    </tbody>
+                                </table>
+                            </div>
+                            <p class="report-status" role="status">
+                                {if total == 0 { "沒有符合條件的已提交事件" } else { "查詢完成" }}
+                            </p>
+                        </section>
+                    </div>
+                </ManagementShell>
             </body>
         </html>
     }
 }
+
+pub(crate) fn render_dashboard_unavailable(retry: String) -> String {
+    format!(
+        "<!doctype html>{}",
+        view! {
+            <html lang="zh-Hant">
+                <head>
+                    <meta charset="utf-8"/>
+                    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+                    <title>"來源分析暫時無法讀取"</title>
+                    <style>{include_str!("dashboard.css")}</style>
+                <link rel="stylesheet" href="/assets/source-report.css"/>
+                </head>
+                <body>
+                    <main class="report-unavailable">
+                        <section class="report-card" role="alert">
+                            <h1>"來源分析暫時無法讀取"</h1>
+                            <p>"目前無法取得資料，可用相同條件重試。"</p>
+                            <a class="report-export" href=retry>"重試查詢"</a>
+                        </section>
+                    </main>
+                </body>
+            </html>
+        }
+        .to_html()
+    )
+}
+
 
 pub fn render_dashboard_filtered(
     source_label: &'static str,
@@ -194,6 +276,34 @@ pub(crate) fn render_dashboard_authorized(
     pages: Vec<NavigationPage>,
     can_export: bool,
 ) -> String {
+    render_dashboard_dictionary(
+        source_label,
+        total,
+        source,
+        event_type,
+        rows,
+        logout_csrf,
+        allow_chat,
+        allow_pet,
+        pages,
+        can_export,
+        Vec::new(),
+    )
+}
+
+pub(crate) fn render_dashboard_dictionary(
+    source_label: &'static str,
+    total: i64,
+    source: &str,
+    event_type: &str,
+    rows: &[EventSummary],
+    logout_csrf: &str,
+    allow_chat: bool,
+    allow_pet: bool,
+    pages: Vec<NavigationPage>,
+    can_export: bool,
+    dictionary: Vec<(String, String, String)>,
+) -> String {
     let rows: Vec<(String, i64)> = rows
         .iter()
         .map(|row| (row.event_type.clone(), row.total))
@@ -212,6 +322,7 @@ pub(crate) fn render_dashboard_authorized(
                 allow_pet=allow_pet
                 pages
                 can_export
+                dictionary
             />
         }
         .to_html()

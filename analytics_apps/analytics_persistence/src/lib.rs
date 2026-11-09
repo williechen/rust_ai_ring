@@ -19,11 +19,17 @@ pub async fn summary_for_source(
     source: &str,
 ) -> Result<Vec<EventSummary>, sqlx::Error> {
     sqlx::query_as::<_, EventSummary>(
-        "SELECT source_app, event_type, COUNT(*)::bigint AS total
-         FROM product_events
-         WHERE source_app = $1
-         GROUP BY source_app, event_type
-         ORDER BY event_type",
+        r#"SELECT p.source_app
+            , c.wire_value AS event_type
+            , COUNT(*)::bigint AS total
+        FROM product_events AS p
+        JOIN codemap AS c 
+            ON c.category = 'event_type' 
+            AND c.code = p.event_type
+        WHERE p.source_app = $1
+        GROUP BY p.source_app
+            , c.wire_value
+        ORDER BY c.wire_value COLLATE "default""#,
     )
     .bind(source)
     .fetch_all(pool)
@@ -37,13 +43,39 @@ pub async fn summary_for_source_and_type(
     event_type: &str,
 ) -> Result<Vec<EventSummary>, sqlx::Error> {
     sqlx::query_as::<_, EventSummary>(
-        "SELECT source_app, event_type, COUNT(*)::bigint AS total
-         FROM product_events
-         WHERE source_app = $1 AND event_type = $2
-         GROUP BY source_app, event_type",
+        r#"SELECT p.source_app
+            , c.wire_value AS event_type
+            , COUNT(*)::bigint AS total
+        FROM product_events AS p
+        JOIN codemap AS c 
+            ON c.category = 'event_type' 
+            AND c.code = p.event_type
+        WHERE p.source_app = $1 
+            AND c.wire_value = $2
+        GROUP BY p.source_app
+            , c.wire_value"#,
     )
     .bind(source)
     .bind(event_type)
+    .fetch_all(pool)
+    .await
+}
+
+pub async fn dashboard_dictionary(
+    pool: &sqlx::PgPool,
+    visible_sources: &[String],
+    visible_events: &[String],
+) -> Result<Vec<(String, String, String)>, sqlx::Error> {
+    sqlx::query_as(
+        "SELECT category
+            , COALESCE(wire_value, code)
+            , value
+        FROM codemap
+        WHERE (category = 'source_app' AND code = ANY($1))
+        OR (category = 'event_type' AND wire_value = ANY($2))",
+    )
+    .bind(visible_sources)
+    .bind(visible_events)
     .fetch_all(pool)
     .await
 }

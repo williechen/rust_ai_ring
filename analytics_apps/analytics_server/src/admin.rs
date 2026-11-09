@@ -701,6 +701,13 @@ mod tests {
         .await
         .unwrap();
 
+        sqlx::raw_sql(include_str!(
+            "../../migrations/20261109080000_type_dictionary.sql"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+
         let event = crate::EventInput {
             schema_version: 1,
             event_id: Uuid::new_v4(),
