@@ -1,3 +1,8 @@
+#![cfg_attr(
+    all(target_arch = "wasm32", feature = "hydrate"),
+    recursion_limit = "256"
+)]
+
 pub mod account;
 
 mod chat_socket;
