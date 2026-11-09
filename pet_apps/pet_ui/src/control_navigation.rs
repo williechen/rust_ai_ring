@@ -124,6 +124,7 @@ mod tests {
             assert_eq!(html.matches("aria-selected=\"true\"").count(), 1);
             assert_eq!(html.matches("tabindex=\"0\"").count(), 1);
             assert_eq!(html.matches("tabindex=\"-1\"").count(), 5);
+            assert!(!html.contains("javascript:"));
         });
     }
 

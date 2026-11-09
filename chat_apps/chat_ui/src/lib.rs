@@ -694,7 +694,6 @@ mod day38_room_status_tests {
 #[cfg(test)]
 mod day40_home_entry_tests {
     use super::*;
-    use crate::room_list_state::test_room;
 
     #[test]
     fn entry_does_not_claim_manage_without_confirmed_session() {
@@ -714,6 +713,8 @@ mod day40_home_entry_tests {
 #[cfg(all(test, feature = "ssr"))]
 mod day49_room_cards_tests {
     use super::*;
+    use crate::room_list_state::test_room;
+
     #[test]
     fn public_cards_use_real_rooms_and_escape_names() {
         Owner::new().with(|| {

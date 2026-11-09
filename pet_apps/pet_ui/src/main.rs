@@ -193,7 +193,7 @@ fn App() -> impl IntoView {
     let (startup_view, set_startup_view) = signal(false);
     view! {
         <main class="control-shell">
-            <style>{include_str!("control.css")}</style>
+            <style>{include_str!("css/control.css")}</style>
            <header class="control-heading">
                 <span class="control-mark" aria-hidden="true">"P"</span>
                 <h1>"Pet｜桌面陪伴"</h1>
@@ -580,31 +580,6 @@ fn ErrorMessage(error: ReadSignal<Option<String>>) -> impl IntoView {
                 }}
             </p>
         </Show>
-    }
-}
-
-#[cfg(test)]
-mod day49_control_navigation_tests {
-    use super::*;
-    #[test]
-    fn navigation_reaches_exactly_six_real_sections_without_commands() {
-        Owner::new().with(|| {
-            let html = view! { <ControlNavigation /> }.to_html();
-            for (id, title) in [
-                ("pet-interaction", "互動"),
-                ("pet-settings", "設定"),
-                ("pet-memory", "記憶"),
-                ("pet-files", "檔案"),
-                ("pet-management", "管理"),
-                ("pet-updates", "更新"),
-            ] {
-                assert!(html.contains(&format!("href=\"#{id}\"")));
-                assert!(html.contains(title));
-            }
-            assert_eq!(html.matches("href=\"#pet-").count(), 6);
-            assert!(!html.contains("<button"));
-            assert!(!html.contains("javascript:"));
-        });
     }
 }
 
