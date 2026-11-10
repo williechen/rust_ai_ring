@@ -130,10 +130,6 @@ pub async fn get_pet_state_for(id: Option<String>) -> Result<PetSnapshot, String
 }
 
 // 發送指令給寵物並獲取更新後的狀態
-pub async fn send_pet_command(command: PetCommand) -> Result<PetSnapshot, String> {
-    send_pet_command_for(command, None).await
-}
-
 pub async fn send_pet_command_for(
     command: PetCommand,
     id: Option<String>,

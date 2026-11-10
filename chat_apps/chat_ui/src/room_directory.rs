@@ -7,6 +7,7 @@ use std::collections::BTreeSet;
 pub(crate) fn RoomDirectory() -> impl IntoView {
     let (rooms, set_rooms) = signal(Vec::<RoomListItem>::new());
     let (query, set_query) = signal(String::new());
+    let search_input = NodeRef::<leptos::html::Input>::new();
     let (category, set_category) = signal(None::<String>);
     let (loading, set_loading) = signal(true);
     let (error, set_error) = signal(None::<String>);
@@ -80,11 +81,21 @@ pub(crate) fn RoomDirectory() -> impl IntoView {
                         on:click=move |_| refresh()>"重新整理"</button>
                 </div>
                 <div class="directory-filters">
-                    <label class="directory-search">
-                        <span>"搜尋房間"</span>
-                        <input type="search" placeholder="輸入房間名稱" prop:value=move || query.get()
+                    <div class="directory-search">
+                        <label for="directory-query">"搜尋房間"</label>
+                        <input id="directory-query" node_ref=search_input type="search"
+                            placeholder="輸入房間名稱" prop:value=move || query.get()
                             on:input=move |event| set_query.set(event_target_value(&event)) />
-                    </label>
+                        <Show when=move || query.with(|value| !value.is_empty())>
+                            <button class="directory-secondary" type="button" on:click=move |_| {
+                                set_query.set(String::new());
+                                #[cfg(target_arch = "wasm32")]
+                                if let Some(input) = search_input.get_untracked() {
+                                    let _ = input.focus();
+                                }
+                            }>"清除搜尋"</button>
+                        </Show>
+                    </div>
                     <fieldset class="directory-categories">
                         <legend>"分類"</legend>
                         <div>

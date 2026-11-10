@@ -69,12 +69,22 @@ fn App() -> impl IntoView {
     spawn_local(async move {
         if let Err(message) = bridge::listen_pet_profile(move |pet| {
             profile_events.update(|n| *n += 1);
-            set_active_pet.set(Some(pet));
+            let generation = profile_events.get_untracked();
+            let id = pet.id.clone();
             set_snapshot.set(None);
+            set_active_pet.set(Some(pet));
             set_error.set(None);
             spawn_local(async move {
-                if let Ok(incoming) = bridge::get_pet_state().await {
-                    set_snapshot.set(Some(incoming));
+                let result = bridge::get_pet_state_for(Some(id.clone())).await;
+                if profile_events.get_untracked() != generation
+                    || !active_pet
+                        .with_untracked(|pet| pet.as_ref().is_some_and(|pet| pet.id == id))
+                {
+                    return;
+                }
+                match result {
+                    Ok(incoming) => apply_snapshot(incoming, snapshot, set_snapshot),
+                    Err(message) => set_error.set(Some(message)),
                 }
             });
         })
@@ -143,8 +153,13 @@ fn App() -> impl IntoView {
             }
         });
 
+        let generation = profile_events.get_untracked();
         spawn_local(async move {
-            match bridge::get_pet_state().await {
+            let result = bridge::get_pet_state().await;
+            if profile_events.get_untracked() != generation {
+                return;
+            }
+            match result {
                 Ok(incoming) => {
                     apply_snapshot(incoming, snapshot_reader, snapshot_writer);
                 }
@@ -261,7 +276,7 @@ fn App() -> impl IntoView {
                 <summary>"生活窗互動與聊天"</summary>
                 <ErrorMessage error />
                 <p>{move || active_pet.get().map(|pet| format!("作用對象：{}", pet.name)).unwrap_or_else(|| "尚無作用中的生活窗。".into())}</p>
-                <PetControls snapshot set_snapshot set_error />
+               <PetControls active_pet profile_events snapshot set_snapshot set_error />
             <button
                 class="chat-trigger"
                 type="button"

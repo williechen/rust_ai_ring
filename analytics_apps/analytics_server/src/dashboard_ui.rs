@@ -110,13 +110,14 @@ fn DashboardView(
                                 <div class="report-actions">
                                     <button type="submit" class="report-primary">"篩選"</button>
                                     <a href=clear_url>"清除篩選"</a>
+                                    <a href="#report-results-title">"跳至查詢結果"</a>
                                 </div>
                             </form>
                        </section>
                         <section class="report-card" aria-labelledby="report-results-title">
                             <header class="report-results-head">
                                 <div>
-                                    <h3 id="report-results-title">"查詢結果"</h3>
+                                    <h3 id="report-results-title" tabindex="-1">"查詢結果"</h3>
                                     <p>{filter_description}</p>
                                 </div>
                                 {can_export.then(|| view! { <a class="report-export" href=export_url>"匯出目前篩選 CSV"</a> })}
@@ -506,6 +507,28 @@ pub(crate) fn render_session_settings(
         }
         .to_html()
     )
+}
+
+#[cfg(test)]
+mod results_jump_tests {
+    use super::*;
+
+    #[test]
+    fn results_jump_connects_filter_card_to_focusable_heading() {
+        let html = render_dashboard_filtered("Chat", 0, "web_chat", "chat.message.persisted");
+        let jump = html
+            .find("href=\"#report-results-title\"")
+            .expect("查詢卡片缺少結果跳轉");
+        let target = html
+            .find("id=\"report-results-title\" tabindex=\"-1\"")
+            .expect("結果標題須可接收焦點");
+        assert!(jump < target);
+        assert_eq!(html.matches("id=\"report-results-title\"").count(), 1);
+        assert!(html.contains("跳至查詢結果"));
+        assert!(
+            !render_dashboard_unavailable("/dashboard".into()).contains("#report-results-title")
+        );
+    }
 }
 
 #[cfg(test)]
