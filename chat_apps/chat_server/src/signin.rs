@@ -207,18 +207,25 @@ async fn login(
         .into_response())
 }
 
-fn account_html(
+async fn account_html(
+    pool: &SqlitePool,
     headers: &HeaderMap,
     message: String,
     name: String,
     room_id: Option<String>,
+    selected_category: String,
 ) -> Result<Html<String>, StatusCode> {
-    Ok(Html(chat_ui::account::render_account(
+    let categories: Vec<(String, String)> = sqlx::query_as(
+        "SELECT code,value FROM codemap WHERE category='room_category' ORDER BY CASE WHEN code='default-category' THEN 0 ELSE 1 END,code"
+    ).fetch_all(pool).await.map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    Ok(Html(chat_ui::account::render_account_categories(
         crate::auth_session::csrf_for_logout(headers)?,
         crate::auth_session::csrf_for_create_room(headers)?,
         message,
         name,
         room_id,
+        categories,
+        selected_category,
     )))
 }
 
@@ -235,7 +242,15 @@ async fn account(
     if initial {
         return Err(StatusCode::FORBIDDEN);
     }
-    let Html(html) = account_html(&headers, String::new(), String::new(), None)?;
+    let Html(html) = account_html(
+        &pool,
+        &headers,
+        String::new(),
+        String::new(),
+        None,
+        "default-category".into(),
+    )
+    .await?;
     Ok(Html(
         crate::member_self::account_markup(&pool, &headers, html).await?,
     ))
@@ -245,6 +260,7 @@ async fn account(
 struct AccountRoomForm {
     name: String,
     csrf: String,
+    category: Option<String>,
 }
 
 async fn account_create_room(
@@ -259,20 +275,47 @@ async fn account_create_room(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    if let Err(message) = chat_application::validate_room_name(&form.name) {
+    let category = form.category.as_deref().unwrap_or("default-category");
+    let exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM codemap WHERE category='room_category' AND code=?1)",
+    )
+    .bind(category)
+    .fetch_one(&pool)
+    .await
+    .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let validation = chat_application::validate_room_name(&form.name).and_then(|()| {
+        if exists {
+            Ok(())
+        } else {
+            Err("請選擇有效的聊天室分類")
+        }
+    });
+    if let Err(message) = validation {
         return Ok((
             StatusCode::UNPROCESSABLE_ENTITY,
-            account_html(&headers, message.into(), form.name, None)?,
+            account_html(
+                &pool,
+                &headers,
+                message.into(),
+                form.name,
+                None,
+                category.into(),
+            )
+            .await?,
         )
             .into_response());
     }
-    let id = crate::member_self::create_room(&pool, &headers, form.name).await?;
+    let id =
+        crate::member_self::create_room_in_category(&pool, &headers, form.name, category).await?;
     let Html(html) = account_html(
+        &pool,
         &headers,
         "已建立；可進房或回公開清單".into(),
         String::new(),
         Some(id),
-    )?;
+        category.into(),
+    )
+    .await?;
     Ok((
         StatusCode::CREATED,
         Html(crate::member_self::account_markup(&pool, &headers, html).await?),
@@ -458,6 +501,7 @@ mod day35_account_room_tests {
             Form(AccountRoomForm {
                 name: "房\n間".into(),
                 csrf,
+                category: None,
             }),
         )
         .await

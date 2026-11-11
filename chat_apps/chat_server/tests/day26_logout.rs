@@ -20,18 +20,7 @@ async fn day26_logout_revokes_only_one_session() {
         .connect("sqlite::memory:")
         .await
         .unwrap();
-    sqlx::raw_sql(include_str!(
-        "../../migrations/20261018073931_create_auth_user.sql"
-    ))
-    .execute(&db)
-    .await
-    .unwrap();
-    sqlx::raw_sql(include_str!(
-        "../../migrations/20261020152737_mbr_sessions.sql"
-    ))
-    .execute(&db)
-    .await
-    .unwrap();
+    chat_persistence::migrate(&db).await.unwrap();
     sqlx::query("INSERT INTO mbr_user (id,user_acnt,user_pd,user_email,user_name,user_status,user_sexy,user_birthday,is_init_pd,created_at,updated_at) VALUES('m1','user','hash','u@test.example','User','active',NULL,NULL,FALSE,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)")
         .execute(&db).await.unwrap();
     let a = "a".repeat(64);

@@ -7,20 +7,31 @@ fn AccountView(
     message: String,
     name: String,
     room_id: Option<String>,
+    categories: Vec<(String, String)>,
+    selected_category: String,
 ) -> impl IntoView {
     view! {
         <html lang="zh-Hant">
-            <head><meta charset="utf-8"/><title>"個人管理"</title></head>
-            <body><main>
+            <head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+                <title>"個人管理"</title><style>{include_str!("css/chat.css")}</style></head>
+            <body><main class="account-workspace">
                 <h1>"個人管理"</h1>
                 <p role="status">{message}</p>
                 {room_id.map(|id| view! {
                     <p><a href=format!("/room/{id}")>"進入剛建立的房間"</a></p>
                 })}
                 <form method="post" action="/account/rooms">
+                    <h2>"建立聊天室"</h2>
                     <input type="hidden" name="csrf" value=create_csrf/>
                     <label for="room-name">"聊天室名稱"</label>
                     <input id="room-name" name="name" value=name required maxlength="200"/>
+                    <label for="room-category">"聊天室分類"</label>
+                    <select id="room-category" name="category">
+                        {categories.into_iter().map(|(key, label)| {
+                            let selected = key == selected_category;
+                            view! { <option value=key selected=selected>{label}</option> }
+                        }).collect_view()}
+                    </select>
                     <button type="submit">"建立聊天室"</button>
                 </form>
                 <form method="post" action="/logout">
@@ -40,10 +51,30 @@ pub fn render_account(
     name: String,
     room_id: Option<String>,
 ) -> String {
+    render_account_categories(
+        logout_csrf,
+        create_csrf,
+        message,
+        name,
+        room_id,
+        vec![("default-category".into(), "一般聊天室".into())],
+        "default-category".into(),
+    )
+}
+
+pub fn render_account_categories(
+    logout_csrf: String,
+    create_csrf: String,
+    message: String,
+    name: String,
+    room_id: Option<String>,
+    categories: Vec<(String, String)>,
+    selected_category: String,
+) -> String {
     format!(
         "<!doctype html>{}",
         view! {
-            <AccountView logout_csrf create_csrf message name room_id/>
+            <AccountView logout_csrf create_csrf message name room_id categories selected_category/>
         }
         .to_html()
     )
