@@ -372,6 +372,8 @@ async fn change_password(
 struct DashboardSourceQuery {
     source: Option<String>,
     event_type: Option<String>,
+    page: Option<usize>,
+    page_size: Option<usize>,
 }
 
 async fn dashboard(
@@ -386,6 +388,12 @@ async fn dashboard(
     };
     if restricted {
         return renewed(Redirect::to("/change-password"), &raw, seconds);
+    }
+
+    let page = query.page.unwrap_or(1);
+    let page_size = query.page_size.unwrap_or(10);
+    if page == 0 || ![10, 25, 50].contains(&page_size) {
+        return StatusCode::BAD_REQUEST.into_response();
     }
 
     let default_source = if query.source.is_none() {
@@ -414,10 +422,13 @@ async fn dashboard(
     }
 
     let unavailable = || {
-        let retry = format!(
+        let mut retry = format!(
             "/dashboard?source={source}&event_type={}",
             crate::dashboard_url::encode_query_component(kind)
         );
+        if query.page.is_some() || query.page_size.is_some() {
+            retry.push_str(&format!("&page={page}&page_size={page_size}"));
+        }
         renewed(
             (
                 StatusCode::SERVICE_UNAVAILABLE,
@@ -495,6 +506,8 @@ async fn dashboard(
         pages,
         can_export,
         dictionary,
+        page,
+        page_size,
     );
     renewed(Html(html), &raw, seconds)
 }
@@ -658,7 +671,7 @@ async fn update_session_settings(
 
 pub fn build(state: IngestState) -> Router {
     Router::new()
-    .route(
+        .route(
             "/assets/source-report.css",
             get(|| async {
                 (

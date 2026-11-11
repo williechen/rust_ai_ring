@@ -173,7 +173,7 @@ body:has(.report-unavailable) {
 
 .report-field input,
 .report-field select,
-.report-actions :is(a, button),
+.report-actions :is(a, button, select),
 .report-export,
 .analytics-shell:has(.source-report) .analytics-footer button {
     min-height: 44px;

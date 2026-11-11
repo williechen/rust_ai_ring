@@ -31,6 +31,9 @@ fn DashboardView(
     pages: Vec<NavigationPage>,
     can_export: bool,
     dictionary: Vec<(String, String, String)>,
+    page: usize,
+    page_size: usize,
+    total_kinds: usize,
 ) -> impl IntoView {
     let mut sources = BTreeMap::new();
     let mut events = BTreeMap::new();
@@ -69,8 +72,17 @@ fn DashboardView(
     let filter_description = filter_description(&event_type);
 
     let count_label = summary_count_label(source_label, &event_type, total);
-    let kinds = rows.len();
+    let kinds = total_kinds;
     let filter_source = source.clone();
+    let total_pages = total_kinds.saturating_sub(1) / page_size + 1;
+    let page_url = |next| {
+        format!(
+            "/dashboard?source={source}&event_type={}&page={next}&page_size={page_size}",
+            encode_query_component(&event_type)
+        )
+    };
+    let previous_url = (page > 1).then(|| page_url(page - 1));
+    let next_url = (page < total_pages).then(|| page_url(page + 1));
 
     view! {
         <html lang="zh-Hant">
@@ -108,6 +120,12 @@ fn DashboardView(
                                     />
                                 </div>
                                 <div class="report-actions">
+                                 <label for="report-page-size">"每頁筆數"</label>
+                                   <select id="report-page-size" name="page_size">
+                                       {[10, 25, 50].into_iter().map(|size| view! {
+                                            <option value=size.to_string() selected=size==page_size>{size}</option>
+                                        }).collect_view()}
+                                    </select>
                                     <button type="submit" class="report-primary">"篩選"</button>
                                     <a href=clear_url>"清除篩選"</a>
                                     <a href="#report-results-title">"跳至查詢結果"</a>
@@ -154,6 +172,11 @@ fn DashboardView(
                             <p class="report-status" role="status">
                                 {if total == 0 { "沒有符合條件的已提交事件" } else { "查詢完成" }}
                             </p>
+                             <nav class="report-actions" aria-label="報表分頁">
+                                {previous_url.map(|href| view! { <a href=href>"上一頁"</a> })}
+                                <span>{format!("第 {page} / {total_pages} 頁 · 共 {total_kinds} 個事件類型")}</span>
+                                {next_url.map(|href| view! { <a href=href>"下一頁"</a> })}
+                            </nav>
                         </section>
                     </div>
                 </ManagementShell>
@@ -290,6 +313,8 @@ pub(crate) fn render_dashboard_authorized(
         pages,
         can_export,
         Vec::new(),
+        1,
+        rows.len().max(1),
     )
 }
 
@@ -305,9 +330,18 @@ pub(crate) fn render_dashboard_dictionary(
     pages: Vec<NavigationPage>,
     can_export: bool,
     dictionary: Vec<(String, String, String)>,
+    page: usize,
+    page_size: usize,
 ) -> String {
+    let page_size = page_size.max(1);
+    let total_kinds = rows.len();
+    let total_pages = total_kinds.saturating_sub(1) / page_size + 1;
+    let page = page.clamp(1, total_pages);
+    let offset = (page - 1) * page_size;
     let rows: Vec<(String, i64)> = rows
         .iter()
+        .skip(offset)
+        .take(page_size)
         .map(|row| (row.event_type.clone(), row.total))
         .collect();
     format!(
@@ -325,6 +359,9 @@ pub(crate) fn render_dashboard_dictionary(
                 pages
                 can_export
                 dictionary
+                page
+                page_size
+                total_kinds
             />
         }
         .to_html()
