@@ -17,7 +17,7 @@
     width: min(100% - 32px, 640px);
     margin: 32px auto;
 }
-.account-workspace form[action="/account/rooms"] {
+.account-workspace form[action='/account/rooms'] {
     display: grid;
     gap: 8px;
     padding: 24px;
@@ -26,8 +26,8 @@
     background: var(--surface);
     box-shadow: var(--shadow);
 }
-.account-workspace form[action="/account/rooms"] h2 { margin: 0 0 12px; }
-.account-workspace form[action="/account/rooms"] :is(input, select, button) {
+.account-workspace form[action='/account/rooms'] h2 { margin: 0 0 12px; }
+.account-workspace form[action='/account/rooms'] :is(input, select, button) {
     width: 100%;
     min-width: 0;
     min-height: 44px;
@@ -38,7 +38,7 @@
     background: var(--surface);
     color: var(--ink);
 }
-.account-workspace form[action="/account/rooms"] button { background: var(--brand); color: white; }
+.account-workspace form[action='/account/rooms'] button { background: var(--brand); color: white; }
 .account-workspace > form[action="/logout"] button,
 .account-workspace a {
     display: inline-flex;

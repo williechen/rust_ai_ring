@@ -177,7 +177,7 @@ pub(crate) fn FileBrowser(
 
     view! {
         <div class="file-browser" aria-busy=move || loading.get().to_string()>
-            +            <button type="button" disabled=move || loading.get() || creating.get() || !state.with(|view| view.loaded)
+            <button type="button" disabled=move || loading.get() || creating.get() || !state.with(|view| view.loaded)
                 on:click=move |_| { folder_form.set(true); folder_name.set(String::new()); error.set(None); }>
                 "新增資料夾"
             </button>
