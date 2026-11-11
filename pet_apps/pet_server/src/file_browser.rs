@@ -78,6 +78,43 @@ fn open_relative(
 }
 
 #[cfg(target_os = "linux")]
+pub(crate) fn create_directory(
+    root: &AuthorizedRoot,
+    path: &[String],
+    name: &str,
+) -> Result<(), String> {
+    use std::{ffi::CString, os::fd::AsRawFd};
+    if name.is_empty()
+        || name.trim() != name
+        || name == "."
+        || name == ".."
+        || name.len() > 255
+        || name.contains(['/', '\\', '\0'])
+    {
+        return Err("資料夾名稱無效，請輸入單一名稱".into());
+    }
+    let parent = open_relative(root, path, true)?;
+    let name = CString::new(name).map_err(|_| "資料夾名稱無效")?;
+    // 由已開啟的授權目錄建立新項目，同名檔案或連結一律拒絕。
+    let result = unsafe { libc::mkdirat(parent.as_raw_fd(), name.as_ptr(), 0o700) };
+    if result != 0 {
+        return Err(
+            if std::io::Error::last_os_error().kind() == std::io::ErrorKind::AlreadyExists {
+                "已有同名項目，請使用其他名稱".into()
+            } else {
+                "無法建立資料夾，請檢查授權與磁碟空間".into()
+            },
+        );
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+pub(crate) fn create_directory(_: &AuthorizedRoot, _: &[String], _: &str) -> Result<(), String> {
+    Err("這個平台目前無法安全建立授權資料夾".into())
+}
+
+#[cfg(target_os = "linux")]
 pub(crate) fn browse(root: &AuthorizedRoot, path: &[String]) -> Result<DirectoryListing, String> {
     use std::{fs, os::fd::AsRawFd, time::UNIX_EPOCH};
     let folder = open_relative(root, path, true)?;
@@ -257,6 +294,33 @@ pub(crate) fn compare(_: &AuthorizedRoot, _: &[String]) -> Result<DirectoryCompa
 mod tests {
     use super::*;
     use std::{fs, os::unix::fs::symlink};
+
+    #[test]
+    fn directory_creation_is_atomic_and_keeps_the_authorized_boundary() {
+        let path = std::env::temp_dir().join(format!("pet-mkdir-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(path.join("子目錄")).unwrap();
+        symlink("/tmp", path.join("越權連結")).unwrap();
+        let root = AuthorizedRoot::new(&path).unwrap();
+        for invalid in ["", ".", "..", "../外部", "/tmp", "a/b", "a\\b", " a", "a\0"] {
+            assert!(create_directory(&root, &[], invalid).is_err());
+        }
+        assert!(create_directory(&root, &["越權連結".into()], "不得建立").is_err());
+        let create = || {
+            let root = AuthorizedRoot::new(&path).unwrap();
+            create_directory(&root, &["子目錄".into()], "並行資料夾")
+        };
+        let results = std::thread::scope(|scope| {
+            let a = scope.spawn(&create);
+            let b = scope.spawn(&create);
+            [a.join().unwrap(), b.join().unwrap()]
+        });
+        assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+        assert!(path.join("子目錄/並行資料夾").is_dir());
+        fs::write(path.join("檔案"), b"keep").unwrap();
+        assert!(create_directory(&root, &[], "檔案").is_err());
+        assert_eq!(fs::read(path.join("檔案")).unwrap(), b"keep");
+        fs::remove_dir_all(path).unwrap();
+    }
 
     #[test]
     fn browsing_keeps_paths_relative_and_refuses_links_and_traversal() {

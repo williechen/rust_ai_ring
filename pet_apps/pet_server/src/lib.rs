@@ -102,6 +102,15 @@ async fn browse_authorized_directory(
 }
 
 #[tauri::command]
+async fn create_authorized_directory(path: Vec<String>, name: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        file_browser::create_directory(&authorized_browser_root()?, &path, &name)
+    })
+    .await
+    .map_err(|_| "建立資料夾工作中斷")?
+}
+
+#[tauri::command]
 async fn compare_authorized_directory(
     path: Vec<String>,
 ) -> Result<file_browser::DirectoryComparison, String> {
@@ -455,6 +464,7 @@ pub fn application(db: sqlx::SqlitePool) {
             send_pet_command,
             chat_with_pet,
             browse_authorized_directory,
+            create_authorized_directory,
             compare_authorized_directory,
             scan_file_preview,
             scan_duplicate_preview,

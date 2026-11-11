@@ -76,9 +76,13 @@ pub(crate) fn FileBrowser(
     let icons = RwSignal::new(false);
     let sort = RwSignal::new((SortField::Name, false));
     let selected = RwSignal::new(BTreeSet::<String>::new());
+    let folder_form = RwSignal::new(false);
+    let folder_name = RwSignal::new(String::new());
+    let creating = RwSignal::new(false);
+    let created = RwSignal::new(None::<String>);
 
     let navigate = Callback::new(move |(path, via): (Path, Navigation)| {
-        if loading.get_untracked() {
+        if loading.get_untracked() || creating.get_untracked() {
             return;
         }
         loading.set(true);
@@ -173,6 +177,43 @@ pub(crate) fn FileBrowser(
 
     view! {
         <div class="file-browser" aria-busy=move || loading.get().to_string()>
+            +            <button type="button" disabled=move || loading.get() || creating.get() || !state.with(|view| view.loaded)
+                on:click=move |_| { folder_form.set(true); folder_name.set(String::new()); error.set(None); }>
+                "新增資料夾"
+            </button>
+            <Show when=move || folder_form.get()>
+                <fieldset class="file-new-directory" disabled=move || creating.get()>
+                    <legend>"建立資料夾確認"</legend>
+                    <p>{move || format!("建立位置：授權根目錄/{}", state.with(|view| view.path().join("/")))}</p>
+                    <label>"資料夾名稱"
+                       <input name="new-directory-name" prop:value=move || folder_name.get()
+                            on:input=move |ev| folder_name.set(event_target_value(&ev)) />
+                    </label>
+                    <button type="button" disabled=move || folder_name.with(|name| name.trim().is_empty())
+                        on:click=move |_| {
+                            if creating.get_untracked() { return; }
+                            let path = state.with_untracked(|view| view.path().clone());
+                            let name = folder_name.get_untracked();
+                            creating.set(true);
+                            created.set(None);
+                            error.set(None);
+                            spawn_local(async move {
+                                let result = bridge::create_authorized_directory(&path, &name).await;
+                                creating.set(false);
+                                match result {
+                                    Ok(()) => {
+                                        folder_form.set(false);
+                                        created.set(Some(format!("已建立資料夾：{name}")));
+                                        navigate.run((path, Navigation::Open));
+                                    }
+                                    Err(message) => error.set(Some(message)),
+                                }
+                            });
+                        }>"確認建立"</button>
+                    <button type="button" on:click=move |_| folder_form.set(false)>"取消"</button>
+                </fieldset>
+            </Show>
+            {move || created.get().map(|message| view! { <p role="status">{message}</p> })}
             <div class="file-tools">
                 <div class="file-navigation" role="group" aria-label="目錄導覽">
                     <button type="button" disabled=move || loading.get() || state.with(|view| view.index == 0)

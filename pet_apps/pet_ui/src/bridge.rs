@@ -212,6 +212,20 @@ pub async fn browse_authorized_directory(path: &[String]) -> Result<DirectoryLis
     serde_wasm_bindgen::from_value(result).map_err(|_| "目錄清單格式不正確".into())
 }
 
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_namespace=window, js_name=createAuthorizedDirectory)]
+    fn create_authorized_directory_js(path: JsValue, name: &str) -> Promise;
+}
+
+pub async fn create_authorized_directory(path: &[String], name: &str) -> Result<(), String> {
+    let path = serde_wasm_bindgen::to_value(path).map_err(|_| "目錄路徑格式錯誤")?;
+    JsFuture::from(create_authorized_directory_js(path, name))
+        .await
+        .map_err(js_error)?;
+    Ok(())
+}
+
 #[derive(Clone, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ComparisonRow {

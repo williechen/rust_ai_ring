@@ -339,7 +339,6 @@ fn App() -> impl IntoView {
                 <legend>"檔案操作"</legend>
                 <p id="file-operations-status">"按鈕位置已就緒，待接線。"</p>
                 <button type="button">"開啟"</button>
-                <button type="button">"新增資料夾"</button>
                 <button type="button">"重新命名"</button>
                 <button type="button">"複製"</button>
                 <button type="button">"移動"</button>

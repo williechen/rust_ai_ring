@@ -88,7 +88,8 @@
       });
     }
 
-     window.browseAuthorizedDirectory = (path) => invoke("browse_authorized_directory", { path });
+    window.browseAuthorizedDirectory = (path) => invoke("browse_authorized_directory", { path });
+    window.createAuthorizedDirectory = (path, name) => invoke("create_authorized_directory", { path, name });
     window.compareAuthorizedDirectory = (path) => invoke("compare_authorized_directory", { path });
     
     window.showPetContextMenu = async (x, y) => {
