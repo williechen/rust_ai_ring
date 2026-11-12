@@ -415,3 +415,17 @@ pub async fn save_pet_settings(
         .map_err(js_error)?;
     serde_wasm_bindgen::from_value(value).map_err(|_| "設定回應格式錯誤".into())
 }
+
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_namespace=window, js_name=renameAuthorizedEntry)]
+    fn rename_authorized_entry_js(path: JsValue, from: &str, to: &str) -> Promise;
+}
+
+pub async fn rename_authorized_entry(path: &[String], from: &str, to: &str) -> Result<(), String> {
+    let path = serde_wasm_bindgen::to_value(path).map_err(|_| "目錄路徑格式錯誤")?;
+    JsFuture::from(rename_authorized_entry_js(path, from, to))
+        .await
+        .map_err(js_error)?;
+    Ok(())
+}

@@ -89,6 +89,7 @@
     }
 
     window.browseAuthorizedDirectory = (path) => invoke("browse_authorized_directory", { path });
+    window.renameAuthorizedEntry = (path, from, to) => invoke("rename_authorized_entry", { path, from, to });
     window.createAuthorizedDirectory = (path, name) => invoke("create_authorized_directory", { path, name });
     window.compareAuthorizedDirectory = (path) => invoke("compare_authorized_directory", { path });
     

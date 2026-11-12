@@ -1,3 +1,7 @@
+ :root {
+  --pet-canvas: #f6f3ef; --pet-surface: #fffdfa; --pet-ink: #302e46;
+  --pet-muted: #605c76; --pet-line: #dfdce8; --pet-action: #5c5196; --pet-soft: #efecf7;
+}
 html, body {
   margin: 0;
   width: 100%;
@@ -292,3 +296,7 @@ body {
 .pet-life > button { position:absolute; z-index:2; bottom:0; left:4px; }
 .pet-life > button:last-child { left:auto; right:4px; }
 .pet-life > p[role="alert"] { position:absolute; z-index:3; bottom:24px; left:0; width:200px; white-space:normal; background:#522; }
+
+.pet-life { font:16px/1.5 system-ui,sans-serif; color:var(--pet-ink); }
+.pet-life button { border:1px solid var(--pet-line); border-radius:10px; background:var(--pet-surface); color:var(--pet-action); font:inherit; }
+.pet-life :focus-visible { outline:3px solid var(--pet-action); outline-offset:2px; }

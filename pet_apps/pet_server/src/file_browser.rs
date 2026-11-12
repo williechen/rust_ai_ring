@@ -115,6 +115,70 @@ pub(crate) fn create_directory(_: &AuthorizedRoot, _: &[String], _: &str) -> Res
 }
 
 #[cfg(target_os = "linux")]
+pub(crate) fn rename_entry(
+    root: &AuthorizedRoot,
+    path: &[String],
+    from: &str,
+    to: &str,
+) -> Result<(), String> {
+    use std::{ffi::CString, os::fd::AsRawFd};
+    let valid = |name: &str| {
+        !name.is_empty()
+            && name.trim() == name
+            && name != "."
+            && name != ".."
+            && name.len() <= 255
+            && !name.contains(['/', '\\', '\0'])
+    };
+    if !valid(from) || !valid(to) {
+        return Err("名稱無效，請輸入單一檔案或資料夾名稱".into());
+    }
+    if from == to {
+        return Err("新名稱與原名稱相同".into());
+    }
+    let parent = open_relative(root, path, true)?;
+    let mut original = path.to_vec();
+    original.push(from.to_owned());
+    let item = open_relative(root, &original, false)?;
+    let metadata = item.metadata().map_err(|_| "無法讀取原項目")?;
+    if !metadata.is_file() && !metadata.is_dir() {
+        return Err("只能重新命名一般檔案或資料夾".into());
+    }
+    let from = CString::new(from).map_err(|_| "原名稱無效")?;
+    let to = CString::new(to).map_err(|_| "新名稱無效")?;
+    // 兩端使用同一已開啟授權目錄，原子拒絕覆寫既有目的地，且不跟隨項目連結。
+    let result = unsafe {
+        libc::renameat2(
+            parent.as_raw_fd(),
+            from.as_ptr(),
+            parent.as_raw_fd(),
+            to.as_ptr(),
+            libc::RENAME_NOREPLACE,
+        )
+    };
+    if result != 0 {
+        return Err(
+            if std::io::Error::last_os_error().kind() == std::io::ErrorKind::AlreadyExists {
+                "已有同名項目，請使用其他名稱".into()
+            } else {
+                "無法重新命名，請確認項目仍存在及目錄授權".into()
+            },
+        );
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+pub(crate) fn rename_entry(
+    _: &AuthorizedRoot,
+    _: &[String],
+    _: &str,
+    _: &str,
+) -> Result<(), String> {
+    Err("這個平台目前無法安全重新命名授權項目".into())
+}
+
+#[cfg(target_os = "linux")]
 pub(crate) fn browse(root: &AuthorizedRoot, path: &[String]) -> Result<DirectoryListing, String> {
     use std::{fs, os::fd::AsRawFd, time::UNIX_EPOCH};
     let folder = open_relative(root, path, true)?;
@@ -320,6 +384,60 @@ mod tests {
         assert!(create_directory(&root, &[], "檔案").is_err());
         assert_eq!(fs::read(path.join("檔案")).unwrap(), b"keep");
         fs::remove_dir_all(path).unwrap();
+    }
+
+    #[cfg(all(test, target_os = "linux"))]
+    mod rename_tests {
+        use super::*;
+        use std::{fs, os::unix::fs::symlink};
+        #[test]
+        fn rename_refuses_links_traversal_and_overwrite_and_keeps_contents() {
+            let path = std::env::temp_dir().join(format!("pet-rename-{}", uuid::Uuid::new_v4()));
+            fs::create_dir_all(path.join("子目錄")).unwrap();
+            fs::write(path.join("原檔"), b"keep").unwrap();
+            fs::write(path.join("同名"), b"untouched").unwrap();
+            symlink("/tmp", path.join("連結")).unwrap();
+            let root = AuthorizedRoot::new(&path).unwrap();
+            for bad in ["", ".", "..", "../外部", "a/b", "a\\b", " a"] {
+                assert!(rename_entry(&root, &[], "原檔", bad).is_err());
+            }
+            assert!(rename_entry(&root, &[], "連結", "新連結").is_err());
+            assert!(rename_entry(&root, &["連結".into()], "原檔", "新檔").is_err());
+            assert!(rename_entry(&root, &[], "原檔", "同名").is_err());
+            assert_eq!(fs::read(path.join("同名")).unwrap(), b"untouched");
+            rename_entry(&root, &[], "原檔", "新檔").unwrap();
+            assert!(!path.join("原檔").exists());
+            assert_eq!(fs::read(path.join("新檔")).unwrap(), b"keep");
+            rename_entry(&root, &[], "子目錄", "新目錄").unwrap();
+            assert!(path.join("新目錄").is_dir());
+            fs::remove_dir_all(path).unwrap();
+        }
+        #[test]
+        fn competing_renames_have_one_winner_without_overwrite() {
+            let path =
+                std::env::temp_dir().join(format!("pet-rename-race-{}", uuid::Uuid::new_v4()));
+            fs::create_dir(&path).unwrap();
+            fs::write(path.join("甲"), b"A").unwrap();
+            fs::write(path.join("乙"), b"B").unwrap();
+            let results = std::thread::scope(|scope| {
+                let rename = |from| {
+                    rename_entry(
+                        &AuthorizedRoot::new(&path).unwrap(),
+                        &[],
+                        from,
+                        "共同目的地",
+                    )
+                };
+                let a = scope.spawn(move || rename("甲"));
+                let b = scope.spawn(move || rename("乙"));
+                [a.join().unwrap(), b.join().unwrap()]
+            });
+            assert_eq!(results.iter().filter(|r| r.is_ok()).count(), 1);
+            let content = fs::read(path.join("共同目的地")).unwrap();
+            assert!(content == b"A" || content == b"B");
+            assert_ne!(path.join("甲").exists(), path.join("乙").exists());
+            fs::remove_dir_all(path).unwrap();
+        }
     }
 
     #[test]

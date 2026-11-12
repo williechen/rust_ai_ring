@@ -79,12 +79,16 @@ pub(crate) fn FileBrowser(
     let folder_form = RwSignal::new(false);
     let folder_name = RwSignal::new(String::new());
     let creating = RwSignal::new(false);
+    let rename_from = RwSignal::new(None::<(Path, String)>);
+    let rename_to = RwSignal::new(String::new());
     let created = RwSignal::new(None::<String>);
 
     let navigate = Callback::new(move |(path, via): (Path, Navigation)| {
         if loading.get_untracked() || creating.get_untracked() {
             return;
         }
+        rename_from.set(None);
+        folder_form.set(false);
         loading.set(true);
         attempted.set(true);
         error.set(None);
@@ -178,9 +182,40 @@ pub(crate) fn FileBrowser(
     view! {
         <div class="file-browser" aria-busy=move || loading.get().to_string()>
             <button type="button" disabled=move || loading.get() || creating.get() || !state.with(|view| view.loaded)
-                on:click=move |_| { folder_form.set(true); folder_name.set(String::new()); error.set(None); }>
+                on:click=move |_| { rename_from.set(None); folder_form.set(true); folder_name.set(String::new()); error.set(None); }>
                 "新增資料夾"
             </button>
+             <button type="button" disabled=move || loading.get() || creating.get() || selected.with(BTreeSet::len)!=1 || !state.with(|view| view.loaded)
+                on:click=move |_| {
+                    let name=selected.with_untracked(|names| names.iter().next().cloned());
+                    if let Some(name)=name {
+                        folder_form.set(false);error.set(None);rename_to.set(name.clone());
+                        rename_from.set(Some((state.with_untracked(|view|view.path().clone()),name)));
+                    }
+                }>"重新命名"</button>
+            <Show when=move || rename_from.with(Option::is_some)>
+                <fieldset class="file-new-directory" disabled=move || creating.get()>
+                    <legend>"重新命名確認"</legend>
+                    <p>{move || rename_from.with(|item| item.as_ref().map(|(path,name)|format!("原項目：授權根目錄/{}/{name}",path.join("/"))))}</p>
+                    <label>"新名稱"<input name="rename-entry-name" prop:value=move || rename_to.get()
+                        on:input=move |event|rename_to.set(event_target_value(&event))/></label>
+                    <button type="button" disabled=move || rename_to.with(|name|name.trim().is_empty())
+                        on:click=move |_| {
+                            if creating.get_untracked() { return; }
+                            let Some((path,from))=rename_from.get_untracked() else { return; };
+                            let to=rename_to.get_untracked();creating.set(true);created.set(None);error.set(None);
+                            spawn_local(async move {
+                                let result=bridge::rename_authorized_entry(&path,&from,&to).await;
+                                creating.set(false);
+                                match result {
+                                    Ok(())=>{rename_from.set(None);created.set(Some(format!("已重新命名：{from} → {to}")));navigate.run((path,Navigation::Open));}
+                                    Err(message)=>error.set(Some(message)),
+                                }
+                            });
+                        }>"確認重新命名"</button>
+                    <button type="button" on:click=move |_|rename_from.set(None)>"取消重新命名"</button>
+                </fieldset>
+            </Show>
             <Show when=move || folder_form.get()>
                 <fieldset class="file-new-directory" disabled=move || creating.get()>
                     <legend>"建立資料夾確認"</legend>
@@ -216,11 +251,11 @@ pub(crate) fn FileBrowser(
             {move || created.get().map(|message| view! { <p role="status">{message}</p> })}
             <div class="file-tools">
                 <div class="file-navigation" role="group" aria-label="目錄導覽">
-                    <button type="button" disabled=move || loading.get() || state.with(|view| view.index == 0)
+                     <button type="button" disabled=move || loading.get() || creating.get() || state.with(|view| view.index == 0)
                         on:click=move |_| go_history(true)>"上一頁"</button>
-                    <button type="button" disabled=move || loading.get() || state.with(|view| view.index + 1 >= view.history.len())
+                      <button type="button" disabled=move || loading.get() || creating.get() || state.with(|view| view.index + 1 >= view.history.len())
                         on:click=move |_| go_history(false)>"下一頁"</button>
-                    <button type="button" disabled=move || loading.get() || state.with(|view| view.path().is_empty())
+                    <button type="button" disabled=move || loading.get() || creating.get() || state.with(|view| view.path().is_empty())
                         on:click=move |_| {
                             let mut path = state.with_untracked(|view| view.path().clone());
                             path.pop();
@@ -243,7 +278,7 @@ pub(crate) fn FileBrowser(
                     let path = state.with_untracked(|view| view.path()[..=index].to_vec());
                     view! {
                         <span aria-hidden="true">"/"</span>
-                        <button type="button" disabled=move || loading.get()
+                        <button type="button" disabled=move || loading.get() || creating.get()
                             on:click=move |_| navigate.run((path.clone(), Navigation::Open))>{name}</button>
                     }
                 }).collect_view()}
@@ -263,7 +298,7 @@ pub(crate) fn FileBrowser(
                         view! {
                             <button type="button" class="file-tree-item" style=indent
                                 aria-current=move || state.with(|view| view.path() == &active_path).then_some("location")
-                                disabled=move || loading.get()
+                                disabled=move || loading.get() || creating.get()
                                 on:click=move |_| navigate.run((path.clone(), Navigation::Open))>{name}</button>
                         }
                     }).collect_view()}

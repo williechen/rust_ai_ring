@@ -1,17 +1,13 @@
-body:has(.control-shell) { background: #f6f3ef; }
+body:has(.control-shell) { display: block; background: var(--pet-canvas); overflow: auto; }
 .control-shell {
-    --pet-canvas: #f6f3ef;
-    --pet-surface: #fffdfa;
-    --pet-ink: #302e46;
-    --pet-muted: #605c76;
-    --pet-line: #dfdce8;
-    --pet-action: #5c5196;
-    --pet-soft: #efecf7;
     display: grid;
     grid-template-columns: 145px minmax(0, 1fr);
     grid-template-areas: "head head" "nav context" "nav panel" "footer footer";
     gap: 14px;
-    max-width: 1080px;
+    width: 100%;
+    max-width: none;
+    min-height: 100%;
+    align-content: start;
     padding: 20px;
     background: var(--pet-canvas);
     color: var(--pet-ink);
