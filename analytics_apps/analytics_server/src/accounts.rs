@@ -99,7 +99,7 @@ pub(crate) async fn page(
     let html=view!{
         <html lang="zh-Hant">
             <head>
-                <title>"新增唯讀帳號"</title><style>{include_str!("css/dashboard.css")}</style>
+                <meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>"新增唯讀帳號"</title><style data-project-style="analytics">{include_str!("css/dashboard.css")}</style>
             </head>
             <body>
                 <ManagementShell pages logout_csrf>

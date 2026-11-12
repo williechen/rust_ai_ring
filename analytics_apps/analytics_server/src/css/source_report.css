@@ -1,11 +1,11 @@
 :root {
-    --report-canvas: #f4f5fa;
-    --report-surface: #ffffff;
-    --report-ink: #262942;
-    --report-muted: #5b607c;
-    --report-line: #dfe1ed;
-    --report-accent: #554b93;
-    --report-tint: #efedf9;
+    --report-canvas: var(--analytics-canvas);
+    --report-surface: var(--analytics-surface);
+    --report-ink: var(--analytics-ink);
+    --report-muted: var(--analytics-muted);
+    --report-line: var(--analytics-line);
+    --report-accent: var(--analytics-accent);
+    --report-tint: var(--analytics-tint);
 }
 
 body:has(.source-report),
@@ -370,4 +370,22 @@ body:has(.report-unavailable) {
     .source-report th:last-child {
         width: 5rem;
     }
+}
+
+.report-page-jump {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+}
+.source-report .report-page-jump input[type="number"] {
+    width: 6rem;
+    min-height: 44px;
+    padding: 8px;
+    border: 1px solid var(--report-line);
+    border-radius: 10px;
+    background: white;
+    color: inherit;
+    font: inherit;
 }

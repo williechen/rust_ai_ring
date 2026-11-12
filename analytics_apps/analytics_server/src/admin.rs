@@ -151,43 +151,8 @@ async fn refresh_session(
 
 fn document(body: String) -> Html<String> {
     Html(format!(
-        r#"<!doctype html>
-        <html lang="zh-Hant">
-            <head>
-                <meta charset="utf-8">
-                <meta name="viewport" content="width=device-width,initial-scale=1">
-                <title>Analytics 管理後台</title>
-                <style>
-                    body{{
-                        font:16px system-ui;
-                        max-width:1000px;
-                        margin:32px auto;
-                        padding:16px;
-                        background:#f4f6fa;
-                        color:#243247;
-                    }}
-                    input,button,select{{
-                        font:inherit;
-                        padding:10px;
-                        margin:8px;
-                    }}
-                    table{{
-                        background:white;
-                        width:100%;
-                        border-collapse:collapse;
-                    }}
-                    td,th{{
-                        padding:12px;
-                        border:1px solid #ddd;
-                        text-align:left;
-                        overflow-wrap:anywhere;
-                    }}
-                    form{{margin:18px 0}}
-                    label{{display:inline-block}}
-                </style>
-            </head>
-            <body>{body}</body>
-        </html>"#
+        r#"<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Analytics 管理後台</title><style data-project-style="analytics">{}</style></head><body>{body}</body></html>"#,
+        include_str!("css/dashboard.css")
     ))
 }
 

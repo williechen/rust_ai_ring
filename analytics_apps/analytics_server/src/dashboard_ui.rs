@@ -91,7 +91,7 @@ fn DashboardView(
                  <meta name="viewport" content="width=device-width, initial-scale=1"/>
                 <title>"Analytics 管理後台"</title>
                 // TODO: 有兩個樣式內容 為何不能放一起
-                <style>{include_str!("css/dashboard.css")}</style>
+                <style data-project-style="analytics">{include_str!("css/dashboard.css")}</style>
                 <link rel="stylesheet" href="/assets/source-report.css"/>
             </head>
             <body>
@@ -114,7 +114,7 @@ fn DashboardView(
                                     <input
                                         id="event-type"
                                         name="event_type"
-                                        value=event_type
+                                        value=event_type.clone()
                                         maxlength="128"
                                         placeholder="例如 chat.message.persisted"
                                     />
@@ -176,6 +176,15 @@ fn DashboardView(
                                 {previous_url.map(|href| view! { <a href=href>"上一頁"</a> })}
                                 <span>{format!("第 {page} / {total_pages} 頁 · 共 {total_kinds} 個事件類型")}</span>
                                 {next_url.map(|href| view! { <a href=href>"下一頁"</a> })}
+                                 <form class="report-page-jump" method="get" action="/dashboard#report-results-title">
+                                    <input type="hidden" name="source" value=source/>
+                                    <input type="hidden" name="event_type" value=event_type/>
+                                    <input type="hidden" name="page_size" value=page_size.to_string()/>
+                                    <label for="report-page-number">"前往頁碼"</label>
+                                    <input id="report-page-number" type="number" name="page" min="1"
+                                        max=total_pages.to_string() value=page.to_string() required/>
+                                    <button type="submit">"前往"</button>
+                                </form>
                             </nav>
                         </section>
                     </div>
@@ -194,7 +203,7 @@ pub(crate) fn render_dashboard_unavailable(retry: String) -> String {
                     <meta charset="utf-8"/>
                     <meta name="viewport" content="width=device-width, initial-scale=1"/>
                     <title>"來源分析暫時無法讀取"</title>
-                    <style>{include_str!("css/dashboard.css")}</style>
+                    <style data-project-style="analytics">{include_str!("css/dashboard.css")}</style>
                 <link rel="stylesheet" href="/assets/source-report.css"/>
                 </head>
                 <body>
@@ -384,10 +393,10 @@ fn LoginView(username: String, message: String) -> impl IntoView {
         <html lang="zh-Hant">
             <head>
                 <meta charset="utf-8"/>
-                <title>"Analytics 帳密登入"</title>
+                <title>"Analytics 帳密登入"</title><meta name="viewport" content="width=device-width, initial-scale=1"/><style data-project-style="analytics">{include_str!("css/dashboard.css")}</style>
             </head>
             <body>
-                <main>
+                <main class="analytics-auth">
                     <h1>"Analytics 帳密登入"</h1>
                     <p role="alert">{message}</p>
                     <form method="post" action="/login">
@@ -435,7 +444,7 @@ fn ChangePasswordView(
     };
     view! {
         <html lang="zh-Hant">
-            <head><meta charset="utf-8"/><title>"修改密碼"</title><style>{include_str!("css/dashboard.css")}</style></head>
+            <head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>"修改密碼"</title><style data-project-style="analytics">{include_str!("css/dashboard.css")}</style></head>
             <body><ManagementShell pages logout_csrf>
                 <h1>{heading}</h1>
                 {if can_update { view! { <form method="post" action="/change-password">
@@ -506,8 +515,8 @@ fn SessionSettingsView(
 ) -> impl IntoView {
     view! {
         <html lang="zh-Hant"><head>
-            <meta charset="utf-8"/><title>"工作階段設定"</title>
-            <style>{include_str!("css/dashboard.css")}</style>
+            <meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>"工作階段設定"</title>
+            <style data-project-style="analytics">{include_str!("css/dashboard.css")}</style>
         </head><body>
             <ManagementShell pages logout_csrf>
                 <section aria-labelledby="session-settings-title">
@@ -820,9 +829,18 @@ mod day50_grid_layout_tests {
             assert!(html.contains(tag), "缺少 {tag}");
         }
         assert!(html.contains("grid-template-areas"));
-        assert!(html.find("analytics-header").unwrap() < html.find("analytics-sidebar").unwrap());
-        assert!(html.find("analytics-sidebar").unwrap() < html.find("analytics-content").unwrap());
-        assert!(html.find("analytics-content").unwrap() < html.find("analytics-footer").unwrap());
+        assert!(
+            html.find("<header class=\"analytics-header\"").unwrap()
+                < html.find("<aside class=\"analytics-sidebar\"").unwrap()
+        );
+        assert!(
+            html.find("<aside class=\"analytics-sidebar\"").unwrap()
+                < html.find("<main class=\"analytics-content\"").unwrap()
+        );
+        assert!(
+            html.find("<main class=\"analytics-content\"").unwrap()
+                < html.find("<footer class=\"analytics-footer\"").unwrap()
+        );
         assert!(html.contains("action=\"/dashboard\""));
         assert!(html.contains("已提交事件類型明細"));
     }
@@ -917,5 +935,17 @@ mod authorized_view_tests {
         assert!(!denied.contains("action=\"/change-password\""));
         assert!(denied.contains("沒有修改密碼 action"));
         assert!(denied.contains("action=\"/logout\""));
+    }
+}
+#[cfg(test)]
+mod page_jump_tests {
+    #[test]
+    fn jump_preserves_the_exact_filter_in_escaped_get_fields() {
+        let html = super::render_dashboard_filtered("Chat", 1, "web_chat", "kind.\"&<");
+        assert!(html.contains("report-page-number"));
+        assert!(html.contains("action=\"/dashboard#report-results-title\""));
+        assert!(html.contains("name=\"page_size\""));
+        assert!(html.contains("name=\"event_type\""));
+        assert!(!html.contains("value=\"kind.\"&<\""));
     }
 }
