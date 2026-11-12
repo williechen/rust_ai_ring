@@ -13,8 +13,9 @@ fn AccountView(
     view! {
         <html lang="zh-Hant">
             <head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
-                <title>"個人管理"</title><style>{include_str!("css/chat.css")}</style></head>
-            <body><main class="account-workspace">
+                <title>"個人管理"</title><style data-project-style="chat">{include_str!("css/chat.css")}</style></head>
+            <body>
+                <main class="account-workspace">
                 <h1>"個人管理"</h1>
                 <p role="status">{message}</p>
                 {room_id.map(|id| view! {
@@ -39,7 +40,8 @@ fn AccountView(
                     <button type="submit">"登出"</button>
                 </form>
                 <a href="/">"回公開房間清單"</a>
-            </main></body>
+                </main>
+            </body>
         </html>
     }
 }
@@ -81,28 +83,29 @@ pub fn render_account_categories(
 }
 
 #[component]
-fn ProfileView(csrf: String) -> impl IntoView {
+fn ProfileView(csrf: String, name: String, email: String, message: String) -> impl IntoView {
     view! {
         <html lang="zh-Hant">
-            <head><meta charset="utf-8"/><title>"修改本人資料"</title></head>
+            <head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>"修改本人資料"</title><style data-project-style="chat">{include_str!("css/chat.css")}</style></head>
             <body>
-                <main>
+                 <main class="account-workspace">
                     <h1>"修改本人資料"</h1>
-                    <form method="post" action="/account/profile">
+                     <p role="alert">{message}</p>
+                    <form class="profile-form" method="post" action="/account/profile">
                         <input type="hidden" name="csrf" value=csrf/>
                         <label for="profile-display-name">
                             "顯示名稱"
-                            <input id="profile-display-name" name="display_name"
+                            <input id="profile-display-name" name="display_name" value=name
                                 required maxlength="32"/>
                         </label>
                         <label for="profile-email">
                             "Email"
-                            <input id="profile-email" type="email" name="email"
+                             <input id="profile-email" type="email" name="email" value=email
                                 required maxlength="254"/>
                         </label>
                         <button type="submit">"儲存本人資料"</button>
                     </form>
-                    <a href="/account">"個人管理"</a>
+                    <a href="/account">"取消並返回個人管理"</a>
                 </main>
             </body>
         </html>
@@ -111,5 +114,12 @@ fn ProfileView(csrf: String) -> impl IntoView {
 
 /// 由 Leptos SSR 統一處理屬性跳脫，避免以字串拼接會員表單。
 pub fn render_profile(csrf: String) -> String {
-    format!("<!doctype html>{}", view! { <ProfileView csrf/> }.to_html())
+    render_profile_values(csrf, String::new(), String::new(), String::new())
+}
+
+pub fn render_profile_values(csrf: String, name: String, email: String, message: String) -> String {
+    format!(
+        "<!doctype html>{}",
+        view! { <ProfileView csrf name email message/> }.to_html()
+    )
 }

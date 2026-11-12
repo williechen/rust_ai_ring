@@ -4,8 +4,8 @@
 )]
 
 pub mod account;
-
 mod chat_socket;
+pub mod member_pages;
 
 #[cfg(target_arch = "wasm32")]
 mod room_api;
@@ -87,7 +87,7 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
                 <meta name="viewport" content="width=device-width, initial-scale=1"/>
                 <title>"Rust AI Chat"</title>
                 <HydrationScripts options />
-                <style>{include_str!("css/chat.css")}</style>
+                <style data-project-style="chat">{include_str!("css/chat.css")}</style>
             </head>
             <body>
                 <App />

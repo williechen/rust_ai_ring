@@ -494,3 +494,70 @@ async fn day54_profile_get_renews_only_an_authorized_live_session() {
     assert_eq!(anonymous.status(), StatusCode::UNAUTHORIZED);
     assert!(!anonymous.headers().contains_key(header::SET_COOKIE));
 }
+
+#[tokio::test]
+async fn day59_profile_prefills_self_and_conflict_preserves_input_without_writes() {
+    let (pool, app, cookie) = fixture().await;
+    let response = send(app.clone(), "/account/profile", None, &cookie).await;
+    let html = String::from_utf8(
+        to_bytes(response.into_body(), 1_000_000)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    assert!(html.contains("value=\"self-member\""));
+    assert!(html.contains("value=\"self-member@example.test\""));
+    let response = send(
+        app,
+        "/account/profile",
+        Some(format!(
+            "display_name=%3Cdraft%3E&email=other-member%40example.test&csrf={}",
+            csrf(&cookie, "member-profile")
+        )),
+        &cookie,
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    assert_eq!(response.headers()["cache-control"], "no-store");
+    let html = String::from_utf8(
+        to_bytes(response.into_body(), 1_000_000)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    assert!(html.contains("Email 已被使用"));
+    assert!(html.contains("&lt;draft&gt;"));
+    assert!(!html.contains("value=\"<draft>\""));
+    let name: String = sqlx::query_scalar("SELECT user_name FROM mbr_user WHERE id='self-member'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(name, "self-member");
+}
+
+#[tokio::test]
+async fn day59_invalid_profile_keeps_draft_and_status() {
+    let (_, app, cookie) = fixture().await;
+    let response = send(
+        app,
+        "/account/profile",
+        Some(format!(
+            "display_name=Draft&email=invalid&csrf={}",
+            csrf(&cookie, "member-profile")
+        )),
+        &cookie,
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let html = String::from_utf8(
+        to_bytes(response.into_body(), 1_000_000)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    assert!(html.contains("value=\"Draft\""));
+    assert!(html.contains("請檢查顯示名稱與 Email 格式"));
+}

@@ -1,4 +1,5 @@
 pub mod login_attempt;
+pub mod member_profile;
 pub mod member_session;
 pub mod room_access;
 pub mod ws_message;

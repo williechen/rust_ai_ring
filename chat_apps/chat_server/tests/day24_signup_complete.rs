@@ -43,8 +43,13 @@ async fn day24_signup_completes_without_automatic_login_or_navigation() {
         .unwrap();
     assert_eq!(page.status(), StatusCode::OK);
     assert!(!page.headers().contains_key("location"));
-    let html =
-        String::from_utf8(to_bytes(page.into_body(), 10000).await.unwrap().to_vec()).unwrap();
+    let html = String::from_utf8(
+        to_bytes(page.into_body(), 1_000_000)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
     assert!(html.contains("註冊完成"));
     assert!(html.contains("目前保持登出"));
     assert!(html.contains(r#"href="/""#));

@@ -136,18 +136,20 @@ pub fn routes(pool: SqlitePool) -> Router {
         .with_state(pool)
 }
 
-fn page(title: &str, form: &str) -> Html<String> {
-    Html(format!(
-        "<!doctype html><html lang=\"zh-Hant\"><head><meta charset=\"utf-8\"><title>{title}</title></head><body><main><h1>{title}</h1>{form}<a href=\"/account\">個人管理</a></main></body></html>"
-    ))
-}
-
 async fn profile_page(
     State(pool): State<SqlitePool>,
     headers: HeaderMap,
 ) -> Result<Response, StatusCode> {
-    require_action(&pool, &headers, PROFILE).await?;
-    let html = chat_ui::account::render_profile(csrf(&headers, "member-profile")?);
+    let user = require_action(&pool, &headers, PROFILE).await?;
+    let (name, email) = chat_persistence::member_profile::read(&pool, &user)
+        .await
+        .map_err(db_error)?;
+    let html = chat_ui::account::render_profile_values(
+        csrf(&headers, "member-profile")?,
+        name,
+        email,
+        String::new(),
+    );
     // 授權完成後才延長同一 Session，拒絕的請求不能續期。
     let cookie = crate::auth_session::renew_member_cookie(&pool, &headers).await?;
     Ok((
@@ -172,17 +174,10 @@ async fn password_page(
         .map_err(db_error)?;
     Ok((
         [(header::CACHE_CONTROL, "no-store")],
-        page(
-            if initial {
-                "首次登入須修改本人密碼"
-            } else {
-                "修改本人密碼"
-            },
-            &format!(
-                "<form method=\"post\" action=\"/account/password\"><input type=\"hidden\" name=\"csrf\" value=\"{}\"><label>目前密碼<input type=\"password\" name=\"current_password\" autocomplete=\"current-password\" required maxlength=\"128\"></label><label>新密碼<input type=\"password\" name=\"new_password\" autocomplete=\"new-password\" required minlength=\"8\" maxlength=\"128\"></label><label>確認新密碼<input type=\"password\" name=\"confirm_password\" autocomplete=\"new-password\" required minlength=\"8\" maxlength=\"128\"></label><button>修改本人密碼</button></form>",
-                csrf(&headers, "member-password")?
-            ),
-        ),
+        Html(chat_ui::member_pages::render_password(
+            csrf(&headers, "member-password")?,
+            initial,
+        )),
     ))
 }
 
@@ -192,6 +187,21 @@ struct Profile {
     display_name: String,
     email: String,
     csrf: String,
+}
+
+fn profile_feedback(
+    status: StatusCode,
+    headers: &HeaderMap,
+    form: &Profile,
+    message: &str,
+) -> Result<Response, StatusCode> {
+    let html = chat_ui::account::render_profile_values(
+        csrf(headers, "member-profile")?,
+        form.display_name.clone(),
+        form.email.clone(),
+        message.to_owned(),
+    );
+    Ok((status, [(header::CACHE_CONTROL, "no-store")], Html(html)).into_response())
 }
 
 async fn profile(
@@ -217,19 +227,37 @@ async fn profile(
         || parts[1].starts_with('.')
         || parts[1].ends_with('.')
     {
-        return Err(StatusCode::UNPROCESSABLE_ENTITY);
+        return profile_feedback(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            &headers,
+            &form,
+            "請檢查顯示名稱與 Email 格式",
+        );
     }
     let mut tx = pool.begin().await.map_err(db_error)?;
     let (id, _) = transaction_user(&mut tx, &headers, PROFILE).await?;
-    sqlx::query(
+    let updated = sqlx::query(
         "UPDATE mbr_user SET user_name=?1,user_email=?2,updated_at=CURRENT_TIMESTAMP WHERE id=?3",
     )
     .bind(name)
     .bind(email)
     .bind(id)
     .execute(&mut *tx)
-    .await
-    .map_err(db_error)?;
+    .await;
+    if let Err(error) = updated {
+        let status = db_error(error);
+        tx.rollback().await.map_err(db_error)?;
+        return profile_feedback(
+            status,
+            &headers,
+            &form,
+            if status == StatusCode::CONFLICT {
+                "這個 Email 已被使用，請換一個後再儲存"
+            } else {
+                "暫時無法儲存，輸入已保留，請稍後重試"
+            },
+        );
+    }
     tx.commit().await.map_err(db_error)?;
     Ok((
         [(header::CACHE_CONTROL, "no-store")],

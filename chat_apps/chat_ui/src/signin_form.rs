@@ -61,8 +61,8 @@ fn render_result(username: String, next: String, message: String) -> String {
     format!(
         "<!doctype html>{}",
         view! {
-            <html lang="zh-Hant"><head><meta charset="utf-8"/><title>"登入未完成"</title></head>
-            <body><main><SignInForm username next message/></main></body></html>
+            <html lang="zh-Hant"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>"登入未完成"</title><style data-project-style="chat">{include_str!("css/chat.css")}</style></head>
+            <body><main class="account-workspace"><SignInForm username next message/></main></body></html>
         }
         .to_html()
     )

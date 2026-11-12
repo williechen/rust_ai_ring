@@ -28,56 +28,12 @@ pub fn routes(pool: SqlitePool) -> Router {
 async fn complete() -> impl IntoResponse {
     (
         [("cache-control", "no-store")],
-        Html(
-            r#"<!doctype html>
-            <html lang="zh-Hant">
-                <head>
-                    <meta charset="utf-8">
-                    <title>註冊完成</title>
-                </head>
-                <body>
-                    <h1>註冊完成</h1>
-                    <p>目前保持登出，請回首頁重新選擇聊天室，再登入。</p>
-                    <a href="/">回首頁</a>
-                </body>
-            </html>"#,
-        ),
+        Html(chat_ui::member_pages::render_signup(true)),
     )
 }
 
-async fn page() -> Html<&'static str> {
-    Html(
-        r#"<!doctype html>
-        <html lang="zh-Hant">
-            <head>
-                <meta charset="utf-8">
-                <title>會員註冊</title>
-            </head>
-            <body>
-                <h1>會員註冊</h1>
-                <form method="post" action="/signup">
-                    <div style="margin-bottom: 1em;">
-                        <label>帳號</label>
-                        <input name="username" required minlength="3" maxlength="32" autocomplete="username">
-                    </div>
-                    <div style="margin-bottom: 1em;">
-                        <label>Email</label>
-                        <input name="email" type="email" required maxlength="254" autocomplete="email">
-                    </div>
-                    <div style="margin-bottom: 1em;"    >
-                        <label>顯示名稱</label>
-                        <input name="display_name" required maxlength="32">
-                    </div>
-                    <div>
-                        <label>密碼</label>
-                        <input name="password" type="password" required minlength="8" maxlength="128" autocomplete="new-password">
-                    </div>
-                    <button type="submit">建立會員</button>
-                </form>
-                <a href="/signin">回登入頁</a>
-            </body>
-        </html>"#,
-    )
+async fn page() -> Html<String> {
+    Html(chat_ui::member_pages::render_signup(false))
 }
 
 async fn signup(
