@@ -45,7 +45,9 @@ async fn fixture(pool: &SqlitePool) -> (AppState, HeaderMap) {
     let mut headers = HeaderMap::new();
     headers.insert(COOKIE, format!("chat_session={raw}").parse().unwrap());
     assert_eq!(
-        authorize_socket(pool, &headers, ROOM).await.unwrap(),
+        authorize_socket(&state, pool, &headers, ROOM)
+            .await
+            .unwrap(),
         MEMBER
     );
     (state, headers)
@@ -103,7 +105,9 @@ async fn session_expires_while_waiting_for_writer(pool: SqlitePool) {
         .unwrap();
     assert!(now < expires);
     assert_eq!(
-        authorize_socket(&writer, &headers, ROOM).await.unwrap(),
+        authorize_socket(&state, &writer, &headers, ROOM)
+            .await
+            .unwrap(),
         MEMBER
     );
 
@@ -219,7 +223,9 @@ async fn authorization_changes_after_precheck_fail_closed(pool: SqlitePool) {
         ("DELETE FROM mbr_session", "SELECT 1"),
     ] {
         assert_eq!(
-            authorize_socket(&pool, &headers, ROOM).await.unwrap(),
+            authorize_socket(&state, &pool, &headers, ROOM)
+                .await
+                .unwrap(),
             MEMBER
         );
         sqlx::query(deny).execute(&pool).await.unwrap();

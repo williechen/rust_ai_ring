@@ -34,25 +34,10 @@ pub async fn ws_handler(
     headers: HeaderMap,
     ws: WebSocketUpgrade,
 ) -> Response {
-    if let Err(status) = authorize_socket(&pool, &headers, &room_id).await {
+    if let Err(status) = authorize_socket(&state, &pool, &headers, &room_id).await {
         return status.into_response();
     }
-    match state.room_repository.find_by_id(&room_id).await {
-        Ok(Some(_)) => {
-            ws.on_upgrade(move |socket| handle_socket(socket, state, room_id, pool, headers))
-        }
-        Ok(None) => Response::builder()
-            .status(404)
-            .body("Room not found".into())
-            .unwrap(),
-        Err(error) => {
-            eprintln!("websocket room lookup error: {error:?}");
-            Response::builder()
-                .status(500)
-                .body("Internal server error".into())
-                .unwrap()
-        }
-    }
+    ws.on_upgrade(move |socket| handle_socket(socket, state, room_id, pool, headers))
 }
 
 fn typing_event_for_room(
@@ -72,6 +57,7 @@ async fn socket_session_active(pool: &SqlitePool, headers: &HeaderMap) -> bool {
 }
 
 async fn authorize_socket(
+    state: &AppState,
     pool: &SqlitePool,
     headers: &HeaderMap,
     room: &str,
@@ -86,6 +72,13 @@ async fn authorize_socket(
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
     {
         return Err(StatusCode::FORBIDDEN);
+    }
+    let room_matches =
+        chat_application::room_presence::exists(state.room_repository.as_ref(), room)
+            .await
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    if !room_matches {
+        return Err(StatusCode::NOT_FOUND);
     }
     Ok(member)
 }
@@ -104,7 +97,7 @@ async fn handle_socket(
     loop {
         tokio::select! {
             _ = recheck.tick() => {
-                if authorize_socket(&pool, &headers, &room_id).await.is_err() {
+                if authorize_socket(&state, &pool, &headers, &room_id).await.is_err() {
                     let _ = socket.send(Message::Close(None)).await;
                     break;
                 }
@@ -119,7 +112,7 @@ async fn handle_socket(
                     }
                 };
                 // 不因握手時曾通過就永久信任 Cookie。
-                let member_id = match authorize_socket(&pool, &headers, &room_id).await {
+                let member_id = match authorize_socket(&state, &pool, &headers, &room_id).await {
                     Ok(member) => member,
                     Err(_) => { let _ = socket.send(Message::Close(None)).await; break; }
                 };
@@ -134,7 +127,7 @@ async fn handle_socket(
             event = room_events.recv() => {
                 match event {
                     Ok(event) => {
-                        if authorize_socket(&pool, &headers, &room_id).await.is_err() {
+                        if authorize_socket(&state, &pool, &headers, &room_id).await.is_err() {
                             let _ = socket.send(Message::Close(None)).await;
                             break;
                         }
@@ -341,6 +334,50 @@ mod day47_member_author_tests {
     use chat_domain::MessageAuthor;
     use std::sync::Arc;
 
+    async fn deleted_room_denies_existing_socket_authorization(pool: SqlitePool) {
+        sqlx::query("INSERT INTO mbr_user(id,user_acnt,user_pd,user_email,user_name,user_status,is_init_pd,created_at,updated_at) VALUES('member47','member47','hash','member47@example.invalid','會員','active',FALSE,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)").execute(&pool).await.unwrap();
+        let raw = "a".repeat(64);
+        sqlx::query("INSERT INTO mbr_session(id,mbr_user_id,token_hash,expires_at) VALUES('s47','member47',?1,unixepoch()+60)").bind(shared::auth::token_digest(&raw)).execute(&pool).await.unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::COOKIE,
+            format!("chat_session={raw}").parse().unwrap(),
+        );
+        let rooms = chat_persistence::SqliteRoomRepository::new(pool.clone());
+        chat_application::create_room(
+            &rooms,
+            chat_application::CreateRoom {
+                id: "room47".into(),
+                category_room_id: "default-category".into(),
+                name: "會員聊天室".into(),
+            },
+        )
+        .await
+        .unwrap();
+        let state = AppState::new(
+            leptos_config::LeptosOptions::builder()
+                .output_name("fixture")
+                .build(),
+            Arc::new(rooms),
+            Arc::new(chat_persistence::SqliteMessageRepository::new(pool.clone())),
+        );
+        assert!(
+            authorize_socket(&state, &pool, &headers, "room47")
+                .await
+                .is_ok()
+        );
+        sqlx::query("DELETE FROM rooms WHERE id='room47'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            authorize_socket(&state, &pool, &headers, "room47")
+                .await
+                .unwrap_err(),
+            StatusCode::NOT_FOUND
+        );
+    }
+
     #[sqlx::test(migrations = "../migrations")]
     async fn session_identity_is_persisted_and_revocation_denies_later_events(pool: SqlitePool) {
         sqlx::query("INSERT INTO mbr_user(id,user_acnt,user_pd,user_email,user_name,user_status,is_init_pd,created_at,updated_at) VALUES('member47','member47','hash','member47@example.invalid','會員','active',FALSE,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)").execute(&pool).await.unwrap();
@@ -371,7 +408,9 @@ mod day47_member_author_tests {
             Arc::new(chat_persistence::SqliteMessageRepository::new(pool.clone())),
         );
         let (_, mut events) = state.room_hub.subscribe("room47".into());
-        let member = authorize_socket(&pool, &headers, "room47").await.unwrap();
+        let member = authorize_socket(&state, &pool, &headers, "room47")
+            .await
+            .unwrap();
         assert_eq!(member, "member47");
         assert!(
             persist_member_event(
@@ -402,7 +441,7 @@ mod day47_member_author_tests {
             .await
             .unwrap();
         assert_eq!(
-            authorize_socket(&pool, &headers, "room47")
+            authorize_socket(&state, &pool, &headers, "room47")
                 .await
                 .unwrap_err(),
             StatusCode::UNAUTHORIZED

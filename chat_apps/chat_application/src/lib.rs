@@ -1,6 +1,7 @@
 pub mod login_attempt;
 pub mod product_event;
 pub mod repository;
+pub mod room_presence;
 
 use chat_domain::{ChatMessage, MessageAuthor, Room};
 use uuid::Uuid;
@@ -182,7 +183,7 @@ mod tests {
             Ok(Some(Room {
                 id: "another-room".into(),
                 category_room_id: "category".into(),
-                 category_label: None,
+                category_label: None,
                 name: "其他房間".into(),
             }))
         }

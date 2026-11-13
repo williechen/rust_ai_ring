@@ -37,15 +37,12 @@ mod browser {
             let onmessage =
                 Closure::wrap(
                     Box::new(move |event: MessageEvent| match event.data().as_string() {
-                        Some(text) => {
-                            web_sys::console::error_1(&format!("Received text: {}", text).into());
-                            match decode_server_event(&text) {
-                                Ok(event) => on_event(event),
-                                Err(err) => web_sys::console::error_1(
-                                    &format!("Failed to decode server event: {:?}", err).into(),
-                                ),
+                        Some(text) => match decode_server_event(&text) {
+                            Ok(event) => on_event(event),
+                            Err(_) => {
+                                web_sys::console::error_1(&"Failed to decode server event".into())
                             }
-                        }
+                        },
                         None => return,
                     }) as Box<dyn FnMut(MessageEvent)>,
                 );
