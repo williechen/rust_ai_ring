@@ -34,12 +34,14 @@ pub async fn refresh(
            SET expires_at=floor(extract(epoch from now()))::bigint+cfg.idle_seconds
            FROM analytics_session_policy AS cfg
            WHERE cfg.id=1 AND s.token_hash=$1
+             AND s.user_id=$2 AND s.credential_fingerprint=$4
              AND s.expires_at>floor(extract(epoch from now()))::bigint
              AND EXISTS (SELECT 1 FROM uac_user
                          WHERE id=$2 AND user_pd=$3 AND user_status='active')
            RETURNING cfg.idle_seconds"#,
     )
     .bind(digest)
+    .bind(shared::auth::token_digest(password_hash))
     .bind(user_id)
     .bind(password_hash)
     .fetch_optional(pool)
@@ -60,4 +62,43 @@ pub async fn revoke_after_password_change(
         .execute(&mut **tx)
         .await?;
     Ok(())
+}
+
+pub struct PgSessionRenewal<'a>(pub &'a PgPool);
+impl analytics_application::session_renewal::SessionRenewal for PgSessionRenewal<'_> {
+    async fn credential(
+        &self,
+        digest: &str,
+    ) -> Result<
+        Option<analytics_application::session_renewal::SessionCredential>,
+        analytics_application::session_renewal::RenewalError,
+    > {
+        use analytics_application::session_renewal::{RenewalError, SessionCredential};
+        lookup(self.0, digest)
+            .await
+            .map(|row| {
+                row.map(
+                    |(_, _, password_hash, fingerprint, user_id)| SessionCredential {
+                        user_id,
+                        password_hash,
+                        fingerprint,
+                    },
+                )
+            })
+            .map_err(|_| RenewalError::Unavailable)
+    }
+    async fn refresh(
+        &self,
+        digest: &str,
+        credential: &analytics_application::session_renewal::SessionCredential,
+    ) -> Result<Option<i64>, analytics_application::session_renewal::RenewalError> {
+        refresh(
+            self.0,
+            digest,
+            &credential.user_id,
+            &credential.password_hash,
+        )
+        .await
+        .map_err(|_| analytics_application::session_renewal::RenewalError::Unavailable)
+    }
 }

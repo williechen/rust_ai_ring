@@ -6,8 +6,9 @@ use analytics_persistence::summary_for_source_and_type;
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use axum::{
     Form, Json, Router,
-    extract::{DefaultBodyLimit, Path, Query, State},
+    extract::{DefaultBodyLimit, Path, Query, Request, State},
     http::{HeaderMap, StatusCode, header},
+    middleware::Next,
     response::{Html, IntoResponse, Redirect, Response},
     routing::{get, post},
 };
@@ -169,17 +170,66 @@ pub(crate) async fn session(
     let found = analytics_persistence::login_session::lookup(&state.pool, &digest(&raw))
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    let (restricted, must_change, current, fingerprint, id) =
+    let (restricted, must_change, current, fingerprint, _id) =
         found.ok_or(StatusCode::UNAUTHORIZED)?;
     if digest(&current) != fingerprint {
         return Err(StatusCode::UNAUTHORIZED);
     }
-    let seconds =
-        analytics_persistence::login_session::refresh(&state.pool, &digest(&raw), &id, &current)
-            .await
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
-            .ok_or(StatusCode::UNAUTHORIZED)?;
+    // 此處只驗證身分；權限、CSRF 與表單檢查仍可能拒絕請求。
+    let seconds = analytics_persistence::session_settings::read(&state.pool)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     Ok((restricted || must_change, raw, seconds))
+}
+
+/// 僅在處理器回傳已授權結果後提交續期。
+/// 處理器以相同 Session Cookie 表示續期；登入與登出的 Cookie 值不同，
+/// 由各自的交易處理，不在這裡重複續期。
+async fn renew_authorized_session(
+    State(state): State<IngestState>,
+    request: Request,
+    next: Next,
+) -> Response {
+    let raw = raw_cookie(request.headers());
+    let mut response = next.run(request).await;
+    let Some(raw) = raw else { return response };
+    let prefix = format!("analytics_session={raw};");
+    let intends_renewal = response
+        .headers()
+        .get_all(header::SET_COOKIE)
+        .iter()
+        .any(|value| value.to_str().is_ok_and(|value| value.starts_with(&prefix)));
+    if !intends_renewal {
+        return response;
+    }
+    if response.status().is_client_error() || response.status().is_server_error() {
+        let keep: Vec<_> = response
+            .headers()
+            .get_all(header::SET_COOKIE)
+            .iter()
+            .filter(|value| !value.to_str().is_ok_and(|value| value.starts_with(&prefix)))
+            .cloned()
+            .collect();
+        response.headers_mut().remove(header::SET_COOKIE);
+        for value in keep {
+            response.headers_mut().append(header::SET_COOKIE, value);
+        }
+        return response;
+    }
+    use analytics_application::session_renewal::{RenewalError, renew};
+    let renewed_seconds = renew(
+        &analytics_persistence::login_session::PgSessionRenewal(&state.pool),
+        &digest(&raw),
+    )
+    .await
+    .map_err(|error| match error {
+        RenewalError::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
+        RenewalError::Unauthorized => StatusCode::UNAUTHORIZED,
+    });
+    match renewed_seconds {
+        Ok(seconds) => renewed(response, &raw, seconds),
+        Err(status) => status.into_response(),
+    }
 }
 
 /// A live person Session and source grant are required on every business query.
@@ -711,6 +761,10 @@ pub fn build(state: IngestState) -> Router {
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             crate::page_acl::require,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            renew_authorized_session,
         ))
         .layer(DefaultBodyLimit::max(4096))
         .layer(axum::middleware::map_response(
