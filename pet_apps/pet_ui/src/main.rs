@@ -376,38 +376,37 @@ fn App() -> impl IntoView {
                         if pets_busy.get_untracked() { return; }
                         set_pets_busy.set(true);
                         let proposed = new_pet_name.get_untracked();
-                        // apps/desktop_pet/frontend/src/main.rs
-                        // 僅替換「建立寵物」按鈕原有的 spawn_local(async move { ... }) 閉包。
                         spawn_local(async move {
-                            match bridge::create_pet(proposed).await {
-                                Ok(created) => {
-                                    // 先更新清單，不因後續開窗失敗重送 INSERT。
-                                    match bridge::list_pets().await {
-                                        Ok(rows) => {
-                                            management_selection::reconcile_management_pet(
-                                                &rows, management_pet_id, set_management_pet_id
-                                            );
-                                            set_saved_pets.set(rows);
-                                        },
-                                        Err(_) => set_new_pet_feedback.set(
-                                            "寵物已儲存，但清單讀回失敗；請重新載入，勿重送建立。".into()
-                                        ),
-                                    }
-                                    // select_pet Tauri command 既有實作會先儲存
-                                    // local_pet_selection，再呼叫 pet_windows::open。
-                                    match bridge::select_pet(&created.id).await {
-                                        Ok(selected) => {
-                                            set_active_pet.set(Some(selected));
-                                            set_new_pet_name.set(String::new());
-                                            set_new_pet_feedback.set(
-                                                format!("已建立並出籠：{}（{}）",created.name,created.id)
-                                            );
+                             match pet_application::creation::create_caged(&bridge::CreationBridge, proposed).await {
+                                Ok(result) => {
+                                    let created = result.pet;
+                                    let (rows, refreshed) = match result.listing {
+                                        Ok(rows) => (rows, true),
+                                        Err(_) => {
+                                            let mut rows = saved_pets.get_untracked();
+                                            // 讀回失敗仍保留已提交身分，不重送建立。
+                                            if !rows.iter().any(|row| row.id == created.id) {
+                                                rows.push(created.clone());
+                                            }
+                                            (rows, false)
                                         }
-                                        Err(error) => set_new_pet_feedback.set(format!(
-                                            "寵物已儲存：{}（{}）；選取／出籠未完成：{}。請從清單重試，不要再建立。",
-                                            created.name, created.id, error
-                                        )),
+                                    };
+                                    management_selection::reconcile_management_pet(
+                                        &rows, management_pet_id, set_management_pet_id,
+                                    );
+                                    let present = rows.iter().any(|row| row.id == created.id);
+                                    set_saved_pets.set(rows);
+                                    if present {
+                                        let _ = management_selection::choose_management_pet(
+                                            &created.id, &saved_pets.get_untracked(), set_management_pet_id,
+                                        );
                                     }
+                                    set_new_pet_name.set(String::new());
+                                    set_new_pet_feedback.set(format!(
+                                        "已建立：{}（{}）；目前維持回籠。{}",
+                                        created.name, created.id,
+                                        if !refreshed { "清單讀回失敗，請重新載入，勿重送建立。" } else if !present { "清單已無此寵物，請重新選擇。" } else { "可從互動區出籠。" }
+                                    ));
                                 }
                                 Err(error) => set_new_pet_feedback.set(format!("建立寵物失敗：{error}")),
                             }

@@ -429,3 +429,14 @@ pub async fn rename_authorized_entry(path: &[String], from: &str, to: &str) -> R
         .map_err(js_error)?;
     Ok(())
 }
+
+pub struct CreationBridge;
+
+impl pet_application::creation::PetCreation for CreationBridge {
+    async fn create(&self, name: String) -> Result<SavedPet, String> {
+        create_pet(name).await
+    }
+    async fn list(&self) -> Result<Vec<SavedPet>, String> {
+        list_pets().await
+    }
+}

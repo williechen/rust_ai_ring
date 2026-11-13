@@ -1,10 +1,4 @@
-// 寵物清單資料模型不依賴 Tauri IPC，供控制台狀態與測試共用。
-#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
-pub struct SavedPet {
-    pub id: String,
-    pub name: String,
-    pub species: String,
-}
+pub use pet_application::creation::CreatedPet as SavedPet;
 
 #[cfg(test)]
 mod tests {
