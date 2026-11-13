@@ -37,13 +37,13 @@ pub async fn refresh(
              AND s.user_id=$2 AND s.credential_fingerprint=$4
              AND s.expires_at>floor(extract(epoch from now()))::bigint
              AND EXISTS (SELECT 1 FROM uac_user
-                         WHERE id=$2 AND user_pd=$3 AND user_status='active')
+                         WHERE id=s.user_id AND user_pd=$3 AND user_status='active')
            RETURNING cfg.idle_seconds"#,
     )
     .bind(digest)
-    .bind(shared::auth::token_digest(password_hash))
     .bind(user_id)
     .bind(password_hash)
+    .bind(shared::auth::token_digest(password_hash))
     .fetch_optional(pool)
     .await
 }

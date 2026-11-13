@@ -334,6 +334,7 @@ mod day47_member_author_tests {
     use chat_domain::MessageAuthor;
     use std::sync::Arc;
 
+    #[sqlx::test(migrations = "../migrations")]
     async fn deleted_room_denies_existing_socket_authorization(pool: SqlitePool) {
         sqlx::query("INSERT INTO mbr_user(id,user_acnt,user_pd,user_email,user_name,user_status,is_init_pd,created_at,updated_at) VALUES('member47','member47','hash','member47@example.invalid','會員','active',FALSE,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)").execute(&pool).await.unwrap();
         let raw = "a".repeat(64);
