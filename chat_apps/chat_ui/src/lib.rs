@@ -158,27 +158,29 @@ fn SiteNavigation() -> impl IntoView {
     let _ = (set_entry, set_logout_csrf);
 
     view! {
-        {move || view! { <AuthNavigation state=entry.get() logout_csrf=logout_csrf.get() /> }}
+         <AuthNavigation state=entry logout_csrf />
     }
 }
 
 #[component]
-fn AuthNavigation(state: SessionEntry, logout_csrf: Option<String>) -> impl IntoView {
-    let (href, label, status) = session_entry_display(state);
-
+fn AuthNavigation(
+    #[prop(into)] state: Signal<SessionEntry>,
+    #[prop(into)] logout_csrf: Signal<Option<String>>,
+) -> impl IntoView {
+    // 導覽節點保持固定，登入狀態只更新文字、連結及登出區域。
     view! {
         <nav aria-label="主要導覽">
             <a href="/" rel="external">"聊天室"</a>
-            <a class="site-session" href=href rel="external">{label}</a>
-            {if state == SessionEntry::SignedIn {
-                logout_csrf.map(|csrf| view! {
-                    <form method="post" action="/logout">
-                        <input type="hidden" name="csrf" value=csrf/>
-                        <button type="submit">"登出"</button>
-                    </form>
-                })
-            } else { None }}
-            <span class="site-status" role="status">{status}</span>
+            <a class="site-session" href=move || session_entry_display(state.get()).0 rel="external">
+                {move || session_entry_display(state.get()).1}
+            </a>
+            <Show when=move || state.get() == SessionEntry::SignedIn && logout_csrf.with(Option::is_some)>
+                <form method="post" action="/logout">
+                    <input type="hidden" name="csrf" value=move || logout_csrf.get().unwrap_or_default()/>
+                    <button type="submit">"登出"</button>
+                </form>
+            </Show>
+            <span class="site-status" role="status">{move || session_entry_display(state.get()).2}</span>
         </nav>
     }
 }
