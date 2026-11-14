@@ -1,30 +1,10 @@
 use analytics_persistence::EventSummary;
 
-fn csv_cell(value: &str) -> String {
-    // Spreadsheet applications may interpret leading operators as formulas.
-    let safe = if value
-        .chars()
-        .next()
-        .is_some_and(|c| matches!(c, '=' | '+' | '-' | '@' | '\t' | '\r'))
-    {
-        format!("'{value}")
-    } else {
-        value.to_owned()
-    };
-    format!("\"{}\"", safe.replace('"', "\"\""))
-}
-
 pub fn render_csv(rows: &[EventSummary]) -> String {
-    let mut csv = String::from("\u{feff}source_app,event_type,total\r\n");
-    for row in rows {
-        csv.push_str(&format!(
-            "{},{},{}\r\n",
-            csv_cell(&row.source_app),
-            csv_cell(&row.event_type),
-            row.total,
-        ));
-    }
-    csv
+    analytics_application::report_csv::render_csv(
+        rows.iter()
+            .map(|row| (row.source_app.as_str(), row.event_type.as_str(), row.total)),
+    )
 }
 
 #[cfg(test)]

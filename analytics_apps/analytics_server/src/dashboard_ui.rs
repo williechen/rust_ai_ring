@@ -69,6 +69,19 @@ fn DashboardView(
         view! { <option value=id selected=selected>{name}</option> }
     })
     .collect_view();
+    let source_shortcuts = [
+        ("web_chat", "Chat", allow_chat),
+        ("desktop_pet", "Pet", allow_pet),
+    ]
+    .into_iter()
+    .filter(|(_, _, allowed)| *allowed)
+    .map(|(id, fallback, _)| {
+        let label = sources.get(id).cloned().unwrap_or_else(|| fallback.into());
+        let href = dashboard_url(id, &event_type, 1, page_size);
+        let active = (id == source).then_some("page");
+        view! { <a href=href aria-current=active>{label}</a> }
+    })
+    .collect_view();
     let clear_url = dashboard_url(&source, "", 1, page_size);
     let export_url = export_csv_url(&source, &event_type);
     let filter_description = filter_description(&event_type);
@@ -97,6 +110,7 @@ fn DashboardView(
                             <p>"資訊分析"</p>
                             <h2>"來源分析"</h2>
                             <span class="report-source">{selected_source}</span>
+                            <nav class="report-actions" aria-label="切換報表來源">{source_shortcuts}</nav>
                         </header>
                         <section class="report-card" aria-labelledby="report-filters-title">
                             <h3 id="report-filters-title">"查詢條件"</h3>
@@ -1013,5 +1027,49 @@ mod day61_report_navigation_tests {
         .replace("&amp;", "&");
         assert!(first.contains("href=\"/dashboard?source=web_chat&event_type=&page=2&page_size=25#report-results-title\""));
         assert!(!first.contains("上一頁"));
+    }
+}
+
+#[cfg(test)]
+mod day62_source_shortcut_tests {
+    use super::*;
+    #[test]
+    fn shortcuts_keep_exact_filter_size_and_reset_page_with_acl() {
+        let html = render_dashboard_dictionary(
+            "Chat",
+            0,
+            "web_chat",
+            "kind.中文 &",
+            &[],
+            "csrf",
+            true,
+            true,
+            vec![],
+            true,
+            vec![],
+            9,
+            50,
+        )
+        .replace("&amp;", "&");
+        assert!(html.contains("aria-label=\"切換報表來源\""));
+        assert!(html.contains("href=\"/dashboard?source=desktop_pet&event_type=kind.%E4%B8%AD%E6%96%87%20%26&page=1&page_size=50#report-results-title\""));
+        assert!(html.contains("aria-current=\"page\""));
+        let pet = render_dashboard_dictionary(
+            "Pet",
+            0,
+            "desktop_pet",
+            "",
+            &[],
+            "csrf",
+            false,
+            true,
+            vec![],
+            false,
+            vec![],
+            1,
+            10,
+        );
+        assert!(!pet.contains("source=web_chat"));
+        assert!(!pet.contains("匯出目前篩選 CSV"));
     }
 }
