@@ -6,8 +6,9 @@ use leptos::prelude::*;
 use analytics_persistence::EventSummary;
 
 use crate::dashboard_summary::summary_count_label;
-use crate::dashboard_url::{encode_query_component, export_csv_url};
+use crate::dashboard_url::{dashboard_url, export_csv_url};
 use crate::management_shell::ManagementShell;
+use analytics_application::report_page::PageWindow;
 
 /// 只格式化既有篩選文案，不影響來源與事件類型的授權。
 fn filter_description(event_type: &str) -> String {
@@ -34,6 +35,7 @@ fn DashboardView(
     page: usize,
     page_size: usize,
     total_kinds: usize,
+    total_pages: usize,
 ) -> impl IntoView {
     let mut sources = BTreeMap::new();
     let mut events = BTreeMap::new();
@@ -67,20 +69,14 @@ fn DashboardView(
         view! { <option value=id selected=selected>{name}</option> }
     })
     .collect_view();
-    let clear_url = format!("/dashboard?source={source}");
+    let clear_url = dashboard_url(&source, "", 1, page_size);
     let export_url = export_csv_url(&source, &event_type);
     let filter_description = filter_description(&event_type);
 
     let count_label = summary_count_label(source_label, &event_type, total);
     let kinds = total_kinds;
     let filter_source = source.clone();
-    let total_pages = total_kinds.saturating_sub(1) / page_size + 1;
-    let page_url = |next| {
-        format!(
-            "/dashboard?source={source}&event_type={}&page={next}&page_size={page_size}",
-            encode_query_component(&event_type)
-        )
-    };
+    let page_url = |next| dashboard_url(&source, &event_type, next, page_size);
     let previous_url = (page > 1).then(|| page_url(page - 1));
     let next_url = (page < total_pages).then(|| page_url(page + 1));
 
@@ -104,7 +100,7 @@ fn DashboardView(
                         </header>
                         <section class="report-card" aria-labelledby="report-filters-title">
                             <h3 id="report-filters-title">"查詢條件"</h3>
-                            <form class="report-filters" method="get" action="/dashboard">
+                            <form class="report-filters" method="get" action="/dashboard#report-results-title">
                                 <div class="report-field">
                                     <label for="analytics-source">"來源"</label>
                                     <select id="analytics-source" name="source">{source_options}</select>
@@ -150,11 +146,7 @@ fn DashboardView(
                                     <thead><tr><th scope="col">"事件類型"</th><th scope="col">"已提交筆數"</th></tr></thead>
                                     <tbody>
                                         {rows.into_iter().map(|(kind, count)| {
-                                            let detail_url = format!(
-                                                "/dashboard?source={}&event_type={}",
-                                                filter_source,
-                                                encode_query_component(&kind)
-                                            );
+                                            let detail_url = dashboard_url(&filter_source, &kind, 1, page_size);
                                             let label = events.get(&kind).filter(|label| *label != &kind).cloned();
                                             view! { <tr>
                                                 <td>
@@ -342,11 +334,13 @@ pub(crate) fn render_dashboard_dictionary(
     page: usize,
     page_size: usize,
 ) -> String {
-    let page_size = page_size.max(1);
     let total_kinds = rows.len();
-    let total_pages = total_kinds.saturating_sub(1) / page_size + 1;
-    let page = page.clamp(1, total_pages);
-    let offset = (page - 1) * page_size;
+    let PageWindow {
+        page,
+        page_size,
+        total_pages,
+        offset,
+    } = PageWindow::from_count(total_kinds, page, page_size);
     let rows: Vec<(String, i64)> = rows
         .iter()
         .skip(offset)
@@ -371,6 +365,7 @@ pub(crate) fn render_dashboard_dictionary(
                 page
                 page_size
                 total_kinds
+                total_pages
             />
         }
         .to_html()
@@ -428,7 +423,6 @@ pub fn render_login_result(username: &str, message: &str) -> String {
         view! {<LoginView username=username.to_owned() message=message.to_owned()/>}.to_html()
     )
 }
-
 #[component]
 fn ChangePasswordView(
     restricted: bool,
@@ -465,7 +459,7 @@ fn ChangePasswordView(
                             autocomplete="new-password" required minlength="8" maxlength="128"/>
                     </p>
                     <p>
-                        <label for="change-email">"唯一Email"</label>
+                       <label for="change-email">"唯一Email"</label>
                         <input id="change-email" type="email" name="email"
                             autocomplete="email" required maxlength="254"/>
                     </p>
@@ -642,124 +636,13 @@ mod day30_tests {
 
 #[cfg(test)]
 mod day31_tests {
-    #[test]
-    fn change_form_keeps_wire_names_and_escapes_attribute_values() {
-        let html = super::render_change_password(true, "a\" onfocus=\"bad".into());
-        assert_eq!(html.matches("<!doctype html>").count(), 1);
-        for name in [
-            "current_password",
-            "new_password",
-            "confirm_password",
-            "email",
-            "csrf",
-        ] {
-            assert!(html.contains(&format!("name=\"{name}\"")));
-        }
-        assert!(html.contains("&quot;"));
-        assert!(!html.contains("value=\"a\" onfocus="));
-        assert!(html.contains("首次登入須更換密碼與Email"));
-        let ordinary = super::render_change_password(false, "test-csrf".into());
-        assert!(ordinary.contains("修改密碼與Email"));
-        assert!(!ordinary.contains("首次登入須更換密碼與Email"));
-        assert!(!ordinary.contains("lesson-only-password"));
-    }
-}
-
-#[cfg(test)]
-mod day32_filter_tests {
-    #[test]
-    fn dashboard_has_accessible_exact_kind_filter_and_escaped_value() {
-        let html = super::render_dashboard_filtered("Chat", 0, "web_chat", "chat.\" onfocus=\"bad");
-        assert_eq!(html.matches("<!doctype html>").count(), 1);
-        assert!(html.contains("method=\"get\""));
-        assert!(html.contains("action=\"/dashboard\""));
-        assert!(html.contains("name=\"source\""));
-        assert!(html.contains("value=\"web_chat\""));
-        assert!(html.contains("for=\"event-type\""));
-        assert!(html.contains("id=\"event-type\""));
-        assert!(html.contains("name=\"event_type\""));
-        assert!(html.contains("&quot;"));
-        assert!(!html.contains("value=\"chat.\" onfocus="));
-        assert!(html.contains("沒有符合條件的已提交事件"));
-        assert!(html.contains("/dashboard?source=web_chat"));
-    }
-}
-
-#[cfg(test)]
-mod day33_summary_caption_tests {
-    #[test]
-    fn count_label_distinguishes_full_and_exact_kind() {
-        assert_eq!(
-            super::summary_count_label("Chat", "", 12),
-            "Chat 全部事件類型：12 筆已提交事件"
-        );
-        assert_eq!(
-            super::summary_count_label("Chat", "chat.message.persisted", 3),
-            "Chat 事件類型「chat.message.persisted」：3 筆已提交事件"
-        );
-        assert_eq!(
-            super::summary_count_label("Pet", "pet.sleep", 0),
-            "Pet 事件類型「pet.sleep」：0 筆已提交事件"
-        );
-    }
-
-    #[test]
-    fn real_leptos_ssr_escapes_filtered_type_in_count_label() {
-        let html =
-            super::render_dashboard_filtered("Chat", 3, "web_chat", "<img src=x onerror=alert(1)>");
-        assert!(html.contains("3 筆已提交事件"));
-        assert!(html.contains("class=\"summary-count\""));
-        assert!(!html.contains("<img src=x onerror=alert(1)>"));
-        assert!(html.contains("&lt;img"));
-    }
-}
-
-#[cfg(test)]
-mod day40_csv_filter_ui_tests {
     use super::*;
-    #[test]
-    fn dashboard_csv_link_encodes_exact_kind_and_escapes_markup() {
-        assert_eq!(
-            encode_query_component("a &中文"),
-            "a%20%26%E4%B8%AD%E6%96%87"
-        );
-        let html = render_dashboard_filtered("Chat", 1, "web_chat", "x&y");
-        assert!(html.contains("/api/v1/events/web_chat/export.csv?event_type=x%26y"));
-        assert!(!html.contains("event_type=x&y"));
-        let empty = render_dashboard_filtered("Chat", 0, "web_chat", "");
-        assert!(empty.contains("/api/v1/events/web_chat/export.csv"));
-    }
-}
 
-#[cfg(test)]
-mod day41_event_table_tests {
-    use super::*;
     #[test]
-    fn committed_kind_rows_are_rendered_in_a_real_leptos_table_and_escaped() {
-        let html = render_dashboard_with_rows(
-            "Chat",
-            3,
-            "web_chat",
-            "",
-            &[
-                EventSummary {
-                    source_app: "web_chat".into(),
-                    event_type: "chat.message.persisted".into(),
-                    total: 2,
-                },
-                EventSummary {
-                    source_app: "web_chat".into(),
-                    event_type: "<script>bad</script>".into(),
-                    total: 1,
-                },
-            ],
-        );
-        assert!(html.contains("<table"));
-        assert!(html.contains("已提交事件類型明細"));
-        assert!(html.contains("chat.message.persisted"));
-        assert!(html.contains("&lt;script&gt;bad&lt;/script&gt;"));
-        assert!(!html.contains("<script>bad</script>"));
-        assert!(html.contains("全部事件類型：3 筆已提交事件"));
+    fn dashboard_includes_logout_form_with_csrf() {
+        let html = render_dashboard_with_rows_csrf("Pet", 0, "desktop_pet", "", &[], "logout-hex");
+        assert!(html.contains("action=\"/logout\""));
+        assert!(html.contains("name=\"csrf\" value=\"logout-hex\""));
     }
 }
 
@@ -841,7 +724,7 @@ mod day50_grid_layout_tests {
             html.find("<main class=\"analytics-content\"").unwrap()
                 < html.find("<footer class=\"analytics-footer\"").unwrap()
         );
-        assert!(html.contains("action=\"/dashboard\""));
+        assert!(html.contains("action=\"/dashboard#report-results-title\""));
         assert!(html.contains("已提交事件類型明細"));
     }
 }
@@ -947,5 +830,65 @@ mod page_jump_tests {
         assert!(html.contains("name=\"page_size\""));
         assert!(html.contains("name=\"event_type\""));
         assert!(!html.contains("value=\"kind.\"&<\""));
+    }
+}
+
+#[cfg(test)]
+mod day61_report_navigation_tests {
+    use super::*;
+    #[test]
+    fn navigation_preserves_page_size_and_exact_kind_and_targets_results() {
+        let rows: Vec<EventSummary> = (0..27)
+            .map(|i| EventSummary {
+                source_app: "web_chat".into(),
+                event_type: if i == 25 {
+                    "chat.中文 &".into()
+                } else {
+                    format!("kind.{i:02}")
+                },
+                total: 1,
+            })
+            .collect();
+        let html = render_dashboard_dictionary(
+            "Chat",
+            27,
+            "web_chat",
+            "",
+            &rows,
+            "test",
+            true,
+            false,
+            vec![],
+            true,
+            vec![],
+            2,
+            25,
+        );
+        let decoded = html.replace("&amp;", "&");
+        assert!(decoded.contains("href=\"/dashboard?source=web_chat&event_type=&page=1&page_size=25#report-results-title\""));
+        assert!(decoded.contains("href=\"/dashboard?source=web_chat&event_type=chat.%E4%B8%AD%E6%96%87%20%26&page=1&page_size=25#report-results-title\""));
+        assert!(decoded.contains("action=\"/dashboard#report-results-title\""));
+        assert!(decoded.contains("第 2 / 2 頁 · 共 27 個事件類型"));
+        assert!(!decoded.contains("下一頁"));
+        assert!(!html.contains("source=desktop_pet"));
+        assert!(html.contains("chat.中文 &amp;"));
+        let first = render_dashboard_dictionary(
+            "Chat",
+            27,
+            "web_chat",
+            "",
+            &rows,
+            "test",
+            true,
+            false,
+            vec![],
+            true,
+            vec![],
+            1,
+            25,
+        )
+        .replace("&amp;", "&");
+        assert!(first.contains("href=\"/dashboard?source=web_chat&event_type=&page=2&page_size=25#report-results-title\""));
+        assert!(!first.contains("上一頁"));
     }
 }

@@ -10,6 +10,20 @@ pub(crate) fn encode_query_component(value: &str) -> String {
     result
 }
 
+/// 報表導覽保留來源、精確類型和每頁筆數，定位查詢結果。
+pub(crate) fn dashboard_url(
+    source: &str,
+    event_type: &str,
+    page: usize,
+    page_size: usize,
+) -> String {
+    format!(
+        "/dashboard?source={}&event_type={}&page={page}&page_size={page_size}#report-results-title",
+        encode_query_component(source),
+        encode_query_component(event_type)
+    )
+}
+
 /// Reuse the exact-kind encoder for the authenticated CSV export link.
 pub(crate) fn export_csv_url(source: &str, event_type: &str) -> String {
     if event_type.is_empty() {

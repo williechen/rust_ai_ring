@@ -1,4 +1,5 @@
 pub mod login_attempt;
+pub mod report_page;
 pub mod session_renewal;
 pub mod viewer_access;
 
