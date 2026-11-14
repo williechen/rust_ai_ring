@@ -27,7 +27,7 @@ async fn lookup_existing_event(
     source_app: &str,
     event_id: &str,
 ) -> Result<(i16, String), sqlx::Error> {
-        sqlx::query_as(
+    sqlx::query_as(
         "SELECT p.schema_version, c.wire_value
          FROM product_events AS p
          JOIN codemap AS c ON c.category = 'event_type' AND c.code = p.event_type

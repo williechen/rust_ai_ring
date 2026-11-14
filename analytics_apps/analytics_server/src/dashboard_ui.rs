@@ -636,6 +636,129 @@ mod day30_tests {
 
 #[cfg(test)]
 mod day31_tests {
+    #[test]
+    fn change_form_keeps_wire_names_and_escapes_attribute_values() {
+        let html = super::render_change_password(true, "a\" onfocus=\"bad".into());
+        assert_eq!(html.matches("<!doctype html>").count(), 1);
+        for name in [
+            "current_password",
+            "new_password",
+            "confirm_password",
+            "email",
+            "csrf",
+        ] {
+            assert!(html.contains(&format!("name=\"{name}\"")));
+        }
+        assert!(html.contains("&quot;"));
+        assert!(!html.contains("value=\"a\" onfocus="));
+        assert!(html.contains("首次登入須更換密碼與Email"));
+        let ordinary = super::render_change_password(false, "test-csrf".into());
+        assert!(ordinary.contains("修改密碼與Email"));
+        assert!(!ordinary.contains("首次登入須更換密碼與Email"));
+        assert!(!ordinary.contains("lesson-only-password"));
+    }
+}
+
+#[cfg(test)]
+mod day32_filter_tests {
+    #[test]
+    fn dashboard_has_accessible_exact_kind_filter_and_escaped_value() {
+        let html = super::render_dashboard_filtered("Chat", 0, "web_chat", "chat.\" onfocus=\"bad");
+        assert_eq!(html.matches("<!doctype html>").count(), 1);
+        assert!(html.contains("method=\"get\""));
+        assert!(html.contains("action=\"/dashboard#report-results-title\""));
+        assert!(html.contains("name=\"source\""));
+        assert!(html.contains("value=\"web_chat\""));
+        assert!(html.contains("for=\"event-type\""));
+        assert!(html.contains("id=\"event-type\""));
+        assert!(html.contains("name=\"event_type\""));
+        assert!(html.contains("&quot;"));
+        assert!(!html.contains("value=\"chat.\" onfocus="));
+        assert!(html.contains("沒有符合條件的已提交事件"));
+        assert!(html.contains("/dashboard?source=web_chat"));
+    }
+}
+
+#[cfg(test)]
+mod day33_summary_caption_tests {
+    #[test]
+    fn count_label_distinguishes_full_and_exact_kind() {
+        assert_eq!(
+            super::summary_count_label("Chat", "", 12),
+            "Chat 全部事件類型：12 筆已提交事件"
+        );
+        assert_eq!(
+            super::summary_count_label("Chat", "chat.message.persisted", 3),
+            "Chat 事件類型「chat.message.persisted」：3 筆已提交事件"
+        );
+        assert_eq!(
+            super::summary_count_label("Pet", "pet.sleep", 0),
+            "Pet 事件類型「pet.sleep」：0 筆已提交事件"
+        );
+    }
+
+    #[test]
+    fn real_leptos_ssr_escapes_filtered_type_in_count_label() {
+        let html =
+            super::render_dashboard_filtered("Chat", 3, "web_chat", "<img src=x onerror=alert(1)>");
+        assert!(html.contains("3 筆已提交事件"));
+        assert!(html.contains("class=\"summary-count\""));
+        assert!(!html.contains("<img src=x onerror=alert(1)>"));
+        assert!(html.contains("&lt;img"));
+    }
+}
+
+#[cfg(test)]
+mod day40_csv_filter_ui_tests {
+    use super::*;
+    #[test]
+    fn dashboard_csv_link_encodes_exact_kind_and_escapes_markup() {
+        assert_eq!(
+            crate::dashboard_url::encode_query_component("a &中文"),
+            "a%20%26%E4%B8%AD%E6%96%87"
+        );
+        let html = render_dashboard_filtered("Chat", 1, "web_chat", "x&y");
+        assert!(html.contains("/api/v1/events/web_chat/export.csv?event_type=x%26y"));
+        assert!(!html.contains("event_type=x&y"));
+        let empty = render_dashboard_filtered("Chat", 0, "web_chat", "");
+        assert!(empty.contains("/api/v1/events/web_chat/export.csv"));
+    }
+}
+
+#[cfg(test)]
+mod day41_event_table_tests {
+    use super::*;
+    #[test]
+    fn committed_kind_rows_are_rendered_in_a_real_leptos_table_and_escaped() {
+        let html = render_dashboard_with_rows(
+            "Chat",
+            3,
+            "web_chat",
+            "",
+            &[
+                EventSummary {
+                    source_app: "web_chat".into(),
+                    event_type: "chat.message.persisted".into(),
+                    total: 2,
+                },
+                EventSummary {
+                    source_app: "web_chat".into(),
+                    event_type: "<script>bad</script>".into(),
+                    total: 1,
+                },
+            ],
+        );
+        assert!(html.contains("<table"));
+        assert!(html.contains("已提交事件類型明細"));
+        assert!(html.contains("chat.message.persisted"));
+        assert!(html.contains("&lt;script&gt;bad&lt;/script&gt;"));
+        assert!(!html.contains("<script>bad</script>"));
+        assert!(html.contains("全部事件類型：3 筆已提交事件"));
+    }
+}
+
+#[cfg(test)]
+mod day61_logout_form_tests {
     use super::*;
 
     #[test]
