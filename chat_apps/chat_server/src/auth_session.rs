@@ -7,12 +7,32 @@ pub(crate) fn member_cookie(raw: &str) -> String {
     format!("chat_session={raw}; HttpOnly; SameSite=Lax; Path=/; Max-Age={seconds}")
 }
 
+/// 只接受唯一的 Chat Cookie；其他名稱可以共存，缺少與畸形分開處理。
+pub(crate) fn optional_session_cookie(headers: &HeaderMap) -> Result<Option<String>, StatusCode> {
+    let mut found = None;
+    for value in headers.get_all(header::COOKIE).iter() {
+        let value = value.to_str().map_err(|_| StatusCode::UNAUTHORIZED)?;
+        for part in value.split(';').map(str::trim) {
+            let Some((key, _)) = part.split_once('=') else {
+                if part == "chat_session" {
+                    return Err(StatusCode::UNAUTHORIZED);
+                }
+                continue;
+            };
+            if key.trim() != "chat_session" {
+                continue;
+            }
+            if key != "chat_session" || found.is_some() {
+                return Err(StatusCode::UNAUTHORIZED);
+            }
+            found = Some(cookie_token(part, "chat_session").ok_or(StatusCode::UNAUTHORIZED)?);
+        }
+    }
+    Ok(found)
+}
+
 pub(crate) fn session_cookie(headers: &HeaderMap) -> Result<String, StatusCode> {
-    headers
-        .get(header::COOKIE)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| cookie_token(value, "chat_session"))
-        .ok_or(StatusCode::UNAUTHORIZED)
+    optional_session_cookie(headers)?.ok_or(StatusCode::UNAUTHORIZED)
 }
 
 /// Chat SQLite adapter: caller supplies this application's independent DB pool.

@@ -7,7 +7,7 @@ use axum::{
     response::{Html, IntoResponse, Redirect, Response},
     routing::get,
 };
-use shared::auth::{cookie_token, token_digest};
+use shared::auth::token_digest;
 use sqlx::SqlitePool;
 pub const ROOM: &str = "member-room-create";
 pub const PROFILE: &str = "member-profile-update";
@@ -58,11 +58,7 @@ fn db_error(e: sqlx::Error) -> StatusCode {
 }
 
 fn raw(headers: &HeaderMap) -> Result<String, StatusCode> {
-    headers
-        .get(header::COOKIE)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| cookie_token(v, "chat_session"))
-        .ok_or(StatusCode::UNAUTHORIZED)
+    crate::auth_session::session_cookie(headers)
 }
 
 fn csrf(headers: &HeaderMap, operation: &str) -> Result<String, StatusCode> {

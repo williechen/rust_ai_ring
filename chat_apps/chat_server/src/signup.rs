@@ -46,6 +46,8 @@ async fn signup(
         return Err(StatusCode::FORBIDDEN);
     }
 
+    // 註冊允許沒有 Cookie；歧義的舊身分不能決定要撤銷哪一個 Session。
+    let previous_token = crate::auth_session::optional_session_cookie(&headers)?;
     let username = form.username.trim().to_owned();
     let email = form.email.trim().to_ascii_lowercase();
     let display = form.display_name.trim().to_owned();
@@ -114,25 +116,8 @@ async fn signup(
     sqlx::query("INSERT INTO mbr_user_role(user_id,role_id,created_at) VALUES(?1,'member-default',CURRENT_TIMESTAMP)")
         .bind(&member_id).execute(&mut *tx).await.map_err(|_|StatusCode::SERVICE_UNAVAILABLE)?;
     // 成功註冊不沿用目前瀏覽器的帳號或選房；資料與撤銷同交易提交。
-    if let Some(token) = headers
-        .get("cookie")
-        .and_then(|h| h.to_str().ok())
-        .and_then(|h| {
-            h.split(';')
-                .filter_map(|v| v.trim().split_once('='))
-                .find(|(k, _)| *k == "chat_session")
-                .map(|(_, v)| v)
-        })
-        .filter(|v| v.len() == 64 && v.bytes().all(|b| b.is_ascii_hexdigit()))
-    {
-        use sha2::{Digest, Sha256};
-        let hashed: String = Sha256::digest(token.as_bytes())
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect();
-        sqlx::query("DELETE FROM mbr_session WHERE token_hash=?1")
-            .bind(hashed)
-            .execute(&mut *tx)
+    if let Some(token) = previous_token {
+        chat_persistence::member_session::revoke(&mut *tx, &shared::auth::token_digest(&token))
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     }

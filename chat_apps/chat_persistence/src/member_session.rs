@@ -29,3 +29,15 @@ pub async fn renew(pool: &SqlitePool, digest: &str) -> Result<bool, sqlx::Error>
     .await?;
     Ok(updated.rows_affected() == 1)
 }
+
+/// 撤銷指定摘要；呼叫者可使用獨立連線或既有交易。
+pub async fn revoke<'e, E>(executor: E, digest: &str) -> Result<bool, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
+    let result = sqlx::query("DELETE FROM mbr_session WHERE token_hash=?1")
+        .bind(digest)
+        .execute(executor)
+        .await?;
+    Ok(result.rows_affected() == 1)
+}

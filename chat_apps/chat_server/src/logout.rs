@@ -6,7 +6,7 @@ use axum::{
     routing::post,
 };
 use serde::Deserialize;
-use shared::auth::{cookie_token, token_digest};
+use shared::auth::token_digest;
 use sqlx::SqlitePool;
 
 #[derive(Deserialize)]
@@ -29,22 +29,16 @@ pub async fn logout(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    let token = headers
-        .get(header::COOKIE)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|h| cookie_token(h, "chat_session"))
-        .ok_or(StatusCode::UNAUTHORIZED)?;
+    let token = crate::auth_session::session_cookie(&headers)?;
 
     if form.csrf != token_digest(&format!("logout:{token}")) {
         return Err(StatusCode::FORBIDDEN);
     }
 
-    let result = sqlx::query("DELETE FROM mbr_session WHERE token_hash=?1")
-        .bind(token_digest(&token))
-        .execute(&pool)
+    let revoked = chat_persistence::member_session::revoke(&pool, &token_digest(&token))
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    if result.rows_affected() != 1 {
+    if !revoked {
         return Err(StatusCode::UNAUTHORIZED);
     }
 
