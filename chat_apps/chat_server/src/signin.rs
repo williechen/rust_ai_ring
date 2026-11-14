@@ -1,7 +1,7 @@
 use argon2::{Argon2, PasswordHash, PasswordVerifier};
 use axum::{
     Form, Router,
-    extract::{DefaultBodyLimit, State},
+    extract::{DefaultBodyLimit, Query, State},
     http::{HeaderMap, StatusCode, header},
     response::{Html, IntoResponse, Redirect, Response},
     routing::get,
@@ -52,8 +52,17 @@ fn safe_room_return(next: &str) -> Option<&str> {
     canonical_room_id(next).map(|_| next)
 }
 
-async fn login_page() -> Redirect {
-    Redirect::to("/signin")
+#[derive(Default, Deserialize)]
+struct LoginReturn {
+    #[serde(default)]
+    next: String,
+}
+
+async fn login_page(Query(input): Query<LoginReturn>) -> Redirect {
+    let location = safe_room_return(&input.next)
+        .map(|target| format!("/signin?next={}", target.replace('/', "%2F")))
+        .unwrap_or_else(|| "/signin".into());
+    Redirect::to(&location)
 }
 
 fn login_failure(username: &str, next: &str) -> Response {
@@ -215,9 +224,9 @@ async fn account_html(
     room_id: Option<String>,
     selected_category: String,
 ) -> Result<Html<String>, StatusCode> {
-    let categories: Vec<(String, String)> = sqlx::query_as(
-        "SELECT code,value FROM codemap WHERE category='room_category' ORDER BY CASE WHEN code='default-category' THEN 0 ELSE 1 END,code"
-    ).fetch_all(pool).await.map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let categories = chat_persistence::room_categories::list(pool)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     Ok(Html(chat_ui::account::render_account_categories(
         crate::auth_session::csrf_for_logout(headers)?,
         crate::auth_session::csrf_for_create_room(headers)?,
@@ -276,13 +285,9 @@ async fn account_create_room(
     }
 
     let category = form.category.as_deref().unwrap_or("default-category");
-    let exists: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM codemap WHERE category='room_category' AND code=?1)",
-    )
-    .bind(category)
-    .fetch_one(&pool)
-    .await
-    .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let exists = chat_persistence::room_categories::contains(&pool, category)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     let validation = chat_application::validate_room_name(&form.name).and_then(|()| {
         if exists {
             Ok(())
@@ -619,5 +624,45 @@ mod day40_session_entry_tests {
         .await
         .unwrap();
         assert!(still_expired);
+    }
+}
+
+#[cfg(test)]
+mod day62_login_return_tests {
+    use axum::{
+        body::Body,
+        http::{Request, StatusCode},
+    };
+    use tower::ServiceExt;
+    #[tokio::test]
+    async fn legacy_entry_preserves_only_canonical_room_return() {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .connect_lazy("sqlite::memory:")
+            .unwrap();
+        let app = super::routes(pool);
+        let id = "11111111-1111-4111-8111-111111111111";
+        for (query, expected) in [
+            (
+                format!("next=%2Froom%2F{id}"),
+                format!("/signin?next=%2Froom%2F{id}"),
+            ),
+            ("next=https%3A%2F%2Fevil.invalid".into(), "/signin".into()),
+            ("next=%2F%2Fevil.invalid".into(), "/signin".into()),
+            (format!("next=%2Froom%2F{id}%3Fadmin%3D1"), "/signin".into()),
+            (format!("next=%2Froom%2F{id}%23fragment"), "/signin".into()),
+            ("next=%2Froom%2Fnot-a-uuid".into(), "/signin".into()),
+        ] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::get(format!("/login?{query}"))
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::SEE_OTHER);
+            assert_eq!(response.headers()["location"], expected);
+        }
     }
 }

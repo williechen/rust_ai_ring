@@ -2,6 +2,7 @@ pub mod login_attempt;
 pub mod member_profile;
 pub mod member_session;
 pub mod room_access;
+pub mod room_categories;
 pub mod ws_message;
 
 use async_trait::async_trait;
@@ -96,9 +97,16 @@ impl RoomRepository for SqliteRoomRepository {
 
     async fn list(&self) -> Result<Vec<Room>, RepositoryError> {
         sqlx::query_as::<_, RoomRow>(
-            "SELECT r.id, r.category_room_id, r.name, c.value AS category_label
-             FROM rooms r JOIN codemap c ON c.category='room_category' AND c.code=r.category_room_id
-             ORDER BY r.name, r.id",
+            r#"SELECT r.id
+                , r.category_room_id
+                , r.name
+                , c.value AS category_label
+            FROM rooms r 
+            JOIN codemap c 
+                ON c.category='room_category' 
+                AND c.code=r.category_room_id
+            ORDER BY r.name
+                , r.id"#,
         )
         .fetch_all(&self.pool)
         .await
@@ -116,10 +124,17 @@ impl RoomRepository for SqliteRoomRepository {
         let pattern = format!("%{literal}%");
 
         sqlx::query_as::<_, RoomRow>(
-            r"SELECT r.id, r.category_room_id, r.name, c.value AS category_label
-            FROM rooms r JOIN codemap c ON c.category='room_category' AND c.code=r.category_room_id
+            r#"SELECT r.id
+                , r.category_room_id
+                , r.name
+                , c.value AS category_label
+            FROM rooms r 
+            JOIN codemap c 
+                ON c.category='room_category' 
+                AND c.code=r.category_room_id
             WHERE r.name LIKE ?1 ESCAPE '\'
-            ORDER BY r.name, r.id",
+            ORDER BY r.name
+                , r.id"#,
         )
         .bind(pattern)
         .fetch_all(&self.pool)
@@ -177,10 +192,24 @@ impl MessageRepository for SqliteMessageRepository {
     ) -> Result<Vec<chat_domain::ChatMessage>, RepositoryError> {
         // 只讀指定房間最後一百筆，依插入順序重建訊息。
         let rows: Vec<(String, String, String, Option<String>, String)> = sqlx::query_as(
-            "SELECT id,room_id,author_kind,author_id,content
-             FROM (SELECT rowid AS seq,id,room_id,author_kind,author_id,content
-                   FROM messages WHERE room_id=?1 ORDER BY rowid DESC LIMIT 100)
-             ORDER BY seq ASC",
+            r#"SELECT id
+                ,room_id
+                ,author_kind
+                ,author_id
+                ,content
+            FROM (
+                SELECT rowid AS seq
+                    ,id
+                    ,room_id
+                    ,author_kind
+                    ,author_id
+                    ,content
+                FROM messages 
+                WHERE room_id=?1 
+                ORDER BY rowid DESC 
+                LIMIT 100
+            )
+            ORDER BY seq ASC"#,
         )
         .bind(room_id)
         .fetch_all(&self.pool)
