@@ -4,6 +4,7 @@ use wasm_bindgen::{JsCast, closure::Closure, prelude::*};
 use wasm_bindgen_futures::JsFuture;
 
 use crate::saved_pet::SavedPet;
+pub use pet_application::activity_control::ActivityStatus;
 
 #[wasm_bindgen]
 extern "C" {
@@ -375,15 +376,39 @@ pub async fn find_saved_pet(id: &str) -> Result<(), String> {
     Ok(())
 }
 
-#[derive(Clone, serde::Deserialize)]
-pub struct ActivityStatus {
-    pub outside: bool,
-    pub roaming: bool,
-    #[serde(default)]
-    pub sitting: bool,
-    pub default_caged: bool,
-    pub walk_label: Option<String>,
-    pub sit_label: Option<String>,
+pub struct ActivityBridge;
+
+impl pet_application::activity_control::ActivityControl for ActivityBridge {
+    async fn query(&self, id: &str) -> Result<ActivityStatus, String> {
+        activity_action(id, 0).await
+    }
+
+    async fn set_walk(&self, id: &str, enabled: bool) -> Result<ActivityStatus, String> {
+        activity_action(id, if enabled { 1 } else { 2 }).await
+    }
+
+    async fn command(
+        &self,
+        id: &str,
+        action: pet_application::activity_control::ActivityAction,
+    ) -> Result<(), String> {
+        use pet_application::activity_control::ActivityAction::*;
+        match action {
+            Open => open_saved_pet(id).await,
+            Cage => cage_saved_pet_by_id(id).await,
+            Find => find_saved_pet(id).await,
+            Sleep | Wake => {
+                let command = if action == Sleep {
+                    PetCommand::Sleep
+                } else {
+                    PetCommand::Wake
+                };
+                send_pet_command_for(command, Some(id.to_owned())).await?;
+                Ok(())
+            }
+            _ => Err("此操作不屬於獨立活動命令".into()),
+        }
+    }
 }
 
 pub async fn activity_action(id: &str, choice: i8) -> Result<ActivityStatus, String> {

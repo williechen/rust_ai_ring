@@ -1,43 +1,8 @@
 use crate::{bridge, component::frames::frame_uri, component::pose::PetPose};
 use crate::{control_navigation::ControlPage, saved_pet::SavedPet};
 use leptos::{prelude::*, task::spawn_local};
-use pet_domain::{PetCommand, PetState};
-
-#[derive(Clone, Copy)]
-enum ActivityAction {
-    Refresh,
-    Walk,
-    Sit,
-    Open,
-    Cage,
-    Sleep,
-    Wake,
-    Find,
-}
-
-async fn update_activity(
-    id: &str,
-    action: ActivityAction,
-) -> Result<bridge::ActivityStatus, String> {
-    use ActivityAction::*;
-    match action {
-        Walk => return bridge::activity_action(id, 1).await,
-        Sit => return bridge::activity_action(id, 2).await,
-        Open => bridge::open_saved_pet(id).await?,
-        Cage => bridge::cage_saved_pet_by_id(id).await?,
-        Sleep | Wake => {
-            let command = if matches!(action, Sleep) {
-                PetCommand::Sleep
-            } else {
-                PetCommand::Wake
-            };
-            bridge::send_pet_command_for(command, Some(id.to_owned())).await?;
-        }
-        Find => bridge::find_saved_pet(id).await?,
-        Refresh => {}
-    }
-    bridge::activity_action(id, 0).await
-}
+use pet_application::activity_control::{ActivityAction, execute};
+use pet_domain::PetState;
 
 #[component]
 pub(crate) fn ActivityWorkspace(
@@ -62,23 +27,45 @@ pub(crate) fn ActivityWorkspace(
             let id = id.clone();
             let (status, pose, error) = (status.clone(), pose.clone(), error.clone());
             spawn_local(async move {
-                match update_activity(&id, choice).await {
-                    Ok(next) => {
-                        let next_pose = if next.outside {
-                            bridge::get_pet_state_for(Some(id))
-                                .await
-                                .ok()
-                                .map(|state| state.state)
-                        } else {
-                            None
-                        };
-                        status.set(Some(next));
-                        pose.set(next_pose);
-                    }
+                let result = execute(&bridge::ActivityBridge, &id, choice).await;
+                match result {
+                    Ok(outcome) => match outcome.status {
+                        Ok(next) => {
+                            let next_pose = if next.outside {
+                                match bridge::get_pet_state_for(Some(id)).await {
+                                    Ok(state) => Some(state.state),
+                                    Err(message) => {
+                                        error.set(Some(format!(
+                                            "活動已讀取，姿態讀取失敗：{message}；請更新活動。"
+                                        )));
+                                        None
+                                    }
+                                }
+                            } else {
+                                None
+                            };
+                            status.set(Some(next));
+                            pose.set(next_pose);
+                        }
+                        Err(message) => {
+                            status.set(None);
+                            pose.set(None);
+                            let prefix = if outcome.command_confirmed {
+                                "操作已回報成功，狀態讀取失敗"
+                            } else {
+                                "狀態讀取失敗"
+                            };
+                            error.set(Some(format!(
+                                "{prefix}：{message}；請按更新活動確認，勿重送。"
+                            )));
+                        }
+                    },
                     Err(message) => {
                         status.set(None);
                         pose.set(None);
-                        error.set(Some(message));
+                        error.set(Some(format!(
+                            "操作結果未確認：{message}；請先更新活動，勿直接重送。"
+                        )));
                     }
                 }
                 set_busy.set(false);
