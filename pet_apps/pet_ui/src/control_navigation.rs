@@ -82,7 +82,10 @@ impl ControlPage {
 }
 
 #[component]
-pub(crate) fn ControlNavigation(page: RwSignal<ControlPage>) -> impl IntoView {
+pub(crate) fn ControlNavigation(
+    page: RwSignal<ControlPage>,
+    #[prop(optional)] on_navigate: Option<Callback<ControlPage>>,
+) -> impl IntoView {
     view! {
          <div class="control-navigation" role="tablist" aria-label="寵物控制台功能區">
             {ControlPage::ALL.into_iter().enumerate().map(|(index, item)| view! {
@@ -93,12 +96,12 @@ pub(crate) fn ControlNavigation(page: RwSignal<ControlPage>) -> impl IntoView {
                     aria-controls=item.id()
                     aria-selected=move || (page.get() == item).to_string()
                     tabindex=move || if page.get() == item { "0" } else { "-1" }
-                    on:click=move |_| page.set(item)
+                     on:click=move |_| { if let Some(callback)=on_navigate { callback.run(item); } else { page.set(item); } }
                     on:keydown=move |event: leptos::ev::KeyboardEvent| {
                         if let Some(next) = ControlPage::from_key(index, &event.key()) {
                             event.prevent_default();
-                            page.set(next);
-                            next.focus_tab();
+                            if let Some(callback)=on_navigate { callback.run(next); } else { page.set(next); }
+                            if page.get_untracked() == next { next.focus_tab(); }
                         }
                     }
                 >{item.label()}</button>

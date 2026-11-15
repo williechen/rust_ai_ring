@@ -339,3 +339,13 @@ body:has(.control-shell) { display: block; background: var(--pet-canvas); overfl
 }
 .file-operation-layout legend { padding-inline: 5px; font-size: .875rem; font-weight: 700; }
 .file-operation-layout p { margin: 1px 0 4px; color: var(--pet-muted); font-size: .8rem; }
+.file-operation-layout p { margin: 1px 0 4px; color: var(--pet-muted); font-size: .8rem; }
+.settings-navigation-confirmation {
+    flex-basis: 100%;
+    padding: 14px;
+    border: 2px solid var(--pet-action);
+    border-radius: 12px;
+    background: var(--pet-surface);
+}
+.settings-navigation-confirmation h2 { margin: 0 0 6px; font-size: 1rem; }
+.settings-navigation-confirmation p { margin: 0 0 10px; }

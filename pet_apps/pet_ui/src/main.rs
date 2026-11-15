@@ -27,6 +27,12 @@ use crate::saved_pet::SavedPet;
 use control_navigation::{ControlNavigation, ControlPage};
 use pet_application::lifecycle::StartupRestoreFailure;
 
+#[derive(Clone)]
+enum SettingsDestination {
+    Page(ControlPage),
+    Pet(Option<String>),
+}
+
 fn main() {
     mount_to_body(|| {
         view! {
@@ -205,6 +211,35 @@ fn App() -> impl IntoView {
     }
 
     let page = RwSignal::new(ControlPage::Interaction);
+    let settings_dirty = RwSignal::new(false);
+    let settings_busy = RwSignal::new(false);
+    let settings_save = RwSignal::new(0u64);
+    let settings_discard = RwSignal::new(0u64);
+    let pending = RwSignal::new(None::<SettingsDestination>);
+    let apply_navigation = Callback::new(move |target: SettingsDestination| match target {
+        SettingsDestination::Page(next) => {
+            page.set(next);
+            next.focus_tab();
+        }
+        SettingsDestination::Pet(id) => set_management_pet_id.set(id),
+    });
+    let request_navigation = Callback::new(move |target: SettingsDestination| {
+        if settings_busy.get_untracked() || pending.get_untracked().is_some() {
+            return;
+        }
+        let same = match &target {
+            SettingsDestination::Page(next) => *next == page.get_untracked(),
+            SettingsDestination::Pet(id) => *id == management_pet_id.get_untracked(),
+        };
+        if same {
+            return;
+        }
+        if settings_dirty.get_untracked() {
+            pending.set(Some(target));
+        } else {
+            apply_navigation.run(target);
+        }
+    });
     let (startup_view, set_startup_view) = signal(false);
     view! {
         <main class="control-shell">
@@ -213,21 +248,19 @@ fn App() -> impl IntoView {
                 <span class="control-mark" aria-hidden="true">"P"</span>
                 <h1>"Pet｜桌面陪伴"</h1>
             </header>
-            <ControlNavigation page />
+             <ControlNavigation page on_navigate=Callback::new(move |next|request_navigation.run(SettingsDestination::Page(next))) />
             <div class="control-context" hidden=move || !matches!(page.get(), ControlPage::Interaction | ControlPage::Settings | ControlPage::Memory)>
                 <label class="control-pet-picker">
                     <span>"目前寵物"</span>
-                    <select disabled=move || pets_busy.get() || saved_pets.with(Vec::is_empty)
+                    <select disabled=move || pets_busy.get() || settings_busy.get() || pending.get().is_some() || saved_pets.with(Vec::is_empty)
                         prop:value=move || management_pet_id.get().unwrap_or_default()
                         on:change=move |event| {
                             let id = event_target_value(&event);
-                            if id.is_empty() {
-                                set_management_pet_id.set(None);
-                            } else {
-                                let _ = management_selection::choose_management_pet(
-                                    &id, &saved_pets.get_untracked(), set_management_pet_id,
-                                );
-                            }
+                            let target=if id.is_empty(){None}else{Some(id)};
+                            // 受控選單先還原已提交的對象，確認成功後才更新。
+                            event_target::<web_sys::HtmlSelectElement>(&event).set_value(&management_pet_id.get_untracked().unwrap_or_default());
+                            if target.as_ref().is_none_or(|id| saved_pets.get_untracked().iter().any(|pet| &pet.id==id)) {
+                                request_navigation.run(SettingsDestination::Pet(target));
                         }>
                         <option value="">"選擇寵物"</option>
                         <For each=move || saved_pets.get() key=|pet| (pet.id.clone(), pet.name.clone())
@@ -240,6 +273,20 @@ fn App() -> impl IntoView {
                     </select>
                 </label>
                 <p class="control-context-note">"選擇對象只會切換管理畫面。"</p>
+            <Show when=move || pending.get().is_some()>
+                <section class="settings-navigation-confirmation" role="alertdialog" aria-modal="false" aria-labelledby="settings-navigation-title">
+                    <h2 id="settings-navigation-title">"設定尚未儲存"</h2>
+                    <p>"切換前請儲存設定、捨棄草稿，或留在目前畫面。儲存失敗會保留草稿與原對象。"</p>
+                    <button type="button" disabled=move || settings_busy.get() on:click=move |_| pending.set(None)>"留在此頁"</button>
+                    <button type="button" disabled=move || settings_busy.get() on:click=move |_| {
+                        settings_discard.update(|n|*n+=1);
+                        settings_dirty.set(false);
+                        if let Some(target)=pending.get_untracked(){pending.set(None);apply_navigation.run(target);}
+                    }>"捨棄並切換"</button>
+                    <button type="button" disabled=move || settings_busy.get() on:click=move |_| settings_save.update(|n|*n+=1)>"儲存後切換"</button>
+                </section>
+            </Show>
+
             </div>
 
             <section id="pet-interaction" role="tabpanel" aria-labelledby="pet-interaction-tab" tabindex="0"
@@ -313,9 +360,14 @@ fn App() -> impl IntoView {
                         aria-controls="pet-startup" on:click=move |_| set_startup_view.set(true)>"啟動預設"</button>
                 </div>
                 <div id="pet-settings-profile" hidden=move || startup_view.get()>
-                 <settings_editor::PetSettingsEditor selected_id=management_pet_id on_saved=Callback::new(move |(id,p):(String,pet_domain::profile::PetProfile)|{
+                 <settings_editor::PetSettingsEditor selected_id=management_pet_id
+                    dirty=settings_dirty busy=settings_busy save_request=settings_save discard_request=settings_discard
+                    navigation_pending=Signal::derive(move || pending.get().is_some())
+                    on_saved=Callback::new(move |(id,p):(String,pet_domain::profile::PetProfile)|{
                     set_saved_pets.update(|rows|{if let Some(row)=rows.iter_mut().find(|r|r.id==id){row.name=p.name.clone();row.species=p.species.clone();}});
                     if active_pet.get_untracked().as_ref().is_some_and(|pet|pet.id==id){set_active_pet.set(Some(SavedPet{id,name:p.name,species:p.species}));}
+                    settings_dirty.set(false);
+                    if let Some(target)=pending.get_untracked(){pending.set(None);apply_navigation.run(target);}
                 })/>
                 </div>
                 <section id="pet-startup" hidden=move || !startup_view.get()>

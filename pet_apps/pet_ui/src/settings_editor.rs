@@ -4,8 +4,13 @@ use leptos::task::spawn_local;
 use pet_application::settings_draft::SettingsDraft as Draft;
 use pet_domain::profile::PetProfile;
 
+#[cfg(test)]
 fn current(seq: u64, captured: u64, selected: &Option<String>, id: &str) -> bool {
-    seq == captured && selected.as_deref() == Some(id)
+    let mut request = pet_application::settings_request::SettingsRequest::default();
+    for _ in 0..seq {
+        request.begin(selected.clone());
+    }
+    request.accepts(captured, selected, id)
 }
 
 #[component]
@@ -55,20 +60,24 @@ fn SettingsFields(draft: RwSignal<Draft>) -> impl IntoView {
 pub fn PetSettingsEditor(
     selected_id: ReadSignal<Option<String>>,
     on_saved: Callback<(String, PetProfile)>,
+    dirty: RwSignal<bool>,
+    busy: RwSignal<bool>,
+    save_request: RwSignal<u64>,
+    discard_request: RwSignal<u64>,
+    navigation_pending: Signal<bool>,
 ) -> impl IntoView {
     let draft = RwSignal::new(Draft::default());
     let saved = RwSignal::new(Draft::default());
     let loaded = RwSignal::new(None::<String>);
-    let busy = RwSignal::new(false);
+
     let status = RwSignal::new("請先在管理區選擇寵物".to_string());
-    let seq = RwSignal::new(0u64);
+    let request = RwSignal::new(pet_application::settings_request::SettingsRequest::default());
     let reload = RwSignal::new(0u64);
     let confirm_reload = RwSignal::new(false);
     Effect::new(move |_| {
         let id = selected_id.get();
         let _ = reload.get();
-        seq.update(|n| *n += 1);
-        let version = seq.get_untracked();
+        let version = request.try_update(|r| r.begin(id.clone())).unwrap();
         loaded.set(None);
         confirm_reload.set(false);
         draft.set(Draft::default());
@@ -77,12 +86,9 @@ pub fn PetSettingsEditor(
             status.set("正在讀取設定…".into());
             spawn_local(async move {
                 let result = bridge::load_pet_settings(&id).await;
-                if !current(
-                    seq.get_untracked(),
-                    version,
-                    &selected_id.get_untracked(),
-                    &id,
-                ) {
+                if !request
+                    .with_untracked(|r| r.accepts(version, &selected_id.get_untracked(), &id))
+                {
                     return;
                 }
                 match result {
@@ -102,11 +108,61 @@ pub fn PetSettingsEditor(
             status.set("請先在管理區選擇寵物".into());
         }
     });
+    Effect::new(move |_| {
+        dirty.set(loaded.get().is_some() && draft.get() != saved.get());
+    });
+    Effect::new(move |_| {
+        let _ = discard_request.get();
+        draft.set(saved.get_untracked());
+        confirm_reload.set(false);
+    });
+    Effect::new(move |_| {
+        if navigation_pending.get() {
+            confirm_reload.set(false);
+        }
+    });
+    let save = Callback::new(move |_: ()| {
+        if busy.get_untracked() || confirm_reload.get_untracked() {
+            return;
+        }
+        let Some(id) = loaded
+            .get_untracked()
+            .filter(|id| selected_id.get_untracked().as_ref() == Some(id))
+        else {
+            return;
+        };
+        let version = request.with_untracked(|r| r.generation());
+        let p = draft.get_untracked().profile();
+        busy.set(true);
+        status.set("正在儲存設定…".into());
+        spawn_local(async move {
+            let result = bridge::save_pet_settings(&id, &p).await;
+            if !request.with_untracked(|r| r.accepts(version, &selected_id.get_untracked(), &id)) {
+                return;
+            }
+            match result {
+                Ok(p) => {
+                    let committed: Draft = p.clone().into();
+                    saved.set(committed.clone());
+                    draft.set(committed);
+                    on_saved.run((id, p));
+                    status.set("已儲存設定".into());
+                }
+                Err(e) => status.set(format!("儲存失敗：{e}")),
+            };
+            busy.set(false);
+        });
+    });
+    Effect::new(move |_| {
+        if save_request.get() > 0 {
+            save.run(());
+        }
+    });
     view! {
        <style>".pet-settings-form label{display:flex;flex-direction:column;gap:4px;margin:10px 0}.pet-settings-form textarea{min-height:72px;resize:vertical}.pet-settings-form fieldset{min-width:0}.pet-settings-form input,.pet-settings-form textarea{max-width:100%;box-sizing:border-box}"</style>
        <p class="control-context-note">"喜好、個性和興趣可用換行或逗號分隔。"</p>
        <p role="status">{move||status.get()}</p>
-       <button type="button" disabled=move||busy.get()||selected_id.get().is_none() on:click=move|_|{
+       <button type="button" disabled=move||busy.get()||navigation_pending.get()||selected_id.get().is_none() on:click=move|_|{
            if draft.get_untracked() != saved.get_untracked() && loaded.get_untracked().is_some() {
                confirm_reload.set(true);
            } else { reload.update(|n|*n+=1); }
@@ -116,23 +172,8 @@ pub fn PetSettingsEditor(
             on_discard=Callback::new(move|_|{confirm_reload.set(false);reload.update(|n|*n+=1);})
             on_keep=Callback::new(move|_|confirm_reload.set(false)) />
        </Show>
-       <form class="pet-settings-form" on:submit=move|e:leptos::ev::SubmitEvent|{
-        e.prevent_default();if busy.get_untracked() || confirm_reload.get_untracked(){return;}
-        let Some(id)=loaded.get_untracked().filter(|id|selected_id.get_untracked().as_ref()==Some(id)) else{return;};
-        let version=seq.get_untracked();let p=draft.get_untracked().profile();busy.set(true);status.set("正在儲存設定…".into());
-        spawn_local(async move{
-             let result=bridge::save_pet_settings(&id,&p).await;
-             if !current(seq.get_untracked(),version,&selected_id.get_untracked(),&id){return;}
-         match result {Ok(p)=>{
-            let committed: Draft = p.clone().into();
-           saved.set(committed.clone());
-            draft.set(committed);
-            on_saved.run((id,p));
-            status.set("已儲存設定".into());
-         },Err(e)=>status.set(format!("儲存失敗：{e}"))};busy.set(false);
-        });
-       }>
-        <fieldset disabled=move||busy.get()||confirm_reload.get()||loaded.get().is_none()>
+       <form class="pet-settings-form" on:submit=move|e:leptos::ev::SubmitEvent|{ e.prevent_default(); if !navigation_pending.get_untracked(){save.run(());} }>
+       <fieldset disabled=move||busy.get()||confirm_reload.get()||navigation_pending.get()||loaded.get().is_none()>
       <SettingsFields draft />
       <details><summary>"外觀覆寫（選用）"</summary><p>"目前尚未接通外觀儲存。"</p></details>
       <div class="settings-actions">
