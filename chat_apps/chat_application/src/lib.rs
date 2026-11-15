@@ -1,6 +1,7 @@
 pub mod login_attempt;
 pub mod product_event;
 pub mod repository;
+pub mod room_directory;
 pub mod room_presence;
 
 use chat_domain::{ChatMessage, MessageAuthor, Room};

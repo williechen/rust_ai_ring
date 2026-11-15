@@ -37,7 +37,9 @@ pub async fn search_rooms(query: &str) -> Result<Vec<RoomListItem>, String> {
     params.append("labels", "true");
     let url = format!("/api/rooms?{}", params.to_string());
     let window = web_sys::window().ok_or("無法取得瀏覽器")?;
-    let value = JsFuture::from(window.fetch_with_str(&url))
+    let options = web_sys::RequestInit::new();
+    options.set_cache(web_sys::RequestCache::NoStore);
+    let value = JsFuture::from(window.fetch_with_str_and_init(&url, &options))
         .await
         .map_err(|_| "房間讀取失敗")?;
     let response: web_sys::Response = value.dyn_into().map_err(|_| "無效回應")?;

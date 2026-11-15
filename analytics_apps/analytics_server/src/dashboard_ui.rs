@@ -82,6 +82,19 @@ fn DashboardView(
         view! { <a href=href aria-current=active>{label}</a> }
     })
     .collect_view();
+    let visible_kinds = rows
+        .iter()
+        .map(|(kind, _)| kind.as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    let event_suggestions = events
+        .iter()
+        .filter(|(code, _)| visible_kinds.contains(code.as_str()))
+        .map(|(code, label)| {
+            view! {
+                <option value=code.clone() label=label.clone()>{label.clone()}</option>
+            }
+        })
+        .collect_view();
     let clear_url = dashboard_url(&source, "", 1, page_size);
     let export_url = export_csv_url(&source, &event_type);
     let filter_description = filter_description(&event_type);
@@ -123,12 +136,15 @@ fn DashboardView(
                                     <label for="event-type">"事件類型（精確比對）"</label>
                                     <input
                                         id="event-type"
+                                        list="report-event-types"
                                         name="event_type"
                                         value=event_type.clone()
                                         maxlength="128"
                                         placeholder="例如 chat.message.persisted"
                                     />
                                 </div>
+                                <datalist id="report-event-types">{event_suggestions}</datalist>
+                                <p>"可選取本頁事件的字典代碼，或輸入原始事件類型做精確比對。"</p>
                                 <div class="report-actions">
                                  <label for="report-page-size">"每頁筆數"</label>
                                    <select id="report-page-size" name="page_size">
@@ -1071,5 +1087,52 @@ mod day62_source_shortcut_tests {
         );
         assert!(!pet.contains("source=web_chat"));
         assert!(!pet.contains("匯出目前篩選 CSV"));
+    }
+}
+
+#[cfg(test)]
+mod day63_dictionary_suggestions_tests {
+    use super::*;
+    #[test]
+    fn exact_wire_suggestions_are_escaped_and_do_not_replace_free_text() {
+        let html = render_dashboard_dictionary(
+            "Chat",
+            0,
+            "web_chat",
+            "未知&原值",
+            &[EventSummary {
+                source_app: "web_chat".into(),
+                event_type: "wire.<&中文".into(),
+                total: 1,
+            }],
+            "csrf",
+            true,
+            false,
+            vec![],
+            true,
+            vec![
+                (
+                    "event_type".into(),
+                    "wire.<&中文".into(),
+                    "事件顯示名".into(),
+                ),
+                ("source_app".into(), "web_chat".into(), "來源名".into()),
+                (
+                    "event_type".into(),
+                    "other.source.only".into(),
+                    "其他來源的類型".into(),
+                ),
+            ],
+            1,
+            25,
+        );
+        assert!(html.contains("list=\"report-event-types\""));
+        assert!(html.contains("<datalist"));
+        assert!(html.contains("value=\"wire.&lt;&amp;中文\""));
+        assert!(html.contains("事件顯示名"));
+        assert!(html.contains("未知&amp;原值"));
+        assert!(!html.contains("value=\"來源名\""));
+        assert!(!html.contains("other.source.only"));
+        assert!(!html.contains("其他來源的類型"));
     }
 }

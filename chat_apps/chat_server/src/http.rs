@@ -91,22 +91,16 @@ pub async fn list_rooms(
     State(state): State<AppState>,
     Query(search): Query<RoomSearch>,
 ) -> Result<Json<Vec<RoomDetails>>, StatusCode> {
-    if search.q.len() > 200 || search.q.contains('\0') {
-        return Err(StatusCode::BAD_REQUEST);
-    }
-    let rooms = if search.q.is_empty() {
-        state
-            .room_repository
-            .list()
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-    } else {
-        state
-            .room_repository
-            .search_by_name(&search.q)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-    };
+    let rooms = chat_application::room_directory::list(state.room_repository.as_ref(), &search.q)
+        .await
+        .map_err(|error| match error {
+            chat_application::room_directory::DirectoryError::InvalidQuery => {
+                StatusCode::BAD_REQUEST
+            }
+            chat_application::room_directory::DirectoryError::Store(_) => {
+                StatusCode::INTERNAL_SERVER_ERROR
+            }
+        })?;
 
     Ok(Json(
         rooms

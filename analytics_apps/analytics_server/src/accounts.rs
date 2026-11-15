@@ -22,12 +22,9 @@ async fn account_manager(
     }
     // Page/action authority is ACL-based, including independent user additions.
     // The production page_acl middleware already checks the same capability.
-    let actor: Option<String> =
-        sqlx::query_scalar("SELECT user_id FROM uac_login_session WHERE token_hash=$1")
-            .bind(digest(&raw))
-            .fetch_optional(&state.pool)
-            .await
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let actor = analytics_persistence::account_directory::session_actor(&state.pool, &digest(&raw))
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     Ok((actor.ok_or(StatusCode::UNAUTHORIZED)?, raw, seconds))
 }
 
@@ -66,8 +63,9 @@ pub(crate) async fn page(
             .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
 
     let viewers: Vec<(String, String, String, String)> = if can_delete || can_update {
-        sqlx::query_as("SELECT u.id,u.user_acnt,COALESCE((SELECT acl_filter FROM uac_user_acl a WHERE a.user_id=u.id AND a.acl_id='analytics-chat'),'inherit'),COALESCE((SELECT acl_filter FROM uac_user_acl a WHERE a.user_id=u.id AND a.acl_id='analytics-pet'),'inherit') FROM uac_user u JOIN uac_user_role ur ON ur.user_id=u.id WHERE ur.role_id='analytics-viewer' AND u.user_status='active' AND NOT EXISTS(SELECT 1 FROM uac_user_role ar WHERE ar.user_id=u.id AND ar.role_id='analytics-admin') ORDER BY u.user_acnt LIMIT 100")
-            .fetch_all(&state.pool).await.map_err(db_error)?
+        analytics_persistence::account_directory::active_viewers(&state.pool)
+            .await
+            .map_err(db_error)?
     } else {
         Vec::new()
     };
