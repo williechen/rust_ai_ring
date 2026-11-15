@@ -261,6 +261,7 @@ fn App() -> impl IntoView {
                             event_target::<web_sys::HtmlSelectElement>(&event).set_value(&management_pet_id.get_untracked().unwrap_or_default());
                             if target.as_ref().is_none_or(|id| saved_pets.get_untracked().iter().any(|pet| &pet.id==id)) {
                                 request_navigation.run(SettingsDestination::Pet(target));
+                            }
                         }>
                         <option value="">"選擇寵物"</option>
                         <For each=move || saved_pets.get() key=|pet| (pet.id.clone(), pet.name.clone())
