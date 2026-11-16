@@ -54,3 +54,67 @@ impl PetSettings for SqlitePetSettings {
         Ok(p.clone())
     }
 }
+
+#[cfg(test)]
+mod day64_notification_tests {
+    use super::*;
+    use pet_application::settings::{ProfileNotification, resynchronize, save_and_notify};
+    struct Failed;
+    impl ProfileNotification for Failed {
+        fn notify(&self, _: &str, _: &SettingsProfile) -> Result<(), String> {
+            Err("通知故障".into())
+        }
+    }
+    #[sqlx::test(migrations = "../migrations")]
+    async fn committed_profile_survives_notification_failure_and_retry_does_not_write(
+        pool: sqlx::SqlitePool,
+    ) {
+        sqlx::query(
+            "INSERT INTO pet_owner(id,name) VALUES('local-owner','本機'),('other-owner','其他')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO pet_profile(id,name,species,owner_id) VALUES('a','原名','tortoise','local-owner'),('b','其他寵物','tortoise','other-owner')").execute(&pool).await.unwrap();
+        sqlx::query("CREATE TABLE fixture_writes(id TEXT)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("CREATE TRIGGER fixture_update AFTER UPDATE ON pet_profile BEGIN INSERT INTO fixture_writes VALUES(new.id);END").execute(&pool).await.unwrap();
+        let store = SqlitePetSettings(pool.clone());
+        let mut p = store.load("a").await.unwrap();
+        p.name = "已提交".into();
+        let value = save_and_notify(&store, &Failed, "a", p.clone())
+            .await
+            .unwrap();
+        assert_eq!(value.profile.name, "已提交");
+        assert!(value.sync_warning.is_some());
+        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM fixture_writes")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            resynchronize(&store, &Failed, "a")
+                .await
+                .unwrap()
+                .profile
+                .name,
+            "已提交"
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM fixture_writes")
+                .fetch_one(&pool)
+                .await
+                .unwrap(),
+            count
+        );
+        assert!(save_and_notify(&store, &Failed, "b", p).await.is_err());
+        assert_eq!(
+            sqlx::query_scalar::<_, String>("SELECT name FROM pet_profile WHERE id='b'")
+                .fetch_one(&pool)
+                .await
+                .unwrap(),
+            "其他寵物"
+        );
+    }
+}

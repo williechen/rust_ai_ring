@@ -102,22 +102,18 @@ impl PetStore {
     }
 
     pub async fn list(&self) -> Result<Vec<SavedPet>, String> {
-        let rows: Vec<(String, String, String)> = sqlx::query_as(
-            r#"SELECT id
-                ,name
-                ,species 
-            FROM pet_profile 
-            WHERE owner_id='local-owner' 
-            ORDER BY name,id"#,
-        )
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|_| "無法讀取已儲存寵物".to_owned())?;
-
-        Ok(rows
-            .into_iter()
-            .map(|(id, name, species)| SavedPet { id, name, species })
-            .collect())
+        let adapter = pet_persistence::pet_names::SqlitePetNames(self.pool.clone());
+        pet_application::pet_names::list_pets(&adapter)
+            .await
+            .map(|rows| {
+                rows.into_iter()
+                    .map(|p| SavedPet {
+                        id: p.id,
+                        name: p.name,
+                        species: p.species,
+                    })
+                    .collect()
+            })
     }
 
     // apps/desktop_pet/src/pet_store.rs

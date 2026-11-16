@@ -8,6 +8,9 @@ pub struct NamedPet {
 }
 
 pub trait PetNames {
+    fn list(&self) -> impl Future<Output = Result<Vec<NamedPet>, String>> + Send {
+        async { Err("寵物清單未接通".into()) }
+    }
     fn find(&self, id: &str) -> impl Future<Output = Result<NamedPet, String>> + Send;
     fn rename(&self, id: &str, name: &str)
     -> impl Future<Output = Result<NamedPet, String>> + Send;
@@ -21,4 +24,8 @@ pub async fn rename_pet(store: &impl PetNames, id: &str, input: &str) -> Result<
 
 pub async fn read_pet(store: &impl PetNames, id: &str) -> Result<NamedPet, String> {
     store.find(id).await
+}
+
+pub async fn list_pets(store: &impl PetNames) -> Result<Vec<NamedPet>, String> {
+    store.list().await
 }

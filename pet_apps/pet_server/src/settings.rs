@@ -1,6 +1,31 @@
 use crate::pet_store::{PetStore, SavedPet};
+use pet_application::settings::{ProfileNotification, SettingsSaved};
 use pet_domain::profile::PetProfile;
 use tauri::{Emitter, Manager, State};
+
+struct WindowNotification<'a>(&'a tauri::AppHandle);
+impl ProfileNotification for WindowNotification<'_> {
+    fn notify(&self, id: &str, p: &PetProfile) -> Result<(), String> {
+        let label = crate::pet_windows::label(id)?;
+        if let Some(window) = self.0.get_webview_window(&label) {
+            window
+                .set_title(&p.name)
+                .map_err(|_| "生活窗標題更新失敗")?;
+            self.0
+                .emit_to(
+                    label,
+                    "pet-profile-changed",
+                    SavedPet {
+                        id: id.into(),
+                        name: p.name.clone(),
+                        species: p.species.clone(),
+                    },
+                )
+                .map_err(|_| "生活窗設定通知失敗")?;
+        }
+        Ok(())
+    }
+}
 
 #[tauri::command]
 pub async fn load_pet_settings(
@@ -20,29 +45,30 @@ pub async fn save_pet_settings(
     profile: PetProfile,
     store: State<'_, PetStore>,
     app: tauri::AppHandle,
-) -> Result<PetProfile, String> {
-    let label = crate::pet_windows::label(&id)?;
+) -> Result<SettingsSaved, String> {
+    crate::pet_windows::label(&id)?;
     let _guard = crate::pet_windows::lifecycle_guard().await;
-    let p = pet_application::settings::save(
+    pet_application::settings::save_and_notify(
         &pet_persistence::settings::SqlitePetSettings(store.pool.clone()),
+        &WindowNotification(&app),
         &id,
         profile,
     )
-    .await?;
-    if let Some(window) = app.get_webview_window(&label) {
-        window
-            .set_title(&p.name)
-            .map_err(|_| "已儲存設定，但生活窗標題更新失敗")?;
-        app.emit_to(
-            label,
-            "pet-profile-changed",
-            SavedPet {
-                id,
-                name: p.name.clone(),
-                species: p.species.clone(),
-            },
-        )
-        .map_err(|_| "已儲存設定，但生活窗同步失敗")?;
-    }
-    Ok(p)
+    .await
+}
+
+#[tauri::command]
+pub async fn resync_pet_settings(
+    id: String,
+    store: State<'_, PetStore>,
+    app: tauri::AppHandle,
+) -> Result<SettingsSaved, String> {
+    crate::pet_windows::label(&id)?;
+    let _guard = crate::pet_windows::lifecycle_guard().await;
+    pet_application::settings::resynchronize(
+        &pet_persistence::settings::SqlitePetSettings(store.pool.clone()),
+        &WindowNotification(&app),
+        &id,
+    )
+    .await
 }

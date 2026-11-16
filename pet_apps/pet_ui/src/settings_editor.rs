@@ -141,15 +141,50 @@ pub fn PetSettingsEditor(
                 return;
             }
             match result {
-                Ok(p) => {
+                Ok(outcome) => {
+                    let p = outcome.profile;
+                    let warning = outcome.sync_warning;
                     let committed: Draft = p.clone().into();
                     saved.set(committed.clone());
                     draft.set(committed);
                     on_saved.run((id, p));
-                    status.set("已儲存設定".into());
+                    status.set(
+                        warning
+                            .map(|w| {
+                                format!("已儲存設定；生活窗同步未完成：{w}，可重新同步，無需重存。")
+                            })
+                            .unwrap_or_else(|| "已儲存設定".into()),
+                    );
                 }
                 Err(e) => status.set(format!("儲存失敗：{e}")),
             };
+            busy.set(false);
+        });
+    });
+    let resync = Callback::new(move |_: ()| {
+        if busy.get_untracked() || navigation_pending.get_untracked() {
+            return;
+        }
+        let Some(id) = loaded
+            .get_untracked()
+            .filter(|id| selected_id.get_untracked().as_ref() == Some(id))
+        else {
+            return;
+        };
+        let version = request.with_untracked(|r| r.generation());
+        busy.set(true);
+        spawn_local(async move {
+            let result = bridge::resync_pet_settings(&id).await;
+            if !request.with_untracked(|r| r.accepts(version, &selected_id.get_untracked(), &id)) {
+                return;
+            }
+            status.set(match result {
+                Ok(value) => value
+                    .sync_warning
+                    .map(|w| format!("生活窗同步未完成：{w}；已儲存設定未變更。"))
+                    .unwrap_or_else(|| "已重新同步生活窗，使用已儲存設定。".into()),
+                Err(e) => format!("重新同步失敗：{e}；設定未重新儲存。"),
+            });
             busy.set(false);
         });
     });
@@ -181,7 +216,7 @@ pub fn PetSettingsEditor(
               draft.set(saved.get_untracked());
               status.set("已取消未儲存變更".into());
           }>"取消變更"</button>
-          <button class="control-primary" type="submit">"儲存設定"</button>
+          <button type="button" on:click=move |_| resync.run(())>"重新同步生活窗"</button>
       </div>
     </fieldset>
        </form>

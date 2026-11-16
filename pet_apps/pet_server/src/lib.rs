@@ -473,6 +473,7 @@ pub fn application(db: sqlx::SqlitePool) {
         .invoke_handler(tauri::generate_handler![
             settings::load_pet_settings,
             settings::save_pet_settings,
+            settings::resync_pet_settings,
             get_pet_state,
             send_pet_command,
             chat_with_pet,

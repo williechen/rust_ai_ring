@@ -88,3 +88,41 @@ mod tests {
         );
     }
 }
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct SettingsSaved {
+    #[serde(flatten)]
+    pub profile: SettingsProfile,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sync_warning: Option<String>,
+}
+pub trait ProfileNotification {
+    fn notify(&self, id: &str, profile: &SettingsProfile) -> Result<(), String>;
+}
+/// 持久化成功後，通知失敗只能回報待同步，不得偽裝儲存失敗。
+pub async fn save_and_notify(
+    store: &impl PetSettings,
+    notification: &impl ProfileNotification,
+    id: &str,
+    profile: SettingsProfile,
+) -> Result<SettingsSaved, String> {
+    let profile = save(store, id, profile).await?;
+    let sync_warning = notification.notify(id, &profile).err();
+    Ok(SettingsSaved {
+        profile,
+        sync_warning,
+    })
+}
+/// 重試只讀取已儲存設定並通知，不重新保存或建立生活窗。
+pub async fn resynchronize(
+    store: &impl PetSettings,
+    notification: &impl ProfileNotification,
+    id: &str,
+) -> Result<SettingsSaved, String> {
+    let profile = load(store, id).await?;
+    let sync_warning = notification.notify(id, &profile).err();
+    Ok(SettingsSaved {
+        profile,
+        sync_warning,
+    })
+}

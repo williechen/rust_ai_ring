@@ -3,6 +3,18 @@ use pet_application::pet_names::{NamedPet, PetNames};
 pub struct SqlitePetNames(pub sqlx::SqlitePool);
 
 impl PetNames for SqlitePetNames {
+    async fn list(&self) -> Result<Vec<NamedPet>, String> {
+        let rows: Vec<(String, String, String)> = sqlx::query_as(
+            "SELECT id,name,species FROM pet_profile WHERE owner_id='local-owner' ORDER BY name,id",
+        )
+        .fetch_all(&self.0)
+        .await
+        .map_err(|_| "無法讀取已儲存寵物")?;
+        Ok(rows
+            .into_iter()
+            .map(|(id, name, species)| NamedPet { id, name, species })
+            .collect())
+    }
     async fn find(&self, id: &str) -> Result<NamedPet, String> {
         let row: Option<(String, String, String)> = sqlx::query_as(
             "SELECT id,name,species FROM pet_profile WHERE id=?1 AND owner_id='local-owner'",
