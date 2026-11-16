@@ -217,6 +217,7 @@ pub fn PetSettingsEditor(
               status.set("已取消未儲存變更".into());
           }>"取消變更"</button>
           <button type="button" on:click=move |_| resync.run(())>"重新同步生活窗"</button>
+          <button class="control-primary" type="submit">"儲存設定"</button>
       </div>
     </fieldset>
        </form>

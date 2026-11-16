@@ -375,11 +375,11 @@ fn App() -> impl IntoView {
                         aria-controls="pet-startup" on:click=move |_| set_startup_view.set(true)>"啟動預設"</button>
                 </div>
                 <div id="pet-settings-profile" hidden=move || startup_view.get()>
-                 <settings_editor::PetSettingsEditor 
+                 <settings_editor::PetSettingsEditor
                     selected_id=management_pet_id
-                    dirty=settings_dirty 
-                    busy=settings_busy 
-                    save_request=settings_save 
+                    dirty=settings_dirty
+                    busy=settings_busy
+                    save_request=settings_save
                     discard_request=settings_discard
                     navigation_pending=Signal::derive(move || pending.get().is_some())
                     on_saved=Callback::new(move |(id,p):(String,pet_domain::profile::PetProfile)|{
