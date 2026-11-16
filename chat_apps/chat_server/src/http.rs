@@ -360,55 +360,20 @@ mod room_details_tests {
         pool.close().await;
     }
 
-    #[cfg(test)]
-    mod day64_category_tests {
-        use super::*;
-        #[tokio::test]
-        async fn directory_filters_by_stable_code_even_when_labels_are_identical() {
-            let (state, pool) = super::room_http_tests::fixture().await;
-            for code in ["category-a", "category-b"] {
-                sqlx::query(
-                    "INSERT INTO codemap(category,code,value) VALUES('room_category',?,'同名分類')",
-                )
-                .bind(code)
-                .execute(&pool)
-                .await
-                .unwrap();
-                sqlx::query("INSERT INTO rooms(id,category_room_id,name,desc,created_at,updated_at) VALUES(?,?,?,'',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)").bind(code).bind(code).bind(format!("房間{code}")).execute(&pool).await.unwrap();
-            }
-            let search: RoomSearch = serde_json::from_value(
-                serde_json::json!({"q":"","labels":true,"category":"category-a"}),
-            )
-            .unwrap();
-            let Json(rows) = list_rooms(State(state), Query(search)).await.unwrap();
-            assert_eq!(
-                rows.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(),
-                vec!["category-a"]
-            );
-        }
-    }
-
-    #[derive(serde::Serialize)]
-    pub struct CategoryDetails {
-        code: String,
-        label: String,
-    }
-    pub async fn room_categories(
-        State(state): State<AppState>,
-    ) -> Result<Json<Vec<CategoryDetails>>, StatusCode> {
-        chat_application::room_directory::categories(state.room_repository.as_ref())
+    #[tokio::test]
+    async fn list_rooms_returns_persisted_room() {
+        let (state, pool) = fixture().await;
+        let response = list_rooms(State(state), Query(RoomSearch::default()))
             .await
-            .map(|rows| {
-                Json(
-                    rows.into_iter()
-                        .map(|c| CategoryDetails {
-                            code: c.code,
-                            label: c.label,
-                        })
-                        .collect(),
-                )
-            })
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)
+            .into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), 8192)
+            .await
+            .unwrap();
+        let rooms: Vec<RoomDetails> = serde_json::from_slice(&body).unwrap();
+        assert_eq!(rooms.len(), 1);
+        assert_eq!(rooms[0].id, "room-14");
+        pool.close().await;
     }
 
     #[tokio::test]
@@ -428,22 +393,58 @@ mod room_details_tests {
             StatusCode::INTERNAL_SERVER_ERROR
         );
     }
+}
 
+#[cfg(test)]
+mod day64_category_tests {
+    use super::*;
     #[tokio::test]
-    async fn list_rooms_returns_persisted_room() {
-        let (state, pool) = fixture().await;
-        let response = list_rooms(State(state), Query(RoomSearch::default()))
-            .await
-            .into_response();
-        assert_eq!(response.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(response.into_body(), 8192)
+    async fn directory_filters_by_stable_code_even_when_labels_are_identical() {
+        let (state, pool) = super::room_http_tests::fixture().await;
+        for code in ["category-a", "category-b"] {
+            sqlx::query(
+                "INSERT INTO codemap(category,code,value) VALUES('room_category',?,'同名分類')",
+            )
+            .bind(code)
+            .execute(&pool)
             .await
             .unwrap();
-        let rooms: Vec<RoomDetails> = serde_json::from_slice(&body).unwrap();
-        assert_eq!(rooms.len(), 1);
-        assert_eq!(rooms[0].id, "room-14");
-        pool.close().await;
+            sqlx::query("INSERT INTO rooms(id,category_room_id,name,desc,created_at,updated_at) VALUES(?,?,?,'',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)").bind(code).bind(code).bind(format!("房間{code}")).execute(&pool).await.unwrap();
+        }
+        let search: RoomSearch = serde_json::from_value(
+            serde_json::json!({"q":"","labels":true,"category":"category-a"}),
+        )
+        .unwrap();
+        let Json(rows) = list_rooms(State(state), Query(search)).await.unwrap();
+        assert_eq!(
+            rows.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(),
+            vec!["category-a"]
+        );
     }
+}
+
+#[derive(serde::Serialize)]
+pub struct CategoryDetails {
+    code: String,
+    label: String,
+}
+
+pub async fn room_categories(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<CategoryDetails>>, StatusCode> {
+    chat_application::room_directory::categories(state.room_repository.as_ref())
+        .await
+        .map(|rows| {
+            Json(
+                rows.into_iter()
+                    .map(|c| CategoryDetails {
+                        code: c.code,
+                        label: c.label,
+                    })
+                    .collect(),
+            )
+        })
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)
 }
 
 #[cfg(test)]
