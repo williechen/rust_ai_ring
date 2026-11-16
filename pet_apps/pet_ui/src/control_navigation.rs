@@ -96,12 +96,24 @@ pub(crate) fn ControlNavigation(
                     aria-controls=item.id()
                     aria-selected=move || (page.get() == item).to_string()
                     tabindex=move || if page.get() == item { "0" } else { "-1" }
-                     on:click=move |_| { if let Some(callback)=on_navigate { callback.run(item); } else { page.set(item); } }
+                    on:click=move |_| {
+                        if let Some(callback)=on_navigate {
+                            callback.run(item);
+                        } else {
+                            page.set(item);
+                        }
+                    }
                     on:keydown=move |event: leptos::ev::KeyboardEvent| {
                         if let Some(next) = ControlPage::from_key(index, &event.key()) {
                             event.prevent_default();
-                            if let Some(callback)=on_navigate { callback.run(next); } else { page.set(next); }
-                            if page.get_untracked() == next { next.focus_tab(); }
+                            if let Some(callback)=on_navigate {
+                                callback.run(next);
+                            } else {
+                                page.set(next);
+                            }
+                            if page.get_untracked() == next {
+                                next.focus_tab();
+                            }
                         }
                     }
                 >{item.label()}</button>

@@ -53,35 +53,37 @@ fn App() -> impl IntoView {
 
     let (chat_open, set_chat_open) = signal(false);
     let (chat_input, set_chat_input) = signal(String::new());
-
     let (chat_loading, set_chat_loading) = signal(false);
     let (chat_response, set_chat_response) = signal::<Option<String>>(None);
     let (chat_error, set_chat_error) = signal::<Option<String>>(None);
 
-    let (file_directory, set_file_directory) = signal(None::<Vec<String>>);
-
     let (new_pet_name, set_new_pet_name) = signal(String::new());
     let (new_pet_feedback, set_new_pet_feedback) = signal(String::new());
-
     let (saved_pets, set_saved_pets) = signal(Vec::<SavedPet>::new());
     let (pets_busy, set_pets_busy) = signal(false);
-    let cage_status = RwSignal::new(HashMap::<String, String>::new());
-    let startup_failures = RwSignal::new(HashMap::<String, StartupRestoreFailure>::new());
+    let (active_pet, set_active_pet) = signal::<Option<SavedPet>>(None);
 
+    let (file_directory, set_file_directory) = signal(None::<Vec<String>>);
     let (management_pet_id, set_management_pet_id) = signal(None::<String>);
 
-    let (active_pet, set_active_pet) = signal::<Option<SavedPet>>(None);
+    let cage_status = RwSignal::new(HashMap::<String, String>::new());
+    let startup_failures = RwSignal::new(HashMap::<String, StartupRestoreFailure>::new());
     let profile_events = RwSignal::new(0_u64);
+
     spawn_local(async move {
         if let Err(message) = bridge::listen_pet_profile(move |pet| {
             profile_events.update(|n| *n += 1);
+
             let generation = profile_events.get_untracked();
             let id = pet.id.clone();
+
             set_snapshot.set(None);
             set_active_pet.set(Some(pet));
             set_error.set(None);
+
             spawn_local(async move {
                 let result = bridge::get_pet_state_for(Some(id.clone())).await;
+
                 if profile_events.get_untracked() != generation
                     || !active_pet
                         .with_untracked(|pet| pet.as_ref().is_some_and(|pet| pet.id == id))
@@ -193,17 +195,23 @@ fn App() -> impl IntoView {
                 <Show when=move || active_pet.get().is_some() fallback=|| ()>
                     <PetStatus snapshot blinking animation_phase />
                 </Show>
-                <button type="button" on:click=move |_| spawn_local(async move {
-                    if let Err(e)=bridge::cage_saved_pet().await {set_error.set(Some(e));}
-               })>"回籠子"</button>
+                <button type="button" on:click=move |_| spawn_local(
+                    async move {
+                        if let Err(e)=bridge::cage_saved_pet().await {
+                            set_error.set(Some(e));
+                        }
+                    }
+                )>"回籠子"</button>
                 <p role="alert">{move || error.get().unwrap_or_default()}</p>
                 <button
                     type="button"
-                    on:click=move |_| spawn_local(async move{
-                        if bridge::open_controls().await.is_err(){
-                            set_error.set(Some("無法開啟控制台".into()));
+                    on:click=move |_| spawn_local(
+                        async move{
+                            if bridge::open_controls().await.is_err(){
+                                set_error.set(Some("無法開啟控制台".into()));
+                            }
                         }
-                    })
+                    )
                 >"控制台"</button>
             </main>
         }
@@ -216,6 +224,7 @@ fn App() -> impl IntoView {
     let settings_save = RwSignal::new(0u64);
     let settings_discard = RwSignal::new(0u64);
     let pending = RwSignal::new(None::<SettingsDestination>);
+
     let apply_navigation = Callback::new(move |target: SettingsDestination| match target {
         SettingsDestination::Page(next) => {
             page.set(next);
@@ -223,6 +232,7 @@ fn App() -> impl IntoView {
         }
         SettingsDestination::Pet(id) => set_management_pet_id.set(id),
     });
+
     let request_navigation = Callback::new(move |target: SettingsDestination| {
         if settings_busy.get_untracked() || pending.get_untracked().is_some() {
             return;
@@ -231,16 +241,20 @@ fn App() -> impl IntoView {
             SettingsDestination::Page(next) => *next == page.get_untracked(),
             SettingsDestination::Pet(id) => *id == management_pet_id.get_untracked(),
         };
+
         if same {
             return;
         }
+
         if settings_dirty.get_untracked() {
             pending.set(Some(target));
         } else {
             apply_navigation.run(target);
         }
     });
+
     let (startup_view, set_startup_view) = signal(false);
+
     view! {
         <main class="control-shell">
             <style>{include_str!("css/control.css")}</style>
@@ -248,7 +262,7 @@ fn App() -> impl IntoView {
                 <span class="control-mark" aria-hidden="true">"P"</span>
                 <h1>"Pet｜桌面陪伴"</h1>
             </header>
-             <ControlNavigation page on_navigate=Callback::new(move |next|request_navigation.run(SettingsDestination::Page(next))) />
+            <ControlNavigation page on_navigate=Callback::new(move |next|request_navigation.run(SettingsDestination::Page(next))) />
             <div class="control-context" hidden=move || !matches!(page.get(), ControlPage::Interaction | ControlPage::Settings | ControlPage::Memory)>
                 <label class="control-pet-picker">
                     <span>"目前寵物"</span>
@@ -361,15 +375,28 @@ fn App() -> impl IntoView {
                         aria-controls="pet-startup" on:click=move |_| set_startup_view.set(true)>"啟動預設"</button>
                 </div>
                 <div id="pet-settings-profile" hidden=move || startup_view.get()>
-                 <settings_editor::PetSettingsEditor selected_id=management_pet_id
-                    dirty=settings_dirty busy=settings_busy save_request=settings_save discard_request=settings_discard
+                 <settings_editor::PetSettingsEditor 
+                    selected_id=management_pet_id
+                    dirty=settings_dirty 
+                    busy=settings_busy 
+                    save_request=settings_save 
+                    discard_request=settings_discard
                     navigation_pending=Signal::derive(move || pending.get().is_some())
                     on_saved=Callback::new(move |(id,p):(String,pet_domain::profile::PetProfile)|{
-                    set_saved_pets.update(|rows|{if let Some(row)=rows.iter_mut().find(|r|r.id==id){row.name=p.name.clone();row.species=p.species.clone();}});
-                    if active_pet.get_untracked().as_ref().is_some_and(|pet|pet.id==id){set_active_pet.set(Some(SavedPet{id,name:p.name,species:p.species}));}
-                    settings_dirty.set(false);
-                    if let Some(target)=pending.get_untracked(){pending.set(None);apply_navigation.run(target);}
-                })/>
+                        set_saved_pets.update(|rows|{
+                            if let Some(row)=rows.iter_mut().find(|r|r.id==id){
+                                row.name=p.name.clone();row.species=p.species.clone();
+                            }
+                        });
+                        if active_pet.get_untracked().as_ref().is_some_and(|pet|pet.id==id){
+                            set_active_pet.set(Some(SavedPet{id,name:p.name,species:p.species}));
+                        }
+                        settings_dirty.set(false);
+                        if let Some(target)=pending.get_untracked(){
+                            pending.set(None);apply_navigation.run(target);
+                        }
+                    }
+                )/>
                 </div>
                 <section id="pet-startup" hidden=move || !startup_view.get()>
                     <h3>"啟動預設"</h3>

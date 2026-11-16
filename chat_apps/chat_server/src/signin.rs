@@ -224,9 +224,16 @@ async fn account_html(
     room_id: Option<String>,
     selected_category: String,
 ) -> Result<Html<String>, StatusCode> {
-    let categories = chat_persistence::room_categories::list(pool)
-        .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let categories = chat_application::room_directory::categories(
+        &chat_persistence::SqliteRoomRepository::new(pool.clone()),
+    )
+    .await
+    .map(|rows| {
+        rows.into_iter()
+            .map(|c| (c.code, c.label))
+            .collect::<Vec<_>>()
+    })
+    .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     Ok(Html(chat_ui::account::render_account_categories(
         crate::auth_session::csrf_for_logout(headers)?,
         crate::auth_session::csrf_for_create_room(headers)?,

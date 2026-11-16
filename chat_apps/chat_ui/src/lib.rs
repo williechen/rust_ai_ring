@@ -207,6 +207,8 @@ fn SignInPage() -> impl IntoView {
 #[component]
 fn RoomPage() -> impl IntoView {
     let params = use_params_map();
+    let sidebar_open = RwSignal::new(false);
+    let members_open = RwSignal::new(false);
 
     move || {
         let room_id = params.read().get("room_id");
@@ -214,8 +216,17 @@ fn RoomPage() -> impl IntoView {
         match room_id {
             Some(room_id) => view! {
                 <div class="chat-layout">
-                    <RoomList />
-                    <ChatPage room_id />
+                    <aside class="room-sidebar" data-expanded=move || sidebar_open.get().to_string()>
+                        <button class="sidebar-toggle" type="button" aria-expanded=move || sidebar_open.get().to_string()
+                            aria-controls="popular-room-panel" on:click=move |_| sidebar_open.update(|open|*open=!*open)>"熱門聊天室"</button>
+                        <div class="sidebar-content" id="popular-room-panel"><RoomList /></div>
+                    </aside>
+                    <ChatPage room_id=room_id.clone() />
+                    <aside class="member-sidebar" data-expanded=move || members_open.get().to_string()>
+                        <button class="sidebar-toggle" type="button" aria-expanded=move || members_open.get().to_string()
+                            aria-controls="room-member-panel" on:click=move |_| members_open.update(|open|*open=!*open)>"在線人員"</button>
+                        <div class="member-content" id="room-member-panel"><MemberList room_id /></div>
+                    </aside>
                 </div>
             }
             .into_any(),
@@ -245,6 +256,7 @@ fn request_history(
 #[component]
 pub fn ChatPage(room_id: String) -> impl IntoView {
     let (draft, set_draft) = signal(String::new());
+    let composer = NodeRef::<leptos::html::Textarea>::new();
 
     let (connection, set_connection) = signal(String::from("尚未連線"));
     let (messages, set_messages) = signal(Vec::<ChatMessage>::new());
@@ -333,6 +345,10 @@ pub fn ChatPage(room_id: String) -> impl IntoView {
                 Ok(()) => {
                     // WS 傳送不等於持久化 ACK；維持既有「等待回應」文案。
                     set_draft.set(String::new());
+                    #[cfg(target_arch = "wasm32")]
+                    if let Some(input) = composer.get_untracked() {
+                        let _ = web_sys::HtmlElement::style(&input).set_property("height", "44px");
+                    }
                     set_connection.set("已發送，等待回應...".into());
                 }
                 Err(_) => set_connection.set("發送失敗，請重新進房".into()),
@@ -345,12 +361,22 @@ pub fn ChatPage(room_id: String) -> impl IntoView {
 
     view! {
         <section class="conversation">
-            <header>
-                <h2>{move || room_title.get()}</h2>
-                <p role="status">{move || connection.get()}</p>
+             <header class="conversation-heading">
+                <div><h2 title=move ||room_title.get()>{move || room_title.get()}</h2>
+                    <p role="status">{move || connection.get()}</p></div>
+                <div class="conversation-actions">
+                <button class="call-action" type="button" aria-label="語音通話（尚未接通）" title="語音通話尚未接通" disabled>"語音"</button>
+                <button class="call-action" type="button" aria-label="視訊通話（尚未接通）" title="視訊通話尚未接通" disabled>"視訊"</button>
+                <button class="history-reload" type="button" aria-label="重新載入歷史" on:click=reload_history>"歷史"</button>
+                <details class="chat-more"><summary>"更多"</summary><div class="chat-more-panel">
+                    <p>"已定功能・尚未接通"</p>
+                    <button type="button" disabled>"AI 助理"</button>
+                    <button type="button" disabled>"文字顏色"</button>
+                    <button type="button" disabled>"提示音"</button>
+                </div></details>
+                </div>
             </header>
             <p class="history-disclosure" role="status">{move || history_status.get()}</p>
-            <button type="button" on:click=reload_history>"重新載入歷史"</button>
             <div class="message-history" aria-live="polite">
                 {move || {
                     if messages.get().is_empty() {
@@ -373,12 +399,18 @@ pub fn ChatPage(room_id: String) -> impl IntoView {
                     }
                 }}
             </div>
-            <div>
-                <textarea
+             <div class="chat-composer">
+                <textarea node_ref=composer rows="1"
                     aria-label="聊天訊息"
                     placeholder="輸入訊息"
                     prop:value=move || draft.get()
-                    on:input=move |event| set_draft.set(event_target_value(&event))
+                    on:input=move |event| {
+                        set_draft.set(event_target_value(&event));
+                        #[cfg(target_arch="wasm32")]
+                        { let input=event_target::<web_sys::HtmlTextAreaElement>(&event);
+                          let _=web_sys::HtmlElement::style(&input).set_property("height","auto");
+                          let _=web_sys::HtmlElement::style(&input).set_property("height",&format!("{}px",input.scroll_height().clamp(44,96))); }
+                    }
                     on:keydown=move |event: leptos::ev::KeyboardEvent| {
                         if composer_key::should_send_key(
                             &event.key(), event.shift_key(), event.ctrl_key(),
@@ -395,8 +427,8 @@ pub fn ChatPage(room_id: String) -> impl IntoView {
                     type="button"
                     disabled=move || draft.get().trim().is_empty()
                     on:click=move |_| send_button()>"傳送"</button>
-                <p class="composer-help">"Enter 傳送；Shift+Enter 換行；輸入法選字不傳送。"</p>
             </div>
+            <p class="composer-help">"Enter 傳送；Shift+Enter 換行"<span class="composer-ime">"；輸入法選字不傳送。"</span></p>
         </section>
     }
 }
@@ -404,141 +436,149 @@ pub fn ChatPage(room_id: String) -> impl IntoView {
 #[component]
 fn RoomList() -> impl IntoView {
     let params = use_params_map();
-    let (query, set_query) = signal(String::new());
-    let (rows, set_rows) = signal(Vec::<RoomListItem>::new());
-    let (loading, set_loading) = signal(false);
-    let (has_snapshot, set_has_snapshot) = signal(false);
-    let (status, set_status) = signal(String::from("請讀取房間列表"));
+    let rows = RwSignal::new(Vec::<room_list_state::PopularRoomItem>::new());
+    let loading = RwSignal::new(false);
+    let status = RwSignal::new("正在讀取熱門聊天室…".to_owned());
 
-    let query_room = move || {
-        if loading.get_untracked() {
-            return;
-        }
-        set_loading.set(true);
-        set_status.set("查詢中…".into());
-
-        #[cfg(target_arch = "wasm32")]
-        wasm_bindgen_futures::spawn_local(async move {
-            let submitted = query.get_untracked();
-            let previous = rows.get_untracked();
-            let result = room_api::search_rooms(&submitted).await;
-            apply_room_search(
-                previous,
-                submitted,
-                result,
-                set_rows,
-                set_has_snapshot,
-                set_status,
-                set_loading,
-            );
-        });
-
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            set_loading.set(false);
-            set_rows.set(Vec::new());
-            set_has_snapshot.set(false);
-        }
-    };
-
-    // chat_apps/chat_ui/src/lib.rs::RoomList，query_room closure 宣告之後、view! 之前
     #[cfg(target_arch = "wasm32")]
-    Effect::new(move |_| {
-        if should_auto_load(has_snapshot.get_untracked(), loading.get_untracked()) {
-            query_room(); // existing real search_rooms("") -> GET /api/rooms?q=
-        }
-    });
-
-    // Refresh the authoritative complete snapshot; clearing a server-side search
-    // cannot recover rows discarded by the filtered response locally.
-    let refresh_rooms = move || {
-        if loading.get_untracked() {
-            return;
-        }
-        set_loading.set(true);
-        set_status.set("載入中…".into());
-
-        #[cfg(target_arch = "wasm32")]
-        wasm_bindgen_futures::spawn_local(async move {
-            let previous = rows.get_untracked();
-            let previous_query = query.get_untracked();
-            let result = room_api::list_rooms().await;
-            let succeeded = result.is_ok();
-            let (next_rows, mut next_query, mut next_status) =
-                refresh_result_view(previous, previous_query, result);
-            if succeeded {
-                (next_query, next_status) = clear_room_search(true, &next_rows);
-                set_has_snapshot.set(true);
+    {
+        let alive = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let poll_alive = alive.clone();
+        let request = Rc::new(move || {
+            if !poll_alive.load(std::sync::atomic::Ordering::Relaxed) || loading.get_untracked() {
+                return;
             }
-            set_rows.set(next_rows);
-            set_query.set(next_query);
-            set_status.set(next_status);
-            set_loading.set(false);
+            loading.set(true);
+            let alive = poll_alive.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let result = room_api::popular_rooms().await;
+                if !alive.load(std::sync::atomic::Ordering::Relaxed) {
+                    return;
+                }
+                match result {
+                    Ok(next) => {
+                        status.set(
+                            if next.is_empty() {
+                                "目前沒有公開聊天室"
+                            } else {
+                                "依目前在線人數排序，最多10間"
+                            }
+                            .into(),
+                        );
+                        if rows.get_untracked() != next {
+                            rows.set(next);
+                        }
+                    }
+                    Err(_) => status.set("暫時無法更新，將自動重試".into()),
+                }
+                loading.set(false);
+            });
         });
-
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            set_loading.set(false);
-        }
-    };
+        Effect::new(move |_| {
+            request();
+            let repeat = request.clone();
+            let timer = leptos::leptos_dom::helpers::set_interval_with_handle(
+                move || repeat(),
+                std::time::Duration::from_secs(5),
+            )
+            .ok();
+            on_cleanup(move || {
+                if let Some(timer) = timer {
+                    timer.clear();
+                }
+            });
+        });
+        on_cleanup(move || alive.store(false, std::sync::atomic::Ordering::Relaxed));
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    let _ = loading;
 
     view! {
-        <section>
-            <h2>"房間列表"</h2>
-            <div class="room-toolbar">
-            <input
-                type="search"
-                aria-label="搜尋房間"
-                placeholder="房間名稱"
-                prop:value=move || query.get()
-                on:input=move |event| set_query.set(event_target_value(&event))
-            />
-
-            <button
-                type="button"
-                class="room-search-primary"
-                disabled=move || loading.get()
-                on:click=move |_| { query_room() }
-            >"查詢房間"</button>
-
-            <button
-                type="button"
-                disabled=move || loading.get()
-                on:click=move |_| refresh_rooms()
-            >"讀取／重新整理房間"</button>
-            <button
-                type="button"
-                disabled=move || loading.get() || query.get().is_empty()
-                on:click=move |_| refresh_rooms()
-            >"清除搜尋"</button>
-            </div>
+        <section class="popular-rooms" aria-label="熱門聊天室">
+            <h2>"熱門聊天室"</h2>
+            <p role="status">{move ||status.get()}</p>
             <div class="room-results" aria-live="polite">
-            {move || {
-                let all = rows.get();
-                let visible = filter_rooms(&all, &query.get());
-                let feedback = room_status_text(
-                    &status.get(),
-                    has_snapshot.get(),
-                    all.len(),
-                    visible.len(),
-                );
-                view! {
-                    <p class="room-result-feedback" role="status">{feedback}</p>
-                    <ul>
-                        {visible.into_iter().map(|RoomListItem { id, name, category_label }| view! {
-                        <li>
-                            <a
-                                rel="external"
-                                aria-current=if params.read().get("room_id").as_deref() == Some(id.as_str()) { Some("page") } else { None }
-                                href=format!("/room/{id}")
-                            >{name}</a>
-                            {category_label.map(|label| view! { <span class="room-category">{label}</span> })}
-                        </li>
-                        }).collect_view()}
-                    </ul>
-                }
-            }}
+            <ul>
+                {move ||rows.get().into_iter().map(|room|view! {
+                    <li>
+                        <a rel="external" aria-current=if params.read().get("room_id").as_deref()==Some(room.id.as_str()){Some("page")}else{None} href=format!("/room/{}",room.id)>{room.name}</a>
+                        <span class="room-online">{format!("{} 人在線",room.online_count)}</span>
+                    </li>
+                }).collect_view()}
+            </ul>
             </div>
+        </section>
+    }
+}
+
+#[component]
+fn MemberList(room_id: String) -> impl IntoView {
+    let rows = RwSignal::new(Vec::<String>::new());
+    let loading = RwSignal::new(false);
+    let status = RwSignal::new("正在讀取在線人員…".to_owned());
+    #[cfg(target_arch = "wasm32")]
+    {
+        let alive = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let poll_alive = alive.clone();
+        let request = Rc::new(move || {
+            if !poll_alive.load(std::sync::atomic::Ordering::Relaxed) || loading.get_untracked() {
+                return;
+            }
+            loading.set(true);
+            let alive = poll_alive.clone();
+            let room_id = room_id.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let result = room_api::room_members(&room_id).await;
+                if !alive.load(std::sync::atomic::Ordering::Relaxed) {
+                    return;
+                }
+                match result {
+                    Ok(next) => {
+                        status.set(
+                            if next.is_empty() {
+                                "目前無在線人員"
+                            } else {
+                                "目前在線"
+                            }
+                            .into(),
+                        );
+                        if rows.get_untracked() != next {
+                            rows.set(next);
+                        }
+                    }
+                    Err(error) => {
+                        rows.set(Vec::new());
+                        status.set(error);
+                    }
+                }
+                loading.set(false);
+            });
+        });
+        Effect::new(move |_| {
+            request();
+            let repeat = request.clone();
+            let timer = leptos::leptos_dom::helpers::set_interval_with_handle(
+                move || repeat(),
+                std::time::Duration::from_secs(5),
+            )
+            .ok();
+            on_cleanup(move || {
+                if let Some(timer) = timer {
+                    timer.clear();
+                }
+            });
+        });
+        on_cleanup(move || alive.store(false, std::sync::atomic::Ordering::Relaxed));
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    let _ = (loading, room_id);
+    view! {
+        <section class="room-members" aria-label="在線人員">
+            <h2>"在線人員 "<span>{move || rows.get().len()}</span></h2>
+            <p role="status">{move ||status.get()}</p>
+            <ul>{move ||rows.get().into_iter().map(|name|view! {
+                <li><span class="presence-dot" aria-hidden="true"></span><span class="member-name">{name}</span><button class="private-action" type="button" disabled title="獨立私聊頁尚未接通">"私聊"</button></li>
+            }).collect_view()}</ul>
         </section>
     }
 }

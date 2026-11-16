@@ -56,7 +56,7 @@ async fn socket_session_active(pool: &SqlitePool, headers: &HeaderMap) -> bool {
     active_member(pool, headers).await.is_ok()
 }
 
-async fn authorize_socket(
+pub(crate) async fn authorize_socket(
     state: &AppState,
     pool: &SqlitePool,
     headers: &HeaderMap,
@@ -90,6 +90,14 @@ async fn handle_socket(
     pool: SqlitePool,
     headers: HeaderMap,
 ) {
+    let member = match authorize_socket(&state, &pool, &headers, &room_id).await {
+        Ok(member) => member,
+        Err(_) => {
+            let _ = socket.send(Message::Close(None)).await;
+            return;
+        }
+    };
+    let _presence = state.room_hub.member_joined(room_id.clone(), member);
     let (room_sender, mut room_events) = state.room_hub.subscribe(room_id.clone());
     let mut recheck = tokio::time::interval(Duration::from_secs(1));
     recheck.set_missed_tick_behavior(MissedTickBehavior::Delay);

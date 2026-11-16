@@ -9,6 +9,7 @@ use tokio::sync::broadcast;
 pub struct RoomHub {
     rooms: Arc<Mutex<HashMap<String, broadcast::Sender<ServerEvent>>>>,
     capacity: usize,
+    members: Arc<Mutex<HashMap<String, HashMap<String, usize>>>>,
 }
 
 impl RoomHub {
@@ -16,6 +17,7 @@ impl RoomHub {
         Self {
             rooms: Arc::new(Mutex::new(HashMap::new())),
             capacity,
+            members: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -68,5 +70,85 @@ impl RoomHub {
         if should_remove {
             rooms.remove(&room_id);
         }
+    }
+}
+
+/// 連線離開或工作取消時，移除這一份會員在場計數。
+pub struct MemberPresence {
+    members: Arc<Mutex<HashMap<String, HashMap<String, usize>>>>,
+    room: String,
+    member: String,
+}
+impl Drop for MemberPresence {
+    fn drop(&mut self) {
+        let mut rooms = self.members.lock().unwrap();
+        if let Some(members) = rooms.get_mut(&self.room) {
+            if let Some(count) = members.get_mut(&self.member) {
+                *count -= 1;
+                if *count == 0 {
+                    members.remove(&self.member);
+                }
+            }
+            if members.is_empty() {
+                rooms.remove(&self.room);
+            }
+        }
+    }
+}
+impl RoomHub {
+    pub fn online_members(&self, room: &str) -> Vec<String> {
+        let mut ids: Vec<_> = self
+            .members
+            .lock()
+            .unwrap()
+            .get(room)
+            .map(|members| members.keys().cloned().collect())
+            .unwrap_or_default();
+        ids.sort();
+        ids
+    }
+    pub fn member_joined(&self, room: String, member: String) -> MemberPresence {
+        *self
+            .members
+            .lock()
+            .unwrap()
+            .entry(room.clone())
+            .or_default()
+            .entry(member.clone())
+            .or_default() += 1;
+        MemberPresence {
+            members: self.members.clone(),
+            room,
+            member,
+        }
+    }
+}
+impl chat_application::room_directory::OnlineRoomCounts for RoomHub {
+    fn snapshot(&self) -> HashMap<String, usize> {
+        self.members
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(room, members)| (room.clone(), members.len()))
+            .collect()
+    }
+}
+#[cfg(test)]
+mod online_member_tests {
+    use super::*;
+    use chat_application::room_directory::OnlineRoomCounts;
+    #[test]
+    fn tabs_are_deduplicated_and_last_disconnect_removes_member() {
+        let hub = RoomHub::new(8);
+        let a = hub.member_joined("r".into(), "a".into());
+        let a2 = hub.member_joined("r".into(), "a".into());
+        let b = hub.member_joined("r".into(), "b".into());
+        assert_eq!(hub.snapshot()["r"], 2);
+        drop(a);
+        assert_eq!(hub.snapshot()["r"], 2);
+        drop(a2);
+        assert_eq!(hub.snapshot()["r"], 1);
+        drop(b);
+        assert!(hub.snapshot().is_empty());
     }
 }

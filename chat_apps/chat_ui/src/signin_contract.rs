@@ -32,7 +32,7 @@ fn day28_leptos_signin_posts_to_existing_login_handler() {
 }
 
 #[test]
-fn day43_room_list_has_clear_search_control() {
+fn room_sidebar_has_only_a_popular_list_without_search_controls() {
     let owner = Owner::new();
     let html = owner.with(|| {
         provide_context(RequestUrl::new("http://localhost/"));
@@ -45,8 +45,12 @@ fn day43_room_list_has_clear_search_control() {
         }
         .to_html()
     });
-    assert!(html.contains("清除搜尋"));
-    assert!(html.contains("aria-label=\"搜尋房間\""));
+    assert!(html.contains("熱門聊天室"));
+    assert!(html.contains("aria-label=\"熱門聊天室\""));
+    assert!(!html.contains("<input"));
+    assert!(!html.contains("<button"));
+    assert!(!html.contains("清除搜尋"));
+    assert!(!html.contains("查詢房間"));
 }
 
 #[test]

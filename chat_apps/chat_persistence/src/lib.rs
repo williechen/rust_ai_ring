@@ -55,6 +55,29 @@ impl SqliteRoomRepository {
 
 #[async_trait]
 impl RoomRepository for SqliteRoomRepository {
+    async fn directory(&self, query: &str, category: &str) -> Result<Vec<Room>, RepositoryError> {
+        let escaped = query
+            .trim()
+            .replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_");
+        sqlx::query_as::<_,RoomRow>("SELECT r.id,r.category_room_id,r.name,c.value AS category_label FROM rooms r JOIN codemap c ON c.category='room_category' AND c.code=r.category_room_id WHERE (?1='' OR r.name LIKE ?2 ESCAPE '\\') AND (?3='' OR r.category_room_id=?3) ORDER BY r.name,r.id")
+          .bind(query).bind(format!("%{escaped}%")).bind(category).fetch_all(&self.pool).await
+          .map(|rows|rows.into_iter().map(Room::from).collect()).map_err(|e|RepositoryError::RoomAccessError(e.to_string()))
+    }
+    async fn categories(
+        &self,
+    ) -> Result<Vec<chat_application::repository::RoomCategory>, RepositoryError> {
+        room_categories::list(&self.pool)
+            .await
+            .map(|rows| {
+                rows.into_iter()
+                    .map(|(code, label)| chat_application::repository::RoomCategory { code, label })
+                    .collect()
+            })
+            .map_err(|e| RepositoryError::RoomAccessError(e.to_string()))
+    }
+
     async fn find_by_id(&self, room_id: &str) -> Result<Option<Room>, RepositoryError> {
         sqlx::query_as::<_, RoomRow>(
             r#"SELECT id

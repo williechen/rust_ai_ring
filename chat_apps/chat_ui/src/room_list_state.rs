@@ -190,3 +190,16 @@ mod day42_status_refactor_tests {
         assert_eq!(room_status_text("", true, 3, 2), "請選擇房間");
     }
 }
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct PopularRoomItem {
+    pub id: String,
+    pub name: String,
+    pub online_count: usize,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct CategoryItem {
+    pub code: String,
+    pub label: String,
+}
