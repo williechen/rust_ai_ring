@@ -389,3 +389,17 @@ body:has(.report-unavailable) {
     color: inherit;
     font: inherit;
 }
+.daily-report h3{margin:0 0 6px}
+.daily-report>p{font-size:.8rem;color:#56667f}
+.daily-warning{padding:10px;background:#fff4dc;border-radius:8px}
+.daily-figure{margin:14px 0;overflow:auto}
+.daily-axis,.daily-figure figcaption{font-size:.75rem;color:#56667f}
+.daily-bars{display:grid;gap:8px;min-width:100%;border-bottom:1px solid #cdd6e6;margin:10px 0 4px;background:repeating-linear-gradient(to top,#e8edf5 0,#e8edf5 1px,transparent 1px,transparent 45px)}
+.daily-column{height:225px;display:flex;flex-direction:column;justify-content:end;align-items:center;min-width:32px;font-size:.7rem}
+.daily-column strong{font-size:.7rem}
+.daily-bar{width:65%;max-width:60px;flex:none;background:#6556c8;border-radius:6px 6px 0 0}
+.daily-column span{padding:8px 0;background:white;white-space:nowrap}
+.legacy-statistics{margin-top:14px}
+.legacy-statistics>summary{cursor:pointer;padding:10px;color:#4a5480}
+.daily-report details{font-size:.8rem}
+.daily-report table{width:100%}

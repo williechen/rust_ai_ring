@@ -1,3 +1,4 @@
+use analytics_application::daily_report::DailyReport;
 use std::collections::BTreeMap;
 
 use analytics_ui::navigation::NavigationPage;
@@ -36,7 +37,15 @@ fn DashboardView(
     page_size: usize,
     total_kinds: usize,
     total_pages: usize,
+    daily: Option<DailyReport>,
 ) -> impl IntoView {
+    let range_start = daily.as_ref().map(|r| r.start.clone()).unwrap_or_default();
+    let range_end = daily.as_ref().map(|r| r.end.clone()).unwrap_or_default();
+    let legacy_open = daily.is_none();
+    let has_range = !range_start.is_empty();
+    let form_start = range_start.clone();
+    let form_end = range_end.clone();
+    let date_range = daily.as_ref().map(|r| (r.start.clone(), r.end.clone()));
     let mut sources = BTreeMap::new();
     let mut events = BTreeMap::new();
     for (category, key, label) in dictionary {
@@ -77,7 +86,7 @@ fn DashboardView(
     .filter(|(_, _, allowed)| *allowed)
     .map(|(id, fallback, _)| {
         let label = sources.get(id).cloned().unwrap_or_else(|| fallback.into());
-        let href = dashboard_url(id, &event_type, 1, page_size);
+        let href = with_date_range(dashboard_url(id, &event_type, 1, page_size), &date_range);
         let active = (id == source).then_some("page");
         view! { <a href=href aria-current=active>{label}</a> }
     })
@@ -95,14 +104,19 @@ fn DashboardView(
             }
         })
         .collect_view();
-    let clear_url = dashboard_url(&source, "", 1, page_size);
+    let clear_url = with_date_range(dashboard_url(&source, "", 1, page_size), &date_range);
     let export_url = export_csv_url(&source, &event_type);
     let filter_description = filter_description(&event_type);
 
     let count_label = summary_count_label(source_label, &event_type, total);
     let kinds = total_kinds;
     let filter_source = source.clone();
-    let page_url = |next| dashboard_url(&source, &event_type, next, page_size);
+    let page_url = |next| {
+        with_date_range(
+            dashboard_url(&source, &event_type, next, page_size),
+            &date_range,
+        )
+    };
     let previous_url = (page > 1).then(|| page_url(page - 1));
     let next_url = (page < total_pages).then(|| page_url(page + 1));
 
@@ -127,7 +141,7 @@ fn DashboardView(
                         </header>
                         <section class="report-card" aria-labelledby="report-filters-title">
                             <h3 id="report-filters-title">"查詢條件"</h3>
-                            <form class="report-filters" method="get" action="/dashboard#report-results-title">
+                             <form class="report-filters" method="get" action=if has_range {"/dashboard#daily-chart-title"} else {"/dashboard#report-results-title"}>
                                 <div class="report-field">
                                     <label for="analytics-source">"來源"</label>
                                     <select id="analytics-source" name="source">{source_options}</select>
@@ -143,6 +157,10 @@ fn DashboardView(
                                         placeholder="例如 chat.message.persisted"
                                     />
                                 </div>
+                                <Show when=move||has_range>
+                                  <label>"起日（UTC）"<input type="date" name="start" value=form_start.clone()/></label>
+                                  <label>"迄日（UTC，不含）"<input type="date" name="end" value=form_end.clone()/></label>
+                                </Show>
                                 <datalist id="report-event-types">{event_suggestions}</datalist>
                                 <p>"可選取本頁事件的字典代碼，或輸入原始事件類型做精確比對。"</p>
                                 <div class="report-actions">
@@ -154,10 +172,12 @@ fn DashboardView(
                                     </select>
                                     <button type="submit" class="report-primary">"篩選"</button>
                                     <a href=clear_url>"清除篩選"</a>
-                                    <a href="#report-results-title">"跳至查詢結果"</a>
+                                    <a href=if has_range {"#daily-chart-title"} else {"#report-results-title"}>"跳至查詢結果"</a>
                                 </div>
                             </form>
                        </section>
+                       {daily.map(|report|view!{<crate::daily_chart::DailyChart report/>})}
+                        <details class="legacy-statistics" open=legacy_open><summary>"類型統計與CSV明細（相容查詢，未套用日期範圍）"</summary>
                         <section class="report-card" aria-labelledby="report-results-title">
                             <header class="report-results-head">
                                 <div>
@@ -176,7 +196,7 @@ fn DashboardView(
                                     <thead><tr><th scope="col">"事件類型"</th><th scope="col">"已提交筆數"</th></tr></thead>
                                     <tbody>
                                         {rows.into_iter().map(|(kind, count)| {
-                                            let detail_url = dashboard_url(&filter_source, &kind, 1, page_size);
+                                            let detail_url = with_date_range(dashboard_url(&filter_source, &kind, 1, page_size), &date_range);
                                             let label = events.get(&kind).filter(|label| *label != &kind).cloned();
                                             view! { <tr>
                                                 <td>
@@ -198,10 +218,11 @@ fn DashboardView(
                                 {previous_url.map(|href| view! { <a href=href>"上一頁"</a> })}
                                 <span>{format!("第 {page} / {total_pages} 頁 · 共 {total_kinds} 個事件類型")}</span>
                                 {next_url.map(|href| view! { <a href=href>"下一頁"</a> })}
-                                 <form class="report-page-jump" method="get" action="/dashboard#report-results-title">
+                                  <form class="report-page-jump" method="get" action=if has_range {"/dashboard#daily-chart-title"} else {"/dashboard#report-results-title"}>
                                     <input type="hidden" name="source" value=source/>
                                     <input type="hidden" name="event_type" value=event_type/>
                                     <input type="hidden" name="page_size" value=page_size.to_string()/>
+                                     {has_range.then(||view!{<input type="hidden" name="start" value=range_start.clone()/><input type="hidden" name="end" value=range_end.clone()/>})}
                                     <label for="report-page-number">"前往頁碼"</label>
                                     <input id="report-page-number" type="number" name="page" min="1"
                                         max=total_pages.to_string() value=page.to_string() required/>
@@ -209,6 +230,7 @@ fn DashboardView(
                                 </form>
                             </nav>
                         </section>
+                        </details>
                     </div>
                 </ManagementShell>
             </body>
@@ -364,6 +386,40 @@ pub(crate) fn render_dashboard_dictionary(
     page: usize,
     page_size: usize,
 ) -> String {
+    render_dashboard_with_daily(
+        source_label,
+        total,
+        source,
+        event_type,
+        rows,
+        logout_csrf,
+        allow_chat,
+        allow_pet,
+        pages,
+        can_export,
+        dictionary,
+        page,
+        page_size,
+        None,
+    )
+}
+
+pub(crate) fn render_dashboard_with_daily(
+    source_label: &'static str,
+    total: i64,
+    source: &str,
+    event_type: &str,
+    rows: &[EventSummary],
+    logout_csrf: &str,
+    allow_chat: bool,
+    allow_pet: bool,
+    pages: Vec<NavigationPage>,
+    can_export: bool,
+    dictionary: Vec<(String, String, String)>,
+    page: usize,
+    page_size: usize,
+    daily: Option<DailyReport>,
+) -> String {
     let total_kinds = rows.len();
     let PageWindow {
         page,
@@ -396,6 +452,7 @@ pub(crate) fn render_dashboard_dictionary(
                 page_size
                 total_kinds
                 total_pages
+                daily
             />
         }
         .to_html()
@@ -1135,4 +1192,30 @@ mod day63_dictionary_suggestions_tests {
         assert!(!html.contains("other.source.only"));
         assert!(!html.contains("其他來源的類型"));
     }
+}
+
+/// 日期參數放在片段識別前，舊URL契約在沒有日期情境時保持原值。
+fn with_date_range(url: String, range: &Option<(String, String)>) -> String {
+    let Some((start, end)) = range else {
+        return url;
+    };
+    let (base, fragment) = url
+        .split_once('#')
+        .map(|(a, b)| (a, Some(b)))
+        .unwrap_or((&url, None));
+    format!(
+        "{base}&start={}&end={}{}",
+        crate::dashboard_url::encode_query_component(start),
+        crate::dashboard_url::encode_query_component(end),
+        fragment
+            .map(|f| format!(
+                "#{}",
+                if f == "report-results-title" {
+                    "daily-chart-title"
+                } else {
+                    f
+                }
+            ))
+            .unwrap_or_default()
+    )
 }

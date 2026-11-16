@@ -673,7 +673,15 @@ mod tests {
         .await
         .unwrap();
 
+        sqlx::raw_sql(include_str!(
+            "../../migrations/20261116090000_event_occurrence_time.sql"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+
         let event = crate::EventInput {
+            occurred_at: None,
             schema_version: 1,
             event_id: Uuid::new_v4(),
             source_app: "web_chat".into(),

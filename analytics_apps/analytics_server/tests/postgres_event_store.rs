@@ -10,6 +10,7 @@ use uuid::Uuid;
 async fn postgres_event_idempotency(pool: PgPool) {
     let id = Uuid::new_v4();
     let event = EventInput {
+        occurred_at: None,
         schema_version: 1,
         event_id: id,
         source_app: "web_chat".into(),
@@ -24,6 +25,7 @@ async fn postgres_event_idempotency(pool: PgPool) {
         PersistOutcome::AlreadyExists
     );
     let conflict = EventInput {
+        occurred_at: None,
         schema_version: 1,
         event_id: id,
         source_app: "web_chat".into(),
@@ -34,6 +36,7 @@ async fn postgres_event_idempotency(pool: PgPool) {
         PersistOutcome::IdentityConflict
     );
     let pet = EventInput {
+        occurred_at: None,
         schema_version: 1,
         event_id: id,
         source_app: "desktop_pet".into(),
@@ -44,6 +47,7 @@ async fn postgres_event_idempotency(pool: PgPool) {
         PersistOutcome::Stored
     );
     let invalid = EventInput {
+        occurred_at: None,
         schema_version: 2,
         event_id: Uuid::new_v4(),
         source_app: "web_chat".into(),

@@ -2,6 +2,7 @@ mod accounts;
 pub mod admin;
 pub mod bootstrap;
 mod csv;
+pub mod daily_chart;
 mod dashboard_source;
 mod dashboard_summary;
 pub mod dashboard_ui;
@@ -14,6 +15,7 @@ pub mod pg_store;
 mod session_cookie;
 
 use analytics_domain::account_rules;
+#[cfg(test)]
 use analytics_persistence::summary_for_source;
 use analytics_persistence::{EventSummary, summary_for_source_and_type};
 use axum::{
@@ -22,21 +24,14 @@ use axum::{
     http::StatusCode,
     http::{HeaderMap, header::AUTHORIZATION},
 };
-use serde::Deserialize;
+#[cfg(test)]
 use uuid::Uuid;
 
 use crate::pg_store::{PersistError, PersistOutcome};
 use sqlx::PgPool;
 use std::sync::Arc;
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct EventInput {
-    pub schema_version: u16,
-    pub event_id: Uuid,
-    pub source_app: String,
-    pub event_type: String,
-}
+pub use analytics_application::event_input::{EventInput, valid_event, valid_event_type};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct EventIdentity {
@@ -73,19 +68,6 @@ impl InMemoryDeduplicator {
             event.event_id.to_string(),
         )))
     }
-}
-
-// 事件類型長度以 UTF-8 位元組計算，避免儲存層限制不一致。
-pub fn valid_event_type(value: &str) -> bool {
-    !value.is_empty() && value.len() <= 128 && value.trim() == value
-}
-
-// 只做事件資料驗證；憑證、持久化與 ACK 各由真正 Adapter 負責。
-pub fn valid_event(event: &EventInput) -> bool {
-    event.schema_version == 1
-        && !event.event_id.is_nil()
-        && matches!(event.source_app.as_str(), "web_chat" | "desktop_pet")
-        && valid_event_type(event.event_type.as_str())
 }
 
 fn single_authorization(headers: &HeaderMap) -> Option<&str> {
@@ -226,6 +208,7 @@ mod tests {
     #[test]
     fn nil_event_id_is_not_accepted() {
         let invalid = EventInput {
+            occurred_at: None,
             schema_version: 1,
             event_id: Uuid::nil(),
             source_app: "web_chat".into(),
@@ -242,6 +225,7 @@ mod tests {
     #[test]
     fn rejects_bad_source_version_and_event_type() {
         let mut input = EventInput {
+            occurred_at: None,
             schema_version: 1,
             event_id: Uuid::new_v4(),
             source_app: "web_chat".into(),
@@ -271,6 +255,7 @@ mod tests {
     #[test]
     fn existing_event_validation_rejects_whitespace() {
         let event = EventInput {
+            occurred_at: None,
             schema_version: 1,
             event_id: Uuid::new_v4(),
             source_app: "web_chat".into(),
@@ -283,6 +268,7 @@ mod tests {
     fn valid_event_is_accepted_once_per_source_and_id() {
         let id = Uuid::new_v4();
         let event = EventInput {
+            occurred_at: None,
             schema_version: 1,
             event_id: id,
             source_app: "web_chat".into(),
@@ -303,6 +289,7 @@ mod tests {
     fn invalid_event_does_not_reserve_dedup_key() {
         let id = Uuid::new_v4();
         let mut event = EventInput {
+            occurred_at: None,
             schema_version: 2,
             event_id: id,
             source_app: "web_chat".into(),
@@ -396,6 +383,7 @@ mod source_summary_tests {
             ("desktop_pet", id, "pet.cleanup.succeeded"),
         ] {
             let event = EventInput {
+                occurred_at: None,
                 schema_version: 1,
                 event_id,
                 source_app: source.into(),
@@ -531,6 +519,7 @@ mod source_kind_summary_tests {
             ("desktop_pet", shared_id, "chat.message.persisted"),
         ] {
             let event = EventInput {
+                occurred_at: None,
                 schema_version: 1,
                 event_id: id,
                 source_app: source.into(),
@@ -696,6 +685,7 @@ async fn day36_live_router_requires_person_session_not_source_token(pool: PgPool
     .unwrap();
 
     let event = EventInput {
+        occurred_at: None,
         schema_version: 1,
         event_id: Uuid::new_v4(),
         source_app: "web_chat".into(),
@@ -775,4 +765,87 @@ async fn day36_live_router_requires_person_session_not_source_token(pool: PgPool
         .await
         .unwrap();
     assert_eq!(revoked.status(), StatusCode::UNAUTHORIZED);
+}
+#[cfg(all(test, feature = "postgres-integration"))]
+mod day64_daily_ingest_tests {
+    use super::*;
+    use axum::{body::Body, http::Request};
+    use tower::ServiceExt;
+    #[sqlx::test(migrations = "../migrations")]
+    async fn dated_machine_event_is_accepted_without_using_receive_date(pool: PgPool) {
+        let state = IngestState {
+            pool,
+            tokens: Arc::new(IngestTokens {
+                chat: "fixture-chat".into(),
+                pet: "fixture-pet".into(),
+            }),
+        };
+        let response=build_app(state).oneshot(Request::post("/api/v1/events").header("content-type","application/json").header("authorization","Bearer fixture-chat")
+           .body(Body::from(format!(r#"{{"schema_version":1,"event_id":"{}","source_app":"web_chat","event_type":"message.persisted","occurred_at":"2026-11-08T23:59:59Z"}}"#,Uuid::new_v4()))).unwrap()).await.unwrap();
+        assert_eq!(response.status(), StatusCode::CREATED);
+    }
+}
+
+#[cfg(all(test, feature = "postgres-integration"))]
+mod day64_timestamp_identity_tests {
+    use super::*;
+    use axum::{body::Body, http::Request};
+    use tower::ServiceExt;
+    #[sqlx::test(migrations = "../migrations")]
+    async fn timestamp_is_validated_and_part_of_persistent_identity(pool: PgPool) {
+        let state = IngestState {
+            pool: pool.clone(),
+            tokens: Arc::new(IngestTokens {
+                chat: "fixture-chat".into(),
+                pet: "fixture-pet".into(),
+            }),
+        };
+        let app = build_app(state);
+        let id = Uuid::new_v4();
+        for (time, expected) in [
+            (Some("2026-11-08T23:59:59Z"), 201),
+            (Some("2026-11-08T23:59:59.000000Z"), 200),
+            (Some("2026-11-09T00:00:00Z"), 409),
+            (None, 409),
+        ] {
+            let mut body = serde_json::json!({"schema_version":1,"event_id":id,"source_app":"web_chat","event_type":"message.persisted"});
+            if let Some(time) = time {
+                body["occurred_at"] = time.into();
+            }
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::post("/api/v1/events")
+                        .header("content-type", "application/json")
+                        .header("authorization", "Bearer fixture-chat")
+                        .body(Body::from(body.to_string()))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status().as_u16(), expected);
+        }
+        for time in ["2026-02-30T00:00:00Z", "now", "2026-11-08T25:00:00Z"] {
+            let body = serde_json::json!({"schema_version":1,"event_id":Uuid::new_v4(),"source_app":"web_chat","event_type":"message.persisted","occurred_at":time});
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::post("/api/v1/events")
+                        .header("content-type", "application/json")
+                        .header("authorization", "Bearer fixture-chat")
+                        .body(Body::from(body.to_string()))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        }
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM product_events")
+                .fetch_one(&pool)
+                .await
+                .unwrap(),
+            1
+        );
+    }
 }

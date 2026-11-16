@@ -56,12 +56,20 @@ async fn migration_keeps_old_ledger_and_protocol_values_without_storing_display_
             .await
             .unwrap();
     assert_eq!(&current[..old.len()], old);
-    assert_eq!(current.len(), old.len() + 1);
+    assert_eq!(current.len(), old.len() + 2);
+    let occurrence: Option<String> =
+        sqlx::query_scalar("SELECT occurred_at::text FROM product_events WHERE event_id=$1")
+            .bind(&id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(occurrence, None, "舊事件不得用接收時間捏造發生日期");
 }
 
 #[sqlx::test(migrations = "../migrations")]
 async fn live_ingestion_preserves_dedupe_and_failed_aliases_do_not_commit(pool: PgPool) {
     let event = EventInput {
+        occurred_at: None,
         source_app: "web_chat".into(),
         event_id: Uuid::new_v4(),
         schema_version: 1,
@@ -126,6 +134,7 @@ async fn live_ingestion_preserves_dedupe_and_failed_aliases_do_not_commit(pool: 
 #[sqlx::test(migrations = "../migrations")]
 async fn referenced_dictionary_codes_are_scoped_and_rename_in_place(pool: PgPool) {
     let event = EventInput {
+        occurred_at: None,
         source_app: "desktop_pet".into(),
         event_id: Uuid::new_v4(),
         schema_version: 1,

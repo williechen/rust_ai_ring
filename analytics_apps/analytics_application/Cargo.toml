@@ -5,3 +5,6 @@ edition.workspace = true
 
 [dependencies]
 shared = { path = "../../crates/shared" }
+analytics-domain = { path = "../analytics_domain" }
+serde.workspace = true
+uuid.workspace = true

@@ -1,3 +1,5 @@
+pub mod daily_report;
+pub mod event_input;
 pub mod login_attempt;
 pub mod report_csv;
 pub mod report_page;

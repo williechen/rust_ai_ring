@@ -424,6 +424,8 @@ struct DashboardSourceQuery {
     event_type: Option<String>,
     page: Option<usize>,
     page_size: Option<usize>,
+    start: Option<String>,
+    end: Option<String>,
 }
 
 async fn dashboard(
@@ -478,6 +480,17 @@ async fn dashboard(
         );
         if query.page.is_some() || query.page_size.is_some() {
             retry.push_str(&format!("&page={page}&page_size={page_size}"));
+        }
+        for (name, value) in [
+            ("start", query.start.as_deref()),
+            ("end", query.end.as_deref()),
+        ] {
+            if let Some(value) = value {
+                retry.push_str(&format!(
+                    "&{name}={}",
+                    crate::dashboard_url::encode_query_component(value)
+                ));
+            }
         }
         renewed(
             (
@@ -544,7 +557,26 @@ async fn dashboard(
         Ok(dictionary) => dictionary,
         Err(_) => return unavailable(),
     };
-    let html = crate::dashboard_ui::render_dashboard_dictionary(
+    let daily = match analytics_persistence::daily_report::read(
+        &state.pool,
+        source,
+        kind,
+        query.start.as_deref(),
+        query.end.as_deref(),
+    )
+    .await
+    {
+        Ok(value) => value,
+        Err(analytics_persistence::daily_report::DailyError::Invalid) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                "日期須有效、起日早於迄日，且最多31天；時區為UTC。",
+            )
+                .into_response();
+        }
+        Err(analytics_persistence::daily_report::DailyError::Database(_)) => return unavailable(),
+    };
+    let html = crate::dashboard_ui::render_dashboard_with_daily(
         source_label,
         total,
         source,
@@ -558,6 +590,7 @@ async fn dashboard(
         dictionary,
         page,
         page_size,
+        Some(daily),
     );
     renewed(Html(html), &raw, seconds)
 }

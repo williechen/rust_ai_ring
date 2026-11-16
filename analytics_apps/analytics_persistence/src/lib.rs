@@ -1,5 +1,7 @@
 pub mod account_audit;
 pub mod account_directory;
+pub mod daily_report;
+pub mod event_store;
 pub mod login_attempt;
 pub mod login_session;
 pub mod navigation;

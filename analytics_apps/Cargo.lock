@@ -21,7 +21,10 @@ checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 name = "analytics-application"
 version = "0.2.57"
 dependencies = [
+ "analytics-domain",
+ "serde",
  "shared",
+ "uuid",
 ]
 
 [[package]]
