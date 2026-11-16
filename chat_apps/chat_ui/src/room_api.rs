@@ -28,6 +28,10 @@ pub async fn room_history(id: &str) -> Result<Vec<chat_domain::ChatMessage>, Str
 
 /// 公開房間清單與搜尋共用既有的查詢端點。
 pub async fn list_rooms() -> Result<Vec<RoomListItem>, String> {
+    search_rooms("").await
+}
+
+pub async fn search_rooms(query: &str) -> Result<Vec<RoomListItem>, String> {
     search_rooms_in_category(query, "").await
 }
 
