@@ -33,28 +33,17 @@ impl PetStore {
     }
 
     pub async fn active(&self) -> Result<Option<SavedPet>, String> {
-        let row: Option<(String, String, String)> = sqlx::query_as(
-            r#"SELECT p.id
-                    ,p.name
-                    ,p.species 
-                FROM local_pet_selection s 
-                JOIN pet_profile p 
-                    ON p.id=s.pet_id 
-                WHERE s.slot=1 
-                    AND p.owner_id='local-owner'
-                    AND EXISTS(
-                        SELECT 1 
-                        FROM pet_activity a 
-                        WHERE a.pet_id=p.id 
-                            AND a.owner_id=p.owner_id 
-                            AND a.is_activity=1
-                    )"#,
-        )
-        .fetch_optional(&self.pool)
+        pet_application::pet_names::active_pet(&pet_persistence::pet_names::SqlitePetNames(
+            self.pool.clone(),
+        ))
         .await
-        .map_err(|_| "無法讀取生活窗寵物".to_owned())?;
-
-        Ok(row.map(|(id, name, species)| SavedPet { id, name, species }))
+        .map(|p| {
+            p.map(|p| SavedPet {
+                id: p.id,
+                name: p.name,
+                species: p.species,
+            })
+        })
     }
     pub async fn select(&self, id: &str) -> Result<SavedPet, String> {
         let mut tx = self

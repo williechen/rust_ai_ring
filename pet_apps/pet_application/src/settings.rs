@@ -1,5 +1,14 @@
 pub use pet_domain::profile::PetProfile as SettingsProfile;
 pub trait PetSettings {
+    fn save_checked(
+        &self,
+        id: &str,
+        p: &SettingsProfile,
+        expected: &SettingsProfile,
+    ) -> impl std::future::Future<Output = Result<SettingsProfile, String>> + Send {
+        let _ = (id, p, expected);
+        async { Err("設定快照比對未接通".into()) }
+    }
     fn load(
         &self,
         id: &str,
@@ -72,9 +81,7 @@ mod tests {
         assert_eq!(p.likes, vec!["太陽"]);
         assert!(
             normalize(SettingsProfile {
-                name: "
-"
-                .into(),
+                name: "".into(),
                 ..p.clone()
             })
             .is_err()
@@ -124,5 +131,20 @@ pub async fn resynchronize(
     Ok(SettingsSaved {
         profile,
         sync_warning,
+    })
+}
+
+pub async fn save_checked_and_notify(
+    store: &impl PetSettings,
+    notification: &impl ProfileNotification,
+    id: &str,
+    profile: SettingsProfile,
+    expected: SettingsProfile,
+) -> Result<SettingsSaved, String> {
+    let profile = normalize(profile)?;
+    let profile = store.save_checked(id, &profile, &expected).await?;
+    Ok(SettingsSaved {
+        sync_warning: notification.notify(id, &profile).err(),
+        profile,
     })
 }

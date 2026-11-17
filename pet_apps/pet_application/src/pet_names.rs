@@ -8,6 +8,9 @@ pub struct NamedPet {
 }
 
 pub trait PetNames {
+    fn active(&self) -> impl Future<Output = Result<Option<NamedPet>, String>> + Send {
+        async { Err("生活窗選取讀取未接通".into()) }
+    }
     fn list(&self) -> impl Future<Output = Result<Vec<NamedPet>, String>> + Send {
         async { Err("寵物清單未接通".into()) }
     }
@@ -28,4 +31,8 @@ pub async fn read_pet(store: &impl PetNames, id: &str) -> Result<NamedPet, Strin
 
 pub async fn list_pets(store: &impl PetNames) -> Result<Vec<NamedPet>, String> {
     store.list().await
+}
+
+pub async fn active_pet(store: &impl PetNames) -> Result<Option<NamedPet>, String> {
+    store.active().await
 }
