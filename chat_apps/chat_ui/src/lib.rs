@@ -5,6 +5,8 @@
 
 pub mod account;
 mod chat_socket;
+#[cfg(target_arch = "wasm32")]
+mod directory_request;
 pub mod member_pages;
 
 #[cfg(target_arch = "wasm32")]
@@ -216,16 +218,34 @@ fn RoomPage() -> impl IntoView {
         match room_id {
             Some(room_id) => view! {
                 <div class="chat-layout">
-                    <aside class="room-sidebar" data-expanded=move || sidebar_open.get().to_string()>
-                        <button class="sidebar-toggle" type="button" aria-expanded=move || sidebar_open.get().to_string()
-                            aria-controls="popular-room-panel" on:click=move |_| sidebar_open.update(|open|*open=!*open)>"熱門聊天室"</button>
-                        <div class="sidebar-content" id="popular-room-panel"><RoomList /></div>
+                    <aside class="room-sidebar"
+                        data-expanded=move || sidebar_open.get().to_string()>
+                        <button class="sidebar-toggle"
+                            type="button"
+                            aria-expanded=move || sidebar_open.get().to_string()
+                            aria-controls="popular-room-panel"
+                            on:click=move |_| sidebar_open.update(|open|*open=!*open)>
+                                "熱門聊天室"
+                        </button>
+                        <div class="sidebar-content"
+                            id="popular-room-panel">
+                            <RoomList />
+                        </div>
                     </aside>
                     <ChatPage room_id=room_id.clone() />
-                    <aside class="member-sidebar" data-expanded=move || members_open.get().to_string()>
-                        <button class="sidebar-toggle" type="button" aria-expanded=move || members_open.get().to_string()
-                            aria-controls="room-member-panel" on:click=move |_| members_open.update(|open|*open=!*open)>"在線人員"</button>
-                        <div class="member-content" id="room-member-panel"><MemberList room_id /></div>
+                    <aside class="member-sidebar"
+                        data-expanded=move || members_open.get().to_string()>
+                        <button class="sidebar-toggle"
+                            type="button"
+                            aria-expanded=move || members_open.get().to_string()
+                            aria-controls="room-member-panel"
+                            on:click=move |_| members_open.update(|open|*open=!*open)>
+                                "在線人員"
+                        </button>
+                        <div class="member-content"
+                            id="room-member-panel">
+                            <MemberList room_id />
+                        </div>
                     </aside>
                 </div>
             }
@@ -272,10 +292,7 @@ pub fn ChatPage(room_id: String) -> impl IntoView {
         });
     }
     #[cfg(not(target_arch = "wasm32"))]
-    let _ = set_room_title;
-
-    #[cfg(not(target_arch = "wasm32"))]
-    let _ = (set_messages, set_history_status);
+    let _ = (set_room_title, set_messages, set_history_status);
 
     #[cfg(target_arch = "wasm32")]
     request_history(room_id.clone(), set_messages, set_history_status);
@@ -362,22 +379,44 @@ pub fn ChatPage(room_id: String) -> impl IntoView {
     view! {
         <section class="conversation">
              <header class="conversation-heading">
-                <div><h2 title=move ||room_title.get()>{move || room_title.get()}</h2>
-                    <p role="status">{move || connection.get()}</p></div>
+                <div>
+                    <h2 title=move ||room_title.get()>{move || room_title.get()}</h2>
+                    <p role="status">{move || connection.get()}</p>
+                </div>
                 <div class="conversation-actions">
-                <button class="call-action" type="button" aria-label="語音通話（尚未接通）" title="語音通話尚未接通" disabled>"語音"</button>
-                <button class="call-action" type="button" aria-label="視訊通話（尚未接通）" title="視訊通話尚未接通" disabled>"視訊"</button>
-                <button class="history-reload" type="button" aria-label="重新載入歷史" on:click=reload_history>"歷史"</button>
-                <details class="chat-more"><summary>"更多"</summary><div class="chat-more-panel">
-                    <p>"已定功能・尚未接通"</p>
-                    <button type="button" disabled>"AI 助理"</button>
-                    <button type="button" disabled>"文字顏色"</button>
-                    <button type="button" disabled>"提示音"</button>
-                </div></details>
+                    <button class="call-action"
+                        type="button"
+                        aria-label="語音通話（尚未接通）"
+                        title="語音通話尚未接通" disabled>
+                            "語音"
+                    </button>
+                    <button class="call-action"
+                        type="button"
+                        aria-label="視訊通話（尚未接通）"
+                        title="視訊通話尚未接通" disabled>
+                        "視訊"
+                    </button>
+                    <button class="history-reload"
+                        type="button"
+                        aria-label="重新載入歷史"
+                        on:click=reload_history>
+                        "歷史"
+                    </button>
+                    <details class="chat-more">
+                        <summary>"更多"</summary>
+                        <div class="chat-more-panel">
+                            <p>"已定功能・尚未接通"</p>
+                            <button type="button" disabled>"文字顏色"</button>
+                        </div>
+                    </details>
                 </div>
             </header>
-            <p class="history-disclosure" role="status">{move || history_status.get()}</p>
-            <div class="message-history" aria-live="polite">
+            <p class="history-disclosure"
+                role="status">
+                {move || history_status.get()}
+            </p>
+            <div class="message-history"
+                aria-live="polite">
                 {move || {
                     if messages.get().is_empty() {
                         view! {
@@ -399,7 +438,7 @@ pub fn ChatPage(room_id: String) -> impl IntoView {
                     }
                 }}
             </div>
-             <div class="chat-composer">
+            <div class="chat-composer">
                 <textarea node_ref=composer rows="1"
                     aria-label="聊天訊息"
                     placeholder="輸入訊息"
@@ -428,7 +467,9 @@ pub fn ChatPage(room_id: String) -> impl IntoView {
                     disabled=move || draft.get().trim().is_empty()
                     on:click=move |_| send_button()>"傳送"</button>
             </div>
-            <p class="composer-help">"Enter 傳送；Shift+Enter 換行"<span class="composer-ime">"；輸入法選字不傳送。"</span></p>
+            <p class="composer-help">"Enter 傳送；Shift+Enter 換行"
+                <span class="composer-ime">"；輸入法選字不傳送。"</span>
+            </p>
         </section>
     }
 }
@@ -461,7 +502,7 @@ fn RoomList() -> impl IntoView {
                             if next.is_empty() {
                                 "目前沒有公開聊天室"
                             } else {
-                                "依目前在線人數排序，最多10間"
+                                "依目前在線人數排序，最多100間"
                             }
                             .into(),
                         );
@@ -494,15 +535,27 @@ fn RoomList() -> impl IntoView {
     let _ = loading;
 
     view! {
-        <section class="popular-rooms" aria-label="熱門聊天室">
+        <section class="popular-rooms"
+            aria-label="熱門聊天室">
             <h2>"熱門聊天室"</h2>
             <p role="status">{move ||status.get()}</p>
-            <div class="room-results" aria-live="polite">
+            <div class="room-results"
+                aria-live="polite">
             <ul>
                 {move ||rows.get().into_iter().map(|room|view! {
                     <li>
-                        <a rel="external" aria-current=if params.read().get("room_id").as_deref()==Some(room.id.as_str()){Some("page")}else{None} href=format!("/room/{}",room.id)>{room.name}</a>
-                        <span class="room-online">{format!("{} 人在線",room.online_count)}</span>
+                        <a rel="external"
+                            aria-current=if params.read().get("room_id").as_deref()==Some(room.id.as_str()){
+                                Some("page")
+                            }else{
+                                None
+                            }
+                            href=format!("/room/{}",room.id)>
+                            {room.name}
+                        </a>
+                        <span class="room-online">
+                            {format!("{} 人在線",room.online_count)}
+                        </span>
                     </li>
                 }).collect_view()}
             </ul>
@@ -516,6 +569,7 @@ fn MemberList(room_id: String) -> impl IntoView {
     let rows = RwSignal::new(Vec::<String>::new());
     let loading = RwSignal::new(false);
     let status = RwSignal::new("正在讀取在線人員…".to_owned());
+
     #[cfg(target_arch = "wasm32")]
     {
         let alive = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
@@ -573,11 +627,29 @@ fn MemberList(room_id: String) -> impl IntoView {
     #[cfg(not(target_arch = "wasm32"))]
     let _ = (loading, room_id);
     view! {
-        <section class="room-members" aria-label="在線人員">
-            <h2>"在線人員 "<span>{move || rows.get().len()}</span></h2>
+        <section class="room-members"
+            aria-label="在線人員">
+            <h2>"在線人員 "
+                <span>
+                    {move || rows.get().len()}
+                </span>
+            </h2>
             <p role="status">{move ||status.get()}</p>
-            <ul>{move ||rows.get().into_iter().map(|name|view! {
-                <li><span class="presence-dot" aria-hidden="true"></span><span class="member-name">{name}</span><button class="private-action" type="button" disabled title="獨立私聊頁尚未接通">"私聊"</button></li>
+            <ul>{move ||rows.get().into_iter().map(|name|
+                view! {
+                <li>
+                    <span class="presence-dot"
+                        aria-hidden="true">
+                    </span>
+                    <button class="private-action"
+                        type="button"
+                        disabled
+                        title="獨立私聊頁尚未接通">
+                        <span class="member-name">
+                            {name}
+                        </span>
+                    </button>
+                </li>
             }).collect_view()}</ul>
         </section>
     }

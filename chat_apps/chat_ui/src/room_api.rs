@@ -44,21 +44,7 @@ pub async fn search_rooms_in_category(
     params.append("labels", "true");
     params.append("category", category);
     let url = format!("/api/rooms?{}", params.to_string());
-    let window = web_sys::window().ok_or("無法取得瀏覽器")?;
-    let options = web_sys::RequestInit::new();
-    options.set_cache(web_sys::RequestCache::NoStore);
-    let value = JsFuture::from(window.fetch_with_str_and_init(&url, &options))
-        .await
-        .map_err(|_| "房間讀取失敗")?;
-    let response: web_sys::Response = value.dyn_into().map_err(|_| "無效回應")?;
-    if !response.ok() {
-        return Err(format!("讀取失敗：{}", response.status()));
-    }
-    let text = JsFuture::from(response.text().map_err(|_| "無法讀取回應")?)
-        .await
-        .map_err(|_| "無法讀取回應")?
-        .as_string()
-        .ok_or("無效文字")?;
+    let text = crate::directory_request::text(&url).await?;
     let rows: Vec<serde_json::Value> = serde_json::from_str(&text).map_err(|_| "房間格式錯誤")?;
     rows.into_iter()
         .map(|row| {
@@ -150,24 +136,7 @@ pub async fn logout_csrf() -> Result<String, String> {
 }
 
 pub async fn room_categories() -> Result<Vec<crate::room_list_state::CategoryItem>, String> {
-    let options = web_sys::RequestInit::new();
-    options.set_cache(web_sys::RequestCache::NoStore);
-    let value = JsFuture::from(
-        web_sys::window()
-            .ok_or("無法取得瀏覽器")?
-            .fetch_with_str_and_init("/api/room-categories", &options),
-    )
-    .await
-    .map_err(|_| "分類讀取失敗")?;
-    let response: web_sys::Response = value.dyn_into().map_err(|_| "分類回應無效")?;
-    if !response.ok() {
-        return Err(format!("分類讀取失敗：{}", response.status()));
-    }
-    let text = JsFuture::from(response.text().map_err(|_| "分類文字無效")?)
-        .await
-        .map_err(|_| "分類文字無效")?
-        .as_string()
-        .ok_or("分類文字無效")?;
+    let text = crate::directory_request::text("/api/room-categories").await?;
     let rows: Vec<serde_json::Value> = serde_json::from_str(&text).map_err(|_| "分類格式無效")?;
     rows.into_iter()
         .map(|row| {

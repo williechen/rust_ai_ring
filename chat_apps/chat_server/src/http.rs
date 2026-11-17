@@ -161,27 +161,24 @@ pub async fn room_history(
     if crate::member_self::initial(&pool, &member).await? {
         return Err(StatusCode::FORBIDDEN);
     }
-    let room = state
-        .room_repository
-        .find_by_id(&id)
-        .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    if !room.is_some_and(|room| room.id == id) {
-        return Err(StatusCode::NOT_FOUND);
-    }
+
     if chat_persistence::room_access::is_excluded(&pool, &member, &id)
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
     {
         return Err(StatusCode::FORBIDDEN);
     }
-    Ok(Json(
-        state
-            .message_repository
-            .list_by_room(&id)
-            .await
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?,
-    ))
+    chat_application::history::read(
+        state.room_repository.as_ref(),
+        state.message_repository.as_ref(),
+        &id,
+    )
+    .await
+    .map(Json)
+    .map_err(|e| match e {
+        chat_application::history::HistoryError::Missing => StatusCode::NOT_FOUND,
+        chat_application::history::HistoryError::Store(_) => StatusCode::SERVICE_UNAVAILABLE,
+    })
 }
 
 #[cfg(test)]
