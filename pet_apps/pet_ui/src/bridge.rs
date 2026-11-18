@@ -14,6 +14,9 @@ extern "C" {
     #[wasm_bindgen(js_namespace=window,js_name=resyncPetSettings)]
     fn resync_pet_settings_js(id: &str) -> Promise;
 
+    #[wasm_bindgen(js_namespace=window,js_name=savePetSettingsChecked)]
+    fn save_pet_settings_checked_js(id: &str, profile: JsValue, expected: JsValue) -> Promise;
+
     #[wasm_bindgen(js_namespace=window,js_name=savePetSettings)]
     fn save_pet_settings_js(id: &str, profile: JsValue) -> Promise;
 
@@ -476,4 +479,17 @@ impl pet_application::creation::PetCreation for CreationBridge {
     async fn list(&self) -> Result<Vec<SavedPet>, String> {
         list_pets().await
     }
+}
+
+pub async fn save_pet_settings_checked(
+    id: &str,
+    p: &pet_domain::profile::PetProfile,
+    expected: &pet_domain::profile::PetProfile,
+) -> Result<pet_application::settings::SettingsSaved, String> {
+    let p = serde_wasm_bindgen::to_value(p).map_err(|_| "設定內容格式錯誤")?;
+    let expected = serde_wasm_bindgen::to_value(expected).map_err(|_| "原設定格式錯誤")?;
+    let value = JsFuture::from(save_pet_settings_checked_js(id, p, expected))
+        .await
+        .map_err(js_error)?;
+    serde_wasm_bindgen::from_value(value).map_err(|_| "設定回應格式錯誤".into())
 }

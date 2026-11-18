@@ -72,3 +72,23 @@ pub async fn resync_pet_settings(
     )
     .await
 }
+
+#[tauri::command]
+pub async fn save_pet_settings_checked(
+    id: String,
+    profile: PetProfile,
+    expected: PetProfile,
+    store: State<'_, PetStore>,
+    app: tauri::AppHandle,
+) -> Result<SettingsSaved, String> {
+    crate::pet_windows::label(&id)?;
+    let _guard = crate::pet_windows::lifecycle_guard().await;
+    pet_application::settings::save_checked_and_notify(
+        &pet_persistence::settings::SqlitePetSettings(store.pool.clone()),
+        &WindowNotification(&app),
+        &id,
+        profile,
+        expected,
+    )
+    .await
+}

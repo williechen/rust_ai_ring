@@ -78,12 +78,15 @@ pub fn PetSettingsEditor(
         let id = selected_id.get();
         let _ = reload.get();
         let version = request.try_update(|r| r.begin(id.clone())).unwrap();
+
         loaded.set(None);
         confirm_reload.set(false);
         draft.set(Draft::default());
+
         if let Some(id) = id {
             busy.set(true);
             status.set("正在讀取設定…".into());
+
             spawn_local(async move {
                 let result = bridge::load_pet_settings(&id).await;
                 if !request
@@ -133,10 +136,11 @@ pub fn PetSettingsEditor(
         };
         let version = request.with_untracked(|r| r.generation());
         let p = draft.get_untracked().profile();
+        let expected = saved.get_untracked().profile();
         busy.set(true);
         status.set("正在儲存設定…".into());
         spawn_local(async move {
-            let result = bridge::save_pet_settings(&id, &p).await;
+            let result = bridge::save_pet_settings_checked(&id, &p, &expected).await;
             if !request.with_untracked(|r| r.accepts(version, &selected_id.get_untracked(), &id)) {
                 return;
             }
@@ -145,9 +149,11 @@ pub fn PetSettingsEditor(
                     let p = outcome.profile;
                     let warning = outcome.sync_warning;
                     let committed: Draft = p.clone().into();
+
                     saved.set(committed.clone());
                     draft.set(committed);
                     on_saved.run((id, p));
+
                     status.set(
                         warning
                             .map(|w| {
@@ -194,44 +200,69 @@ pub fn PetSettingsEditor(
         }
     });
     view! {
-       <style>".pet-settings-form label{display:flex;flex-direction:column;gap:4px;margin:10px 0}.pet-settings-form textarea{min-height:72px;resize:vertical}.pet-settings-form fieldset{min-width:0}.pet-settings-form input,.pet-settings-form textarea{max-width:100%;box-sizing:border-box}"</style>
-       <p class="control-context-note">"喜好、個性和興趣可用換行或逗號分隔。"</p>
-       <p role="status">{move||status.get()}</p>
-       <button type="button" disabled=move||busy.get()||navigation_pending.get()||selected_id.get().is_none() on:click=move|_|{
-           if draft.get_untracked() != saved.get_untracked() && loaded.get_untracked().is_some() {
+        <style>".pet-settings-form label{display:flex;flex-direction:column;gap:4px;margin:10px 0}.pet-settings-form textarea{min-height:72px;resize:vertical}.pet-settings-form fieldset{min-width:0}.pet-settings-form input,.pet-settings-form textarea{max-width:100%;box-sizing:border-box}"</style>
+        <p class="control-context-note">"喜好、個性和興趣可用換行或逗號分隔。"</p>
+        <p role="status">{move||status.get()}</p>
+        <button type="button"
+            disabled=move||busy.get()||navigation_pending.get()||selected_id.get().is_none()
+            on:click=move|_|{if draft.get_untracked() != saved.get_untracked() && loaded.get_untracked().is_some() {
                confirm_reload.set(true);
-           } else { reload.update(|n|*n+=1); }
-       }>"重新讀取設定"</button>
-       <Show when=move||confirm_reload.get()>
-         <ReloadConfirmation
-            on_discard=Callback::new(move|_|{confirm_reload.set(false);reload.update(|n|*n+=1);})
-            on_keep=Callback::new(move|_|confirm_reload.set(false)) />
-       </Show>
-       <form class="pet-settings-form" on:submit=move|e:leptos::ev::SubmitEvent|{ e.prevent_default(); if !navigation_pending.get_untracked(){save.run(());} }>
-       <fieldset disabled=move||busy.get()||confirm_reload.get()||navigation_pending.get()||loaded.get().is_none()>
-      <SettingsFields draft />
-      <details><summary>"外觀覆寫（選用）"</summary><p>"目前尚未接通外觀儲存。"</p></details>
-      <div class="settings-actions">
-          <button type="button" on:click=move |_| {
-              draft.set(saved.get_untracked());
-              status.set("已取消未儲存變更".into());
-          }>"取消變更"</button>
-          <button type="button" on:click=move |_| resync.run(())>"重新同步生活窗"</button>
-          <button class="control-primary" type="submit">"儲存設定"</button>
-      </div>
-    </fieldset>
-       </form>
-      }
+            } else {
+                reload.update(|n|*n+=1);
+            }
+        }>"重新讀取設定"</button>
+        <Show when=move||confirm_reload.get()>
+            <ReloadConfirmation
+                on_discard=Callback::new(move|_|{confirm_reload.set(false);reload.update(|n|*n+=1);})
+                on_keep=Callback::new(move|_|confirm_reload.set(false)) />
+        </Show>
+        <form class="pet-settings-form"
+            on:submit=move|e:leptos::ev::SubmitEvent|{
+                e.prevent_default();
+                if !navigation_pending.get_untracked(){
+                    save.run(());
+                }
+            }>
+            <fieldset
+                disabled=move||busy.get()||confirm_reload.get()||navigation_pending.get()||loaded.get().is_none()>
+                <SettingsFields draft />
+                <details>
+                    <summary>"外觀覆寫（選用）"</summary>
+                    <p>"目前尚未接通外觀儲存。"</p>
+                </details>
+                <div class="settings-actions">
+                    <button type="button"
+                        on:click=move |_| {
+                            draft.set(saved.get_untracked());
+                            status.set("已取消未儲存變更".into());
+                        }
+                    >"取消變更"</button>
+                    <button type="button"
+                        on:click=move |_| resync.run(())
+                    >"重新同步生活窗"</button>
+                    <button class="control-primary"
+                        type="submit"
+                    >"儲存設定"</button>
+                </div>
+            </fieldset>
+        </form>
+    }
 }
 
 #[component]
 fn ReloadConfirmation(on_discard: Callback<()>, on_keep: Callback<()>) -> impl IntoView {
     view! {
-        <section role="alertdialog" aria-modal="false" aria-labelledby="settings-reload-title">
+        <section role="alertdialog"
+            aria-modal="false"
+            aria-labelledby="settings-reload-title">
             <h3 id="settings-reload-title">"有未儲存的設定"</h3>
             <p>"重新讀取會捨棄目前草稿，是否繼續？"</p>
-            <button type="button" on:click=move|_|on_keep.run(())>"繼續編輯"</button>
-            <button type="button" on:click=move|_|on_discard.run(())>"捨棄並重新讀取"</button>
+            <button type="button"
+                on:click=move|_|on_keep.run(())
+            >"繼續編輯"</button>
+            <button type="button"
+                on:click=move|_|on_discard.run(())
+            >"捨棄並重新讀取"</button>
         </section>
     }
 }

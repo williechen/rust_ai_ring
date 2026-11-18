@@ -89,8 +89,11 @@
     }
 
     window.browseAuthorizedDirectory = (path) => invoke("browse_authorized_directory", { path });
+    
     window.renameAuthorizedEntry = (path, from, to) => invoke("rename_authorized_entry", { path, from, to });
+    
     window.createAuthorizedDirectory = (path, name) => invoke("create_authorized_directory", { path, name });
+    
     window.compareAuthorizedDirectory = (path) => invoke("compare_authorized_directory", { path });
     
     window.showPetContextMenu = async (x, y) => {
@@ -138,6 +141,8 @@
     window.loadPetSettings = (id) => invoke("load_pet_settings", { id });
 
     window.resyncPetSettings = (id) => invoke("resync_pet_settings", { id });
+
+    window.savePetSettingsChecked = (id, profile, expected) => invoke("save_pet_settings_checked", { id, profile, expected });
 
     window.savePetSettings = (id, profile) => invoke("save_pet_settings", { id, profile });
 
