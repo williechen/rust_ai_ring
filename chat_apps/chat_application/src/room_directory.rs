@@ -80,7 +80,7 @@ pub fn rank_popular(
             .then_with(|| a.room.name.cmp(&b.room.name))
             .then_with(|| a.room.id.cmp(&b.room.id))
     });
-    ranked.truncate(10);
+    ranked.truncate(100);
     ranked
 }
 pub async fn popular(
@@ -94,8 +94,8 @@ pub async fn popular(
 mod popular_tests {
     use super::*;
     #[test]
-    fn ranking_uses_real_counts_then_name_and_id_and_limits_ten() {
-        let rooms = (0..12)
+    fn ranking_uses_real_counts_then_name_and_id_and_limits_one_hundred() {
+        let rooms = (0..112)
             .map(|i| Room {
                 id: format!("r{i:02}"),
                 name: format!("房{i:02}"),
@@ -109,7 +109,7 @@ mod popular_tests {
             ("deleted".into(), 99),
         ]);
         let result = rank_popular(rooms, &counts);
-        assert_eq!(result.len(), 10);
+        assert_eq!(result.len(), 100);
         assert_eq!(result[0].room.id, "r11");
         assert_eq!(result[0].online_count, 3);
         assert_eq!(result[1].room.id, "r10");

@@ -166,7 +166,7 @@ pub async fn popular_rooms() -> Result<Vec<crate::room_list_state::PopularRoomIt
         .ok_or("熱門聊天室內容無效")?;
     let rows: Vec<serde_json::Value> =
         serde_json::from_str(&text).map_err(|_| "熱門聊天室格式無效")?;
-    if rows.len() > 10 {
+    if rows.len() > 100 {
         return Err("熱門聊天室數量無效".into());
     }
     rows.into_iter()

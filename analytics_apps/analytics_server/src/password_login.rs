@@ -786,6 +786,10 @@ pub fn build(state: IngestState) -> Router {
             get(crate::export::export_summary),
         )
         .route(
+            "/api/v1/events/{source}/daily.csv",
+            get(crate::export::export_daily),
+        )
+        .route(
             "/api/v1/events/{source}/summary/{event_type}",
             get(crate::source_kind_summary),
         )

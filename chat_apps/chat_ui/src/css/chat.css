@@ -440,6 +440,13 @@ body:has(.chat-layout) > .site-header { flex: 0 0 auto; }
 .chat-composer button { flex: 0 0 auto; min-height: 44px; margin: 0; padding: 8px 14px; border: 0; border-radius: 10px; background: var(--brand); color: white; }
 .chat-composer button:disabled { opacity: .5; cursor: default; }
 .conversation .composer-help { flex: 0 0 auto; margin: 0; color: var(--muted); font-size: .6875rem; }
+.room-sidebar { display: flex; flex-direction: column; overflow: hidden; }
+.sidebar-content { flex: 1 1 auto; min-height: 0; overflow: hidden; }
+.popular-rooms { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.popular-rooms .room-results { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; scrollbar-width: thin; scrollbar-color: var(--muted) var(--canvas); }
+.popular-rooms .room-results::-webkit-scrollbar { width: 10px; }
+.popular-rooms .room-results::-webkit-scrollbar-track { background: var(--canvas); }
+.popular-rooms .room-results::-webkit-scrollbar-thumb { background: var(--muted); border: 2px solid var(--canvas); border-radius: 8px; }
 @media(min-width:701px) {
     body:has(.chat-layout) .site-header-inner { min-height: 48px; padding: 2px 16px; }
     body:has(.chat-layout) .site-mark { width: 28px; height: 28px; border-radius: 8px; }

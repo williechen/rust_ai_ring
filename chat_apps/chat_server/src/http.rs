@@ -450,7 +450,7 @@ mod popular_http_tests {
     #[tokio::test]
     async fn popular_mode_is_limited_counted_and_preserves_legacy_json() {
         let (state, pool) = super::room_http_tests::fixture().await;
-        for i in 0..12 {
+        for i in 0..112 {
             sqlx::query("INSERT INTO rooms(id,category_room_id,name,desc,created_at,updated_at) VALUES(?1,'default-category',?2,'',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)")
                 .bind(format!("r{i:02}")).bind(format!("房{i:02}")).execute(&pool).await.unwrap();
         }
@@ -467,14 +467,14 @@ mod popular_http_tests {
         .await
         .unwrap()
         .0;
-        assert_eq!(popular.len(), 10);
+        assert_eq!(popular.len(), 100);
         assert_eq!(popular[0].id, "r11");
         assert_eq!(popular[0].online_count, Some(2));
         let legacy = list_rooms(State(state.clone()), Query(RoomSearch::default()))
             .await
             .unwrap()
             .0;
-        assert_eq!(legacy.len(), 12);
+        assert_eq!(legacy.len(), 112);
         assert!(
             !serde_json::to_string(&legacy)
                 .unwrap()
