@@ -69,6 +69,7 @@ pub(crate) async fn require(
         "/api/v1/events/{source}/summary"
         | "/api/v1/events/{source}/summary/{event_type}"
         | "/api/v1/events/{source}/export.csv" => route,
+        "/api/v1/events/{source}/daily.csv" => "/api/v1/events/{source}/export.csv",
         _ => return next.run(request).await,
     };
     let Some(crud) = operation(route, request.method()) else {

@@ -124,7 +124,7 @@ fn DashboardView(
         <html lang="zh-Hant">
             <head>
                 <meta charset="utf-8"/>
-                 <meta name="viewport" content="width=device-width, initial-scale=1"/>
+                <meta name="viewport" content="width=device-width, initial-scale=1"/>
                 <title>"Analytics 管理後台"</title>
                 // TODO: 有兩個樣式內容 為何不能放一起
                 <style data-project-style="analytics">{include_str!("css/dashboard.css")}</style>
@@ -137,14 +137,19 @@ fn DashboardView(
                             <p>"資訊分析"</p>
                             <h2>"來源分析"</h2>
                             <span class="report-source">{selected_source}</span>
-                            <nav class="report-actions" aria-label="切換報表來源">{source_shortcuts}</nav>
+                            <nav class="report-actions"
+                                aria-label="切換報表來源">{source_shortcuts}</nav>
                         </header>
-                        <section class="report-card" aria-labelledby="report-filters-title">
+                        <section class="report-card"
+                            aria-labelledby="report-filters-title">
                             <h3 id="report-filters-title">"查詢條件"</h3>
-                             <form class="report-filters" method="get" action=if has_range {"/dashboard#daily-chart-title"} else {"/dashboard#report-results-title"}>
+                             <form class="report-filters"
+                                method="get"
+                                action=if has_range {"/dashboard#daily-chart-title"} else {"/dashboard#report-results-title"}>
                                 <div class="report-field">
                                     <label for="analytics-source">"來源"</label>
-                                    <select id="analytics-source" name="source">{source_options}</select>
+                                    <select id="analytics-source"
+                                        name="source">{source_options}</select>
                                 </div>
                                 <div class="report-field">
                                     <label for="event-type">"事件類型（精確比對）"</label>
@@ -158,43 +163,74 @@ fn DashboardView(
                                     />
                                 </div>
                                 <Show when=move||has_range>
-                                  <label>"起日（UTC）"<input type="date" name="start" value=form_start.clone()/></label>
-                                  <label>"迄日（UTC，不含）"<input type="date" name="end" value=form_end.clone()/></label>
+                                    <label>"起日（UTC）"
+                                        <input type="date" name="start" value=form_start.clone()/>
+                                    </label>
+                                    <label>"迄日（UTC，不含）"
+                                        <input type="date" name="end" value=form_end.clone()/>
+                                    </label>
                                 </Show>
                                 <datalist id="report-event-types">{event_suggestions}</datalist>
                                 <p>"可選取本頁事件的字典代碼，或輸入原始事件類型做精確比對。"</p>
                                 <div class="report-actions">
-                                 <label for="report-page-size">"每頁筆數"</label>
-                                   <select id="report-page-size" name="page_size">
+                                    <label for="report-page-size">"每頁筆數"</label>
+                                    <select id="report-page-size"
+                                       name="page_size">
                                        {[10, 25, 50].into_iter().map(|size| view! {
-                                            <option value=size.to_string() selected=size==page_size>{size}</option>
+                                            <option value=size.to_string()
+                                                selected=size==page_size>{size}</option>
                                         }).collect_view()}
                                     </select>
-                                    <button type="submit" class="report-primary">"篩選"</button>
+                                    <button type="submit"
+                                        class="report-primary">"篩選"</button>
                                     <a href=clear_url>"清除篩選"</a>
                                     <a href=if has_range {"#daily-chart-title"} else {"#report-results-title"}>"跳至查詢結果"</a>
                                 </div>
                             </form>
-                       </section>
-                       {daily.map(|report|view!{<crate::daily_chart::DailyChart report/>})}
-                        <details class="legacy-statistics" open=legacy_open><summary>"類型統計與CSV明細（相容查詢，未套用日期範圍）"</summary>
-                        <section class="report-card" aria-labelledby="report-results-title">
-                            <header class="report-results-head">
-                                <div>
-                                    <h3 id="report-results-title" tabindex="-1">"查詢結果"</h3>
-                                    <p>{filter_description}</p>
+                        </section>
+                        {daily.map(|report|{
+                            let url=format!("/api/v1/events/{}/daily.csv?event_type={}&start={}&end={}",source,crate::dashboard_url::encode_query_component(&event_type),report.start,report.end);
+                            view!{
+                                <crate::daily_chart::DailyChart report/>
+                                {can_export.then(||view!{
+                                    <a class="report-export daily-export"
+                                        href=url>
+                                        "匯出每日圖表 CSV"
+                                    </a>})
+                                }
+                            }
+                        })}
+                        <details class="legacy-statistics"
+                            open=legacy_open>
+                            <summary>"類型統計與CSV明細（相容查詢，未套用日期範圍）"</summary>
+                            <section class="report-card"
+                                aria-labelledby="report-results-title">
+                                <header class="report-results-head">
+                                    <div>
+                                        <h3 id="report-results-title"
+                                            tabindex="-1">"查詢結果"</h3>
+                                        <p>{filter_description}</p>
+                                    </div>
+                                    {can_export.then(|| view! { <a class="report-export" href=export_url>"匯出目前篩選 CSV"</a> })}
+                                </header>
+                                <div class="report-summary">
+                                    <p class="summary-count"
+                                        aria-live="polite">{count_label}</p>
+                                    <span>{format!("{kinds} 個事件類型")}</span>
                                 </div>
-                                {can_export.then(|| view! { <a class="report-export" href=export_url>"匯出目前篩選 CSV"</a> })}
-                            </header>
-                            <div class="report-summary">
-                                <p class="summary-count" aria-live="polite">{count_label}</p>
-                                <span>{format!("{kinds} 個事件類型")}</span>
-                            </div>
-                            <div class="report-table-wrap" role="region" aria-label="事件類型明細" tabindex="0">
-                                <table>
-                                    <caption>"已提交事件類型明細"</caption>
-                                    <thead><tr><th scope="col">"事件類型"</th><th scope="col">"已提交筆數"</th></tr></thead>
-                                    <tbody>
+                                <div class="report-table-wrap"
+                                    role="region"
+                                    aria-label="事件類型明細"
+                                    tabindex="0">
+                                    <table>
+                                        <caption>"已提交事件類型明細"</caption>
+                                        <thead>
+                                            <tr>
+                                                <th scope="col">"事件類型"</th>
+                                                <th scope="col">"已提交筆數"</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
                                         {rows.into_iter().map(|(kind, count)| {
                                             let detail_url = with_date_range(dashboard_url(&filter_source, &kind, 1, page_size), &date_range);
                                             let label = events.get(&kind).filter(|label| *label != &kind).cloned();
@@ -208,28 +244,48 @@ fn DashboardView(
                                                 <td>{count}</td>
                                             </tr> }
                                         }).collect_view()}
-                                    </tbody>
-                                </table>
-                            </div>
-                            <p class="report-status" role="status">
-                                {if total == 0 { "沒有符合條件的已提交事件" } else { "查詢完成" }}
-                            </p>
-                             <nav class="report-actions" aria-label="報表分頁">
-                                {previous_url.map(|href| view! { <a href=href>"上一頁"</a> })}
-                                <span>{format!("第 {page} / {total_pages} 頁 · 共 {total_kinds} 個事件類型")}</span>
-                                {next_url.map(|href| view! { <a href=href>"下一頁"</a> })}
-                                  <form class="report-page-jump" method="get" action=if has_range {"/dashboard#daily-chart-title"} else {"/dashboard#report-results-title"}>
-                                    <input type="hidden" name="source" value=source/>
-                                    <input type="hidden" name="event_type" value=event_type/>
-                                    <input type="hidden" name="page_size" value=page_size.to_string()/>
-                                     {has_range.then(||view!{<input type="hidden" name="start" value=range_start.clone()/><input type="hidden" name="end" value=range_end.clone()/>})}
-                                    <label for="report-page-number">"前往頁碼"</label>
-                                    <input id="report-page-number" type="number" name="page" min="1"
-                                        max=total_pages.to_string() value=page.to_string() required/>
-                                    <button type="submit">"前往"</button>
-                                </form>
-                            </nav>
-                        </section>
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <p class="report-status"
+                                    role="status">
+                                    {if total == 0 { "沒有符合條件的已提交事件" } else { "查詢完成" }}
+                                </p>
+                                <nav class="report-actions"
+                                    aria-label="報表分頁">
+                                    {previous_url.map(|href| view! { <a href=href>"上一頁"</a> })}
+                                    <span>{format!("第 {page} / {total_pages} 頁 · 共 {total_kinds} 個事件類型")}</span>
+                                    {next_url.map(|href| view! { <a href=href>"下一頁"</a> })}
+                                    <form class="report-page-jump"
+                                        method="get"
+                                        action=if has_range {"/dashboard#daily-chart-title"} else {"/dashboard#report-results-title"}>
+                                        <input type="hidden"
+                                            name="source"
+                                            value=source/>
+                                        <input type="hidden"
+                                            name="event_type"
+                                            value=event_type/>
+                                        <input type="hidden"
+                                            name="page_size"
+                                            value=page_size.to_string()/>
+                                        {has_range.then(||view!{<input type="hidden"
+                                                                    name="start"
+                                                                    value=range_start.clone()/>
+                                                                <input type="hidden"
+                                                                    name="end"
+                                                                    value=range_end.clone()/>})}
+                                        <label for="report-page-number">"前往頁碼"</label>
+                                        <input id="report-page-number"
+                                            type="number"
+                                            name="page"
+                                            min="1"
+                                            max=total_pages.to_string()
+                                            value=page.to_string()
+                                            required/>
+                                        <button type="submit">"前往"</button>
+                                    </form>
+                                </nav>
+                            </section>
                         </details>
                     </div>
                 </ManagementShell>
@@ -248,7 +304,7 @@ pub(crate) fn render_dashboard_unavailable(retry: String) -> String {
                     <meta name="viewport" content="width=device-width, initial-scale=1"/>
                     <title>"來源分析暫時無法讀取"</title>
                     <style data-project-style="analytics">{include_str!("css/dashboard.css")}</style>
-                <link rel="stylesheet" href="/assets/source-report.css"/>
+                    <link rel="stylesheet" href="/assets/source-report.css"/>
                 </head>
                 <body>
                     <main class="report-unavailable">

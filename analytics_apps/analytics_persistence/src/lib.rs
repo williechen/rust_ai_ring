@@ -7,6 +7,7 @@ pub mod login_session;
 pub mod navigation;
 pub mod page_permissions;
 pub mod session_settings;
+pub mod summary;
 pub mod viewer_access;
 
 /// PostgreSQL 聚合查詢結果，供 JSON API 與 Leptos SSR 共用。
@@ -74,8 +75,11 @@ pub async fn dashboard_dictionary(
             , COALESCE(wire_value, code)
             , value
         FROM codemap
-        WHERE (category = 'source_app' AND code = ANY($1))
-        OR (category = 'event_type' AND wire_value = ANY($2))",
+        WHERE (category = 'source_app' 
+            AND code = ANY($1))
+            OR (category = 'event_type' 
+                AND wire_value = ANY($2)
+            )",
     )
     .bind(visible_sources)
     .bind(visible_events)
