@@ -67,8 +67,8 @@ pub async fn export_daily(
     {
         return Err(StatusCode::BAD_REQUEST);
     }
-    let report = analytics_persistence::daily_report::read(
-        &state.pool,
+    let report = analytics_application::daily_report::load(
+        &analytics_persistence::daily_report::PgDailyReport(state.pool.clone()),
         &source,
         &query.event_type,
         query.start.as_deref(),

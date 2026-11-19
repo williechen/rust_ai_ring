@@ -191,7 +191,7 @@ fn DashboardView(
                         {daily.map(|report|{
                             let url=format!("/api/v1/events/{}/daily.csv?event_type={}&start={}&end={}",source,crate::dashboard_url::encode_query_component(&event_type),report.start,report.end);
                             view!{
-                                <crate::daily_chart::DailyChart report/>
+                                <crate::daily_chart::DailyChart report source=source.clone() kind=event_type.clone() page_size/>
                                 {can_export.then(||view!{
                                     <a class="report-export daily-export"
                                         href=url>

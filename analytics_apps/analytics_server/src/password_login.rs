@@ -557,8 +557,8 @@ async fn dashboard(
         Ok(dictionary) => dictionary,
         Err(_) => return unavailable(),
     };
-    let daily = match analytics_persistence::daily_report::read(
-        &state.pool,
+    let daily = match analytics_application::daily_report::load(
+        &analytics_persistence::daily_report::PgDailyReport(state.pool.clone()),
         source,
         kind,
         query.start.as_deref(),

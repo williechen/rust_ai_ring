@@ -4,6 +4,7 @@ pub enum DailyError {
     Invalid,
     Database(sqlx::Error),
 }
+
 impl From<sqlx::Error> for DailyError {
     fn from(e: sqlx::Error) -> Self {
         if e.as_database_error()
@@ -16,6 +17,7 @@ impl From<sqlx::Error> for DailyError {
         }
     }
 }
+
 /// 各日與未知日期數在同一唯讀快照讀取；只使用明確發生時間。
 pub async fn read(
     pool: &sqlx::PgPool,
@@ -27,26 +29,102 @@ pub async fn read(
     if start.is_some_and(|s| !date_shape(s)) || end.is_some_and(|s| !date_shape(s)) {
         return Err(DailyError::Invalid);
     }
+
     let mut tx = pool.begin().await?;
     sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
         .execute(&mut *tx)
         .await?;
-    let (start,end,span):(String,String,i32)=sqlx::query_as("WITH r AS (SELECT COALESCE($1::date,(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::date-6) a,COALESCE($2::date,(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::date+1) b) SELECT a::text,b::text,b-a FROM r")
-       .bind(start).bind(end).fetch_one(&mut *tx).await?;
+
+    let (start, end, span): (String, String, i32) = sqlx::query_as(
+        r#"WITH r AS (
+            SELECT COALESCE($1::date,(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::date-6) a
+                ,COALESCE($2::date,(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::date+1) b
+        )
+        SELECT a::text
+            ,b::text
+            ,b-a
+        FROM r"#,
+    )
+    .bind(start)
+    .bind(end)
+    .fetch_one(&mut *tx)
+    .await?;
+
     if !(1..=31).contains(&span) {
         return Err(DailyError::Invalid);
     }
-    let rows:Vec<(String,i64)>=sqlx::query_as("WITH days AS (SELECT generate_series($3::date::timestamp,($4::date-1)::timestamp,interval '1 day')::date AS report_day) SELECT report_day::text,COUNT(p.event_id)::bigint FROM days LEFT JOIN product_events p ON p.source_app=$1 AND p.occurred_at >= (report_day::timestamp AT TIME ZONE 'UTC') AND p.occurred_at < ((report_day+1)::timestamp AT TIME ZONE 'UTC') AND ($2='' OR EXISTS(SELECT 1 FROM codemap c WHERE c.category='event_type' AND c.code=p.event_type AND c.wire_value=$2)) GROUP BY report_day ORDER BY report_day")
-       .bind(source).bind(kind).bind(&start).bind(&end).fetch_all(&mut *tx).await?;
-    let unknown_dates:i64=sqlx::query_scalar("SELECT COUNT(*)::bigint FROM product_events p WHERE p.source_app=$1 AND p.occurred_at IS NULL AND ($2='' OR EXISTS(SELECT 1 FROM codemap c WHERE c.category='event_type' AND c.code=p.event_type AND c.wire_value=$2))")
-       .bind(source).bind(kind).fetch_one(&mut *tx).await?;
+
+    let rows:Vec<(String,i64)> = sqlx::query_as(
+        r#"WITH days AS (
+            SELECT generate_series($3::date::timestamp,($4::date-1)::timestamp,interval '1 day')::date AS report_day
+        )
+        SELECT report_day::text,COUNT(p.event_id)::bigint
+        FROM days
+        LEFT JOIN product_events p
+            ON p.source_app=$1
+            AND p.occurred_at >= (report_day::timestamp AT TIME ZONE 'UTC')
+            AND p.occurred_at < ((report_day+1)::timestamp AT TIME ZONE 'UTC')
+            AND ($2='' OR EXISTS(
+                SELECT 1
+                FROM codemap c
+                WHERE c.category='event_type'
+                    AND c.code=p.event_type
+                    AND c.wire_value=$2
+                )
+            )
+        GROUP BY report_day
+        ORDER BY report_day"#
+    )
+    .bind(source)
+    .bind(kind)
+    .bind(&start)
+    .bind(&end)
+    .fetch_all(&mut *tx)
+    .await?;
+
+    let unknown_dates: i64 = sqlx::query_scalar(
+        r#"SELECT COUNT(*)::bigint 
+        FROM product_events p 
+        WHERE p.source_app=$1 
+            AND p.occurred_at IS NULL 
+            AND ($2='' OR EXISTS(
+                SELECT 1 
+                FROM codemap c 
+                WHERE c.category='event_type' 
+                    AND c.code=p.event_type 
+                    AND c.wire_value=$2
+                )
+            )"#,
+    )
+    .bind(source)
+    .bind(kind)
+    .fetch_one(&mut *tx)
+    .await?;
+
     tx.commit().await?;
+
     Ok(DailyReport {
         start,
         end,
         rows,
         unknown_dates,
     })
+}
+
+pub struct PgDailyReport(pub sqlx::PgPool);
+
+impl analytics_application::daily_report::DailyStore for PgDailyReport {
+    type Error = DailyError;
+
+    async fn read(
+        &self,
+        source: &str,
+        kind: &str,
+        start: Option<&str>,
+        end: Option<&str>,
+    ) -> Result<DailyReport, DailyError> {
+        read(&self.0, source, kind, start, end).await
+    }
 }
 
 #[cfg(all(test, feature = "postgres-integration"))]
