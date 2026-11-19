@@ -16,16 +16,31 @@ impl LoginAttempt {
             .begin_with("BEGIN IMMEDIATE")
             .await
             .map_err(|_| "無法開始登入交易")?;
-        let row:Option<(String,String,bool,bool)>=sqlx::query_as("SELECT id,user_pd,user_status='active',is_init_pd FROM mbr_user WHERE lower(user_acnt)=lower(?1)").bind(name).fetch_optional(&mut *tx).await.map_err(|_|"無法讀取登入帳號")?;
+
+        let row: Option<(String, String, bool, bool)> = sqlx::query_as(
+            r#"SELECT id
+                ,user_pd
+                ,user_status='active'
+                ,is_init_pd 
+            FROM mbr_user 
+            WHERE lower(user_acnt)=lower(?1)"#,
+        )
+        .bind(name)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|_| "無法讀取登入帳號")?;
+
         let Some((user_id, password_hash, true, initial)) = row else {
             tx.commit().await.map_err(|_| "無法結束登入交易")?;
             return Ok(None);
         };
+
         sqlx::query("INSERT OR IGNORE INTO mbr_login_attempt(user_id) VALUES(?1)")
             .bind(&user_id)
             .execute(&mut *tx)
             .await
             .map_err(|_| "無法準備登入等待資料")?;
+
         Ok(Some(Self {
             tx,
             user_id,
@@ -50,7 +65,7 @@ impl LoginAttempt {
     }
 
     pub async fn session(mut self, id: &str, digest: &str) -> Result<(), String> {
-        sqlx::query("INSERT INTO mbr_session(id,mbr_user_id,token_hash,expires_at) VALUES(?1,?2,?3,unixepoch()+?4)")
+        sqlx::query(r#"INSERT INTO mbr_session(id,mbr_user_id,token_hash,expires_at) VALUES(?1,?2,?3,unixepoch()+?4)"#)
         .bind(id)
         .bind(&self.user_id)
         .bind(digest)
@@ -65,7 +80,7 @@ impl LoginAttempt {
 impl AttemptStore for LoginAttempt {
     async fn read(&mut self) -> Result<WaitState, String> {
         let row: (String, String, String) = sqlx::query_as(
-            "SELECT failures,next_delay,blocked_until FROM mbr_login_attempt WHERE user_id=?1",
+            r#"SELECT failures,next_delay,blocked_until FROM mbr_login_attempt WHERE user_id=?1"#,
         )
         .bind(&self.user_id)
         .fetch_one(&mut *self.tx)
@@ -79,7 +94,16 @@ impl AttemptStore for LoginAttempt {
     }
 
     async fn write(&mut self, s: &WaitState) -> Result<(), String> {
-        sqlx::query("UPDATE mbr_login_attempt SET failures=?1,next_delay=?2,blocked_until=?3 WHERE user_id=?4").bind(&s.failures).bind(&s.delay).bind(&s.until).bind(&self.user_id).execute(&mut *self.tx).await.map_err(|_|"無法儲存登入等待資料")?;
+        sqlx::query(
+            r#"UPDATE mbr_login_attempt SET failures=?1,next_delay=?2,blocked_until=?3 WHERE user_id=?4"#,
+        )
+        .bind(&s.failures)
+        .bind(&s.delay)
+        .bind(&s.until)
+        .bind(&self.user_id)
+        .execute(&mut *self.tx)
+        .await
+        .map_err(|_| "無法儲存登入等待資料")?;
         Ok(())
     }
 }

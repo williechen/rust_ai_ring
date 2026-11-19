@@ -39,12 +39,24 @@ pub async fn search_rooms_in_category(
     query: &str,
     category: &str,
 ) -> Result<Vec<RoomListItem>, String> {
+    search_rooms_cancellable(
+        query,
+        category,
+        &crate::directory_request::Cancellation::default(),
+    )
+    .await
+}
+pub async fn search_rooms_cancellable(
+    query: &str,
+    category: &str,
+    cancellation: &crate::directory_request::Cancellation,
+) -> Result<Vec<RoomListItem>, String> {
     let params = web_sys::UrlSearchParams::new().map_err(|_| "無法建立查詢")?;
     params.append("q", query);
     params.append("labels", "true");
     params.append("category", category);
     let url = format!("/api/rooms?{}", params.to_string());
-    let text = crate::directory_request::text(&url).await?;
+    let text = crate::directory_request::text_cancellable(&url, cancellation).await?;
     let rows: Vec<serde_json::Value> = serde_json::from_str(&text).map_err(|_| "房間格式錯誤")?;
     rows.into_iter()
         .map(|row| {
@@ -136,7 +148,14 @@ pub async fn logout_csrf() -> Result<String, String> {
 }
 
 pub async fn room_categories() -> Result<Vec<crate::room_list_state::CategoryItem>, String> {
-    let text = crate::directory_request::text("/api/room-categories").await?;
+    room_categories_cancellable(&crate::directory_request::Cancellation::default()).await
+}
+
+pub async fn room_categories_cancellable(
+    cancellation: &crate::directory_request::Cancellation,
+) -> Result<Vec<crate::room_list_state::CategoryItem>, String> {
+    let text =
+        crate::directory_request::text_cancellable("/api/room-categories", cancellation).await?;
     let rows: Vec<serde_json::Value> = serde_json::from_str(&text).map_err(|_| "分類格式無效")?;
     rows.into_iter()
         .map(|row| {

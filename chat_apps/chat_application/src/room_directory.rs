@@ -58,6 +58,7 @@ pub async fn filtered(
 pub trait OnlineRoomCounts: Send + Sync {
     fn snapshot(&self) -> std::collections::HashMap<String, usize>;
 }
+
 pub struct PopularRoom {
     pub room: Room,
     pub online_count: usize,
@@ -83,6 +84,7 @@ pub fn rank_popular(
     ranked.truncate(100);
     ranked
 }
+
 pub async fn popular(
     repository: &dyn RoomRepository,
     presence: &dyn OnlineRoomCounts,
@@ -90,6 +92,7 @@ pub async fn popular(
     let rooms = repository.list().await.map_err(DirectoryError::Store)?;
     Ok(rank_popular(rooms, &presence.snapshot()))
 }
+
 #[cfg(test)]
 mod popular_tests {
     use super::*;

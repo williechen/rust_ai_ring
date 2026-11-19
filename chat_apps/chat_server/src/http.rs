@@ -526,20 +526,12 @@ pub async fn room_members(
         return Err(StatusCode::BAD_REQUEST);
     }
     crate::ws::authorize_socket(&state, &pool, &headers, &id).await?;
-    let mut names = Vec::new();
-    for member in state.room_hub.online_members(&id) {
-        let name: Option<String> = sqlx::query_scalar(
-            "SELECT user_name FROM mbr_user WHERE id=? AND user_status='active'",
-        )
-        .bind(member)
-        .fetch_optional(&pool)
-        .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-        if let Some(name) = name {
-            names.push(name);
-        }
-    }
-    names.sort();
+    let names = chat_application::member_names::online_names(
+        &chat_persistence::member_names::SqliteMemberNames(pool.clone()),
+        state.room_hub.online_members(&id),
+    )
+    .await
+    .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     Ok((
         [(axum::http::header::CACHE_CONTROL, "no-store")],
         Json(names),

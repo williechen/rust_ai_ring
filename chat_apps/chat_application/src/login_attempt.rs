@@ -1,4 +1,5 @@
 use shared::login_wait::{WaitState, failed, remaining};
+
 /// 登入等待儲存介面；交易與時鐘由Adapter提供。
 pub trait AttemptStore {
     fn read(&mut self) -> impl std::future::Future<Output = Result<WaitState, String>> + Send;

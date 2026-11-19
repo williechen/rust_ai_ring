@@ -9,7 +9,7 @@ pub async fn list(pool: &SqlitePool) -> Result<Vec<(String, String)>, sqlx::Erro
         WHERE category='room_category' 
         ORDER BY 
             CASE 
-            WHEN code='default-category' THEN 0 
+                WHEN code='default-category' THEN 0 
             ELSE 1 END
             ,code"#,
     )
@@ -23,7 +23,7 @@ pub async fn contains(pool: &SqlitePool, code: &str) -> Result<bool, sqlx::Error
             SELECT 1 
             FROM codemap 
             WHERE category='room_category' 
-            AND code=?1
+                AND code=?1
         )"#,
     )
     .bind(code)

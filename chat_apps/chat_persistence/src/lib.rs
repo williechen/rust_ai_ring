@@ -1,4 +1,5 @@
 pub mod login_attempt;
+pub mod member_names;
 pub mod member_profile;
 pub mod member_session;
 pub mod room_access;
@@ -61,10 +62,33 @@ impl RoomRepository for SqliteRoomRepository {
             .replace('\\', "\\\\")
             .replace('%', "\\%")
             .replace('_', "\\_");
-        sqlx::query_as::<_,RoomRow>("SELECT r.id,r.category_room_id,r.name,c.value AS category_label FROM rooms r JOIN codemap c ON c.category='room_category' AND c.code=r.category_room_id WHERE (?1='' OR r.name LIKE ?2 ESCAPE '\\') AND (?3='' OR r.category_room_id=?3) ORDER BY r.name,r.id")
-          .bind(query).bind(format!("%{escaped}%")).bind(category).fetch_all(&self.pool).await
-          .map(|rows|rows.into_iter().map(Room::from).collect()).map_err(|e|RepositoryError::RoomAccessError(e.to_string()))
+        sqlx::query_as::<_, RoomRow>(
+            r#"SELECT r.id
+                ,r.category_room_id
+                ,r.name
+                ,c.value AS category_label 
+            FROM rooms r 
+            JOIN codemap c 
+                ON c.category='room_category' 
+                AND c.code=r.category_room_id 
+            WHERE (?1='' 
+               OR r.name LIKE ?2 ESCAPE '\\'
+            ) 
+                AND (?3='' 
+                    OR r.category_room_id=?3
+                ) 
+            ORDER BY r.name
+                ,r.id"#,
+        )
+        .bind(query)
+        .bind(format!("%{escaped}%"))
+        .bind(category)
+        .fetch_all(&self.pool)
+        .await
+        .map(|rows| rows.into_iter().map(Room::from).collect())
+        .map_err(|e| RepositoryError::RoomAccessError(e.to_string()))
     }
+
     async fn categories(
         &self,
     ) -> Result<Vec<chat_application::repository::RoomCategory>, RepositoryError> {
@@ -81,11 +105,11 @@ impl RoomRepository for SqliteRoomRepository {
     async fn find_by_id(&self, room_id: &str) -> Result<Option<Room>, RepositoryError> {
         sqlx::query_as::<_, RoomRow>(
             r#"SELECT id
-                    , category_room_id
-                    , NULL AS category_label
-                    , name
-                FROM rooms
-                WHERE id = $1
+                , category_room_id
+                , NULL AS category_label
+                , name
+            FROM rooms
+            WHERE id = $1
             "#,
         )
         .bind(room_id)
@@ -97,16 +121,13 @@ impl RoomRepository for SqliteRoomRepository {
 
     async fn create(&self, room: &Room) -> Result<(), RepositoryError> {
         sqlx::query(
-            r#"
-            INSERT INTO rooms (
-                id
+            r#"INSERT INTO rooms (id
                 , category_room_id
                 , name
                 , desc
                 , created_at
                 , updated_at
-            )
-            VALUES ($1, $2, $3, '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            ) VALUES ($1, $2, $3, '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             "#,
         )
         .bind(&room.id)
@@ -190,13 +211,12 @@ impl MessageRepository for SqliteMessageRepository {
         };
         // 標準 INSERT 語意；$1~$5 僅是 PostgreSQL driver placeholder。
         sqlx::query(
-            "INSERT INTO messages (
-                id
+            "INSERT INTO messages (id
                 , room_id
                 , author_kind
                 , author_id
-                , content)
-            VALUES ($1, $2, $3, $4, $5)",
+                , content
+            ) VALUES ($1, $2, $3, $4, $5)",
         )
         .bind(&message.id)
         .bind(&message.room_id)
@@ -265,16 +285,13 @@ mod tests {
     #[sqlx::test(migrations = "../migrations")]
     async fn test_room_repository_find_by_id(pool: SqlitePool) {
         sqlx::query(
-            r#"
-            INSERT INTO rooms (
-                id,
-                category_room_id,
-                name,
-                desc,
-                created_at,
-                updated_at
-            )
-            VALUES ($1, $2, $3, '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            r#"INSERT INTO rooms (id
+                ,category_room_id
+                ,name
+                ,desc
+                ,created_at
+                ,updated_at
+            ) VALUES ($1, $2, $3, '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             "#,
         )
         .bind("room-rust")

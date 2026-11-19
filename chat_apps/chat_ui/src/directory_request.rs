@@ -1,4 +1,7 @@
-use std::{cell::Cell, rc::Rc};
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
+};
 use wasm_bindgen::{JsCast, closure::Closure};
 use wasm_bindgen_futures::JsFuture;
 
@@ -48,10 +51,21 @@ impl Deadline {
     }
 }
 pub async fn text(url: &str) -> Result<String, String> {
+    let cancellation = Cancellation::default();
+    text_cancellable(url, &cancellation).await
+}
+
+pub async fn text_cancellable(url: &str, cancellation: &Cancellation) -> Result<String, String> {
+    if cancellation.cancelled.get() {
+        return Err("已取消查詢".into());
+    }
     let scope = Deadline::new(web_sys::window().ok_or("無法取得瀏覽器")?)?;
+    *cancellation.current.borrow_mut() = Some(scope.controller.clone());
+
     let options = web_sys::RequestInit::new();
     options.set_cache(web_sys::RequestCache::NoStore);
     options.set_signal(Some(&scope.controller.signal()));
+
     let value = JsFuture::from(scope.window.fetch_with_str_and_init(url, &options))
         .await
         .map_err(|_| scope.error())?;
@@ -59,9 +73,24 @@ pub async fn text(url: &str) -> Result<String, String> {
     if !response.ok() {
         return Err(format!("讀取失敗：HTTP {}", response.status()));
     }
+
     JsFuture::from(response.text().map_err(|_| "讀取本文失敗")?)
         .await
         .map_err(|_| scope.error())?
         .as_string()
         .ok_or_else(|| "回應不是文字".into())
+}
+
+#[derive(Clone, Default)]
+pub(crate) struct Cancellation {
+    cancelled: Rc<Cell<bool>>,
+    current: Rc<RefCell<Option<web_sys::AbortController>>>,
+}
+impl Cancellation {
+    pub fn cancel(&self) {
+        self.cancelled.set(true);
+        if let Some(controller) = self.current.borrow_mut().take() {
+            controller.abort();
+        }
+    }
 }
