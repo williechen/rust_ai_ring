@@ -220,7 +220,7 @@ fn App() -> impl IntoView {
                 <Show when=move || active_pet.get().is_some() fallback=|| ()>
                     <PetStatus snapshot blinking animation_phase />
                 </Show>
-                <button type="button" 
+                <button type="button"
                     on:click=move |_| spawn_local(async move {
                         if let Err(e)=bridge::cage_saved_pet().await {
                             set_error.set(Some(e));
@@ -283,13 +283,13 @@ fn App() -> impl IntoView {
         <main class="control-shell">
             <style>{include_str!("css/control.css")}</style>
            <header class="control-heading">
-                <span class="control-mark" 
+                <span class="control-mark"
                     aria-hidden="true">"P"</span>
                 <h1>"Pet｜桌面陪伴"</h1>
             </header>
-            <ControlNavigation page 
+            <ControlNavigation page
                 on_navigate=Callback::new(move |next|request_navigation.run(SettingsDestination::Page(next))) />
-            <div class="control-context" 
+            <div class="control-context"
                 hidden=move || !matches!(page.get(), ControlPage::Interaction | ControlPage::Settings | ControlPage::Memory)>
                 <label class="control-pet-picker">
                     <span>"目前寵物"</span>
@@ -305,12 +305,12 @@ fn App() -> impl IntoView {
                             }
                         }>
                         <option value="">"選擇寵物"</option>
-                        <For each=move || saved_pets.get() 
+                        <For each=move || saved_pets.get()
                             key=|pet| (pet.id.clone(), pet.name.clone())
                             children=move |pet| {
                                 let id = pet.id.clone();
                                 view! {
-                                    <option value=pet.id 
+                                    <option value=pet.id
                                         prop:selected=move || management_pet_id.with(|selected| selected.as_ref() == Some(&id))
                                     >{pet.name}</option>
                                 }
@@ -319,9 +319,9 @@ fn App() -> impl IntoView {
                 </label>
                 <p class="control-context-note">"選擇對象只會切換管理畫面。"</p>
                 <Show when=move || pending.get().is_some()>
-                    <section class="settings-navigation-confirmation" 
-                        role="alertdialog" 
-                        aria-modal="false" 
+                    <section class="settings-navigation-confirmation"
+                        role="alertdialog"
+                        aria-modal="false"
                         aria-labelledby="settings-navigation-title">
                         <h2 id="settings-navigation-title">"設定尚未儲存"</h2>
                         <p>"切換前請儲存設定、捨棄草稿，或留在目前畫面。儲存失敗會保留草稿與原對象。"</p>
@@ -329,8 +329,8 @@ fn App() -> impl IntoView {
                             disabled=move || settings_busy.get() 
                             on:click=move |_| pending.set(None)
                         >"留在此頁"</button>
-                        <button type="button" 
-                            disabled=move || settings_busy.get() 
+                        <button type="button"
+                            disabled=move || settings_busy.get()
                             on:click=move |_| {
                                 settings_discard.update(|n|*n+=1);
                                 settings_dirty.set(false);
@@ -340,17 +340,17 @@ fn App() -> impl IntoView {
                                 }
                             }
                         >"捨棄並切換"</button>
-                        <button type="button" 
-                            disabled=move || settings_busy.get() 
+                        <button type="button"
+                            disabled=move || settings_busy.get()
                             on:click=move |_| settings_save.update(|n|*n+=1)
                         >"儲存後切換"</button>
                     </section>
                 </Show>
             </div>
 
-            <section id="pet-interaction" 
-                role="tabpanel" 
-                aria-labelledby="pet-interaction-tab" 
+            <section id="pet-interaction"
+                role="tabpanel"
+                aria-labelledby="pet-interaction-tab"
                 tabindex="0"
                 hidden=move || page.get() != ControlPage::Interaction>
                 <div class="control-section-heading">
@@ -360,7 +360,7 @@ fn App() -> impl IntoView {
                     </div>
                 </div>
 
-                <For each=move || {activity_target::activity_target(&saved_pets.get(), management_pet_id.get().as_deref()).into_iter().collect::<Vec<_>>()} 
+                <For each=move || {activity_target::activity_target(&saved_pets.get(),management_pet_id.get().as_deref()).into_iter().collect::<Vec<_>>()}
                     key=String::clone
                     children=move |id| view! {{
                         let display_id = id.clone();
@@ -403,9 +403,9 @@ fn App() -> impl IntoView {
                 </details>
             </section>
 
-            <section id="pet-settings" 
-                role="tabpanel" 
-                aria-labelledby="pet-settings-tab" 
+            <section id="pet-settings"
+                role="tabpanel"
+                aria-labelledby="pet-settings-tab"
                 tabindex="0"
                 hidden=move || page.get() != ControlPage::Settings>
 
@@ -418,22 +418,22 @@ fn App() -> impl IntoView {
 
                 <p class="control-context-note">"編輯這隻寵物的資料，儲存前不會寫入。"</p>
 
-                <div class="settings-jump" 
-                    role="group" 
+                <div class="settings-jump"
+                    role="group"
                     aria-label="設定分類">
-                    <button type="button" 
+                    <button type="button"
                         aria-pressed=move || (!startup_view.get()).to_string()
-                        aria-controls="pet-settings-profile" 
+                        aria-controls="pet-settings-profile"
                         on:click=move |_| set_startup_view.set(false)
                     >"資料與外觀"</button>
-                    <button type="button" 
+                    <button type="button"
                         aria-pressed=move || startup_view.get().to_string()
-                        aria-controls="pet-startup" 
+                        aria-controls="pet-startup"
                         on:click=move |_| set_startup_view.set(true)
                     >"啟動預設"</button>
                 </div>
 
-                <div id="pet-settings-profile" 
+                <div id="pet-settings-profile"
                     hidden=move || startup_view.get()>
                     <settings_editor::PetSettingsEditor
                         selected_id=management_pet_id
@@ -458,7 +458,7 @@ fn App() -> impl IntoView {
                         })
                     />
                 </div>
-                <section id="pet-startup" 
+                <section id="pet-startup"
                     hidden=move || !startup_view.get()>
                     <h3>"啟動預設"</h3>
                     <p class="control-context-note">"啟動預設與目前出籠狀態分開。"</p>
@@ -466,27 +466,27 @@ fn App() -> impl IntoView {
                 </section>
             </section>
 
-            <section id="pet-memory" 
-                role="tabpanel" 
-                aria-labelledby="pet-memory-tab" 
+            <section id="pet-memory"
+                role="tabpanel"
+                aria-labelledby="pet-memory-tab"
                 tabindex="0"
                 hidden=move || page.get() != ControlPage::Memory>
                 <h2 id="pet-memory-title">"記憶"</h2>
                 <p>"記憶查詢與管理尚未接通。"</p>
             </section>
 
-            <section id="pet-files" 
-                role="tabpanel" 
-                aria-labelledby="pet-files-tab" 
+            <section id="pet-files"
+                role="tabpanel"
+                aria-labelledby="pet-files-tab"
                 tabindex="0"
                 hidden=move || page.get() != ControlPage::Files>
                 <h2 id="pet-files-title">"檔案管理"</h2>
                 <p class="control-context-note">"瀏覽本機已授權的目錄。"</p>
-                <file_browser::FileBrowser 
+                <file_browser::FileBrowser
                     active=Signal::derive(move || page.get() == ControlPage::Files)
                     on_directory=Callback::new(move |directory| set_file_directory.set(directory)) />
-                <fieldset class="file-operation-layout" 
-                    disabled 
+                <fieldset class="file-operation-layout"
+                    disabled
                     aria-describedby="file-operations-status">
                     <legend>"檔案操作"</legend>
                     <p id="file-operations-status">"按鈕位置已就緒，待接線。"</p>
@@ -498,9 +498,9 @@ fn App() -> impl IntoView {
                 <file_comparison::FileComparison directory=file_directory />
             </section>
 
-            <section id="pet-management" 
-                role="tabpanel" 
-                aria-labelledby="pet-management-tab" 
+            <section id="pet-management"
+                role="tabpanel"
+                aria-labelledby="pet-management-tab"
                 tabindex="0"
                 hidden=move || page.get() != ControlPage::Management>
                 <h2 id="pet-management-title">"管理"</h2>
@@ -576,9 +576,9 @@ fn App() -> impl IntoView {
                     <div class="management-table-toolbar">
                         <div class="management-query-row">
                             <label for="management-table-search">"搜尋寵物"
-                                <input id="management-table-search" 
-                                    type="search" 
-                                    placeholder="名稱、種類或識別碼" 
+                                <input id="management-table-search"
+                                    type="search"
+                                    placeholder="名稱、種類或識別碼"
                                     prop:value=move ||table_query.get()
                                     on:input=move |event|{
                                         table_query.set(event_target_value(&event));
@@ -609,7 +609,7 @@ fn App() -> impl IntoView {
                             >"重新載入清單"</button>
                         </div>
                         <Show when=move ||!table_query.get().is_empty()>
-                            <button type="button" 
+                            <button type="button"
                                 on:click=move |_|{
                                     table_query.set(String::new());
                                     table_page.set(1);
@@ -617,8 +617,8 @@ fn App() -> impl IntoView {
                             >"清除搜尋"</button>
                         </Show>
                         <label for="management-table-size">"每頁筆數"
-                            <select id="management-table-size" 
-                                prop:value=move ||table_size.get().to_string() 
+                            <select id="management-table-size"
+                                prop:value=move ||table_size.get().to_string()
                                 on:change=move |event|{
                                     let n=event_target_value(&event).parse::<usize>().unwrap_or(10);
                                     table_size.set(if [10,25,50].contains(&n){n}else{10});
@@ -637,29 +637,29 @@ fn App() -> impl IntoView {
                             format!("顯示 {}–{} 筆，共 {} 筆符合；全部 {} 隻",v.start,v.end,v.filtered,saved_pets.with(Vec::len))
                         }}
                     </p>
-                    <div class="management-table-scroll" 
-                        role="region" 
-                        aria-label="寵物管理資料表" 
+                    <div class="management-table-scroll"
+                        role="region"
+                        aria-label="寵物管理資料表"
                         tabindex="0">
                         <table class="management-data-table">
                             <caption>"已儲存寵物管理清單"</caption>
                             <thead>
                                 <tr>
-                                    <th scope="col" 
+                                    <th scope="col"
                                         aria-sort=move ||table_sort.get().aria(management_datatable::Column::Name)>
-                                        <button type="button" 
+                                        <button type="button"
                                             on:click=move |_|sort_pets(management_datatable::Column::Name)
                                         >"名稱"</button>
                                     </th>
-                                    <th scope="col" 
+                                    <th scope="col"
                                         aria-sort=move ||table_sort.get().aria(management_datatable::Column::Species)>
-                                        <button type="button" 
+                                        <button type="button"
                                             on:click=move |_|sort_pets(management_datatable::Column::Species)
                                         >"種類"</button>
                                     </th>
-                                    <th scope="col" 
+                                    <th scope="col"
                                         aria-sort=move ||table_sort.get().aria(management_datatable::Column::Id)>
-                                        <button type="button" 
+                                        <button type="button"
                                             on:click=move |_|sort_pets(management_datatable::Column::Id)
                                         >"識別碼"</button>
                                     </th>
@@ -668,7 +668,7 @@ fn App() -> impl IntoView {
                                 </tr>
                             </thead>
                             <tbody>
-                                <For each=move || table_view.get().rows 
+                                <For each=move || table_view.get().rows
                                     key=|pet| pet.id.clone()
                                     children=move |pet| {
 
@@ -686,7 +686,7 @@ fn App() -> impl IntoView {
                                         let species_id=pet.id.clone();
                                         let row_id=pet.id.clone();
                                         let (rename_id, set_rename_id) = signal(pet.id.clone());
-                                        view! { 
+                                        view! {
                                             <tr data-pet-id=row_id.clone() class:management-selected=move ||management_pet_id.get().as_deref()==Some(row_id.as_str())>
                                                 <td class="management-pet-name">
                                                     {move ||saved_pets.with(|rows|rows.iter().find(|row|row.id==name_id).map(|row|row.name.clone()).unwrap_or_default())}
@@ -708,17 +708,17 @@ fn App() -> impl IntoView {
                                                         <div>
                                                             <Show when=move || management_pet_id.get().as_deref()==Some(rename_scope.as_str()) fallback=|| ()>
                                                                 <label>"修改名稱"
-                                                                    <input aria-label="寵物新名稱" 
+                                                                    <input aria-label="寵物新名稱"
                                                                         maxlength="64"
                                                                         prop:value=move || rename_input.get()
                                                                         on:input=move |event| {
                                                                             let value=event_target_value(&event);
                                                                             set_rename_input.set(value.clone());
                                                                             rename_drafts.update(|drafts|{drafts.insert(draft_id.get_value(),value);});
-                                                                        } 
+                                                                        }
                                                                     />
                                                                 </label>
-                                                                <button type="button" 
+                                                                <button type="button"
                                                                     disabled=move || pets_busy.get()
                                                                     on:click=move |_| {
                                                                         if pets_busy.get_untracked() { return; }
@@ -746,7 +746,7 @@ fn App() -> impl IntoView {
                                                                     }
                                                                 >"儲存名稱"</button>
                                                             </Show>
-                                                            <button type="button" 
+                                                            <button type="button"
                                                                 disabled=move || pets_busy.get()
                                                                 on:click=move |_| {
                                                                     match management_selection::choose_management_pet(&id,&saved_pets.get_untracked(),set_management_pet_id) {
@@ -755,7 +755,7 @@ fn App() -> impl IntoView {
                                                                     }
                                                                 }
                                                             >"選為管理對象"</button>
-                                                            <button type="button" 
+                                                            <button type="button"
                                                                 disabled=move || pets_busy.get()
                                                                 on:click=move |_| {
                                                                     if pets_busy.get_untracked() {return;}
@@ -775,7 +775,7 @@ fn App() -> impl IntoView {
                                                                     });
                                                                 }
                                                             >"出籠"</button>
-                                                            <button type="button" 
+                                                            <button type="button"
                                                                 disabled=move || pets_busy.get()
                                                                 on:click=move |_| {
                                                                     if pets_busy.get_untracked() { return; }
@@ -788,11 +788,11 @@ fn App() -> impl IntoView {
                                                                     });
                                                                 }
                                                             >"查詢回籠狀態"</button>
-                                                            <p role="status" 
+                                                            <p role="status"
                                                                 aria-live="polite">
                                                                 {move || cage_status.get().get(&display_id).cloned().unwrap_or_default()}
                                                             </p>
-                                                            <button type="button" 
+                                                            <button type="button"
                                                                 disabled=move || pets_busy.get()
                                                                 on:click=move |_| {
                                                                     if pets_busy.get_untracked() { return; }
@@ -814,7 +814,7 @@ fn App() -> impl IntoView {
                                                                     });
                                                                 }
                                                             >"回籠這隻"</button>
-                                                            <button type="button" 
+                                                            <button type="button"
                                                                 disabled=move || pets_busy.get()
                                                                 on:click=move |_| {
                                                                     if pets_busy.get_untracked() { return; }
@@ -832,7 +832,7 @@ fn App() -> impl IntoView {
                                                         </div>
                                                     </details>
                                                 </td>
-                                            </tr> 
+                                            </tr>
                                         }
                                     } />
                                     <Show when=move ||table_view.with(|v|v.rows.is_empty())>
@@ -846,22 +846,22 @@ fn App() -> impl IntoView {
                         </table>
                     </div>
                     <nav class="management-table-pagination" aria-label="寵物表格分頁">
-                        <button type="button" 
-                            disabled=move ||table_view.with(|v|v.page<=1) 
+                        <button type="button"
+                            disabled=move ||table_view.with(|v|v.page<=1)
                             on:click=move |_|table_page.set(table_view.get_untracked().page.saturating_sub(1).max(1))
                         >"上一頁"</button>
                         <span>{move ||{let v=table_view.get();format!("第 {} / {} 頁",v.page,v.pages)}}</span>
-                        <button type="button" 
-                            disabled=move ||table_view.with(|v|v.page>=v.pages) 
+                        <button type="button"
+                            disabled=move ||table_view.with(|v|v.page>=v.pages)
                             on:click=move |_|{let v=table_view.get_untracked();table_page.set((v.page+1).min(v.pages));}
                         >"下一頁"</button>
                     </nav>
                 </div>
             </section>
 
-            <section id="pet-updates" 
-                role="tabpanel" 
-                aria-labelledby="pet-updates-tab" 
+            <section id="pet-updates"
+                role="tabpanel"
+                aria-labelledby="pet-updates-tab"
                 tabindex="0"
                 hidden=move || page.get() != ControlPage::Updates>
                 <h2 id="pet-updates-title">"更新"</h2>
@@ -870,7 +870,7 @@ fn App() -> impl IntoView {
 
             <footer class="control-footer">
                 <span>"關閉控制台，陪伴繼續"</span>
-                <button type="button" 
+                <button type="button"
                     on:click=move |_| spawn_local(async move {
                         let _ = bridge::quit_pet().await;
                     })

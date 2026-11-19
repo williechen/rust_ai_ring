@@ -693,7 +693,7 @@ mod results_jump_tests {
         assert!(!html.contains("跳至查詢結果"));
         assert!(!html.contains("href=\"#report-results-title\""));
         assert!(html.contains("id=\"report-results-title\" tabindex=\"-1\""));
-        assert!(html.contains("aria-label=\"切換報表來源\""));
+        assert!(!html.contains("aria-label=\"切換報表來源\""));
         assert!(html.contains("for=\"report-start\""));
         assert!(html.contains("for=\"report-end\""));
         assert!(html.contains("清除篩選"));
