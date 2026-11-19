@@ -72,7 +72,7 @@ impl RoomRepository for SqliteRoomRepository {
                 ON c.category='room_category' 
                 AND c.code=r.category_room_id 
             WHERE (?1='' 
-               OR r.name LIKE ?2 ESCAPE '\\'
+               OR r.name LIKE ?2 ESCAPE '\'
             ) 
                 AND (?3='' 
                     OR r.category_room_id=?3

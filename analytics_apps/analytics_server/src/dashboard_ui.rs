@@ -148,13 +148,12 @@ fn DashboardView(
                                     <p>"可選取本頁事件的字典代碼，或輸入原始事件類型做精確比對。"</p>
                                 </div>
                                 <div class="report-field">
-                                    <label>"起日（UTC）"</label>
-                                    <input type="date" name="start" value=form_start.clone()/>
+                                     <label for="report-start">"起日（UTC）"</label>
+                                    <input id="report-start" type="date" name="start" value=form_start.clone()/>
                                 </div>
                                 <div class="report-field">
-                                    <label>"迄日（UTC，不含）"</label>
-                                    <input type="date" name="end" value=form_end.clone()/>
-                                </div>
+                                    <label for="report-end">"迄日（UTC，不含）"</label>
+                                    <input id="report-end" type="date" name="end" value=form_end.clone()/>                                </div>
                                 <datalist id="report-event-types">{event_suggestions}</datalist>
                                 <div class="report-actions">
                                     <label for="report-page-size">"每頁筆數"</label>
@@ -680,20 +679,16 @@ mod results_jump_tests {
     use super::*;
 
     #[test]
-    fn results_jump_connects_filter_card_to_focusable_heading() {
+    fn confirmed_compact_filters_omit_jump_and_keep_query_contract() {
         let html = render_dashboard_filtered("Chat", 0, "web_chat", "chat.message.persisted");
-        let jump = html
-            .find("href=\"#report-results-title\"")
-            .expect("查詢卡片缺少結果跳轉");
-        let target = html
-            .find("id=\"report-results-title\" tabindex=\"-1\"")
-            .expect("結果標題須可接收焦點");
-        assert!(jump < target);
-        assert_eq!(html.matches("id=\"report-results-title\"").count(), 1);
-        assert!(html.contains("跳至查詢結果"));
-        assert!(
-            !render_dashboard_unavailable("/dashboard".into()).contains("#report-results-title")
-        );
+        assert!(!html.contains("跳至查詢結果"));
+        assert!(!html.contains("href=\"#report-results-title\""));
+        assert!(html.contains("id=\"report-results-title\" tabindex=\"-1\""));
+        assert!(html.contains("aria-label=\"切換報表來源\""));
+        assert!(html.contains("for=\"report-start\""));
+        assert!(html.contains("for=\"report-end\""));
+        assert!(html.contains("清除篩選"));
+        assert!(html.contains("action=\"/dashboard#report-results-title\""));
     }
 }
 
