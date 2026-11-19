@@ -109,42 +109,15 @@ impl PetStore {
     // 只將既有 create() 簽名與尾端的返回值更換，
     // INSERT/transaction/提交後 SELECT id,name/錯誤分支完整保留。
     pub async fn create(&self, input: &str) -> Result<SavedPet, String> {
-        let name = pet_application::normalize_new_pet_name(input)?;
-
-        let id = uuid::Uuid::new_v4().to_string();
-
-        let mut tx = self.pool.begin().await.map_err(|_| "無法開始儲存")?;
-
-        sqlx::query(
-        r#"INSERT INTO pet_owner(id,name) VALUES('local-owner','本機使用者') ON CONFLICT(id) DO NOTHING"#
-        ).execute(&mut *tx).await.map_err(|_| "無法儲存主人")?;
-
-        sqlx::query(
-         r#"INSERT INTO pet_profile(id,name,species,owner_id,is_default_closure) VALUES(?1,?2,'tortoise','local-owner',1)"#
-        ).bind(&id).bind(&name)
-        .execute(&mut *tx).await.map_err(|_| "無法儲存寵物")?;
-
-        pet_persistence::activity::ensure_pair(&mut tx, &id).await?;
-
-        tx.commit().await.map_err(|_| "寵物提交失敗")?;
-
-        let (saved_id, saved_name, species): (String, String, String) = sqlx::query_as(
-            r#"SELECT id
-                ,name
-                ,species 
-            FROM pet_profile 
-            WHERE id=?1 
-                AND owner_id='local-owner'"#,
+        pet_application::pet_names::create_pet(
+            &pet_persistence::pet_names::SqlitePetNames(self.pool.clone()),
+            input,
         )
-        .bind(&id)
-        .fetch_one(&self.pool)
         .await
-        .map_err(|_| "已提交但讀回失敗，請先查核資料，勿立即重送")?;
-
-        Ok(SavedPet {
-            id: saved_id,
-            name: saved_name,
-            species,
+        .map(|p| SavedPet {
+            id: p.id,
+            name: p.name,
+            species: p.species,
         })
     }
 

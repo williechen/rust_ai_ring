@@ -82,16 +82,20 @@ pub(crate) fn FileBrowser(
     let rename_from = RwSignal::new(None::<(Path, String)>);
     let rename_to = RwSignal::new(String::new());
     let created = RwSignal::new(None::<String>);
+    let failed_target = RwSignal::new(None::<(Path, Navigation)>);
 
     let navigate = Callback::new(move |(path, via): (Path, Navigation)| {
         if loading.get_untracked() || creating.get_untracked() {
             return;
         }
+
         rename_from.set(None);
         folder_form.set(false);
         loading.set(true);
         attempted.set(true);
         error.set(None);
+        failed_target.set(None);
+
         spawn_local(async move {
             match bridge::browse_authorized_directory(&path).await {
                 Ok(listing) => {
@@ -121,6 +125,7 @@ pub(crate) fn FileBrowser(
                     });
                 }
                 Err(message) => {
+                    failed_target.set(Some((path.clone(), via)));
                     on_directory.run(None);
                     state.update(|view| {
                         view.tree.clear();
@@ -180,61 +185,96 @@ pub(crate) fn FileBrowser(
     };
 
     view! {
-        <div class="file-browser" aria-busy=move || loading.get().to_string()>
-            <button type="button" disabled=move || loading.get() || creating.get() || !state.with(|view| view.loaded)
-                on:click=move |_| { rename_from.set(None); folder_form.set(true); folder_name.set(String::new()); error.set(None); }>
-                "新增資料夾"
-            </button>
-             <button type="button" disabled=move || loading.get() || creating.get() || selected.with(BTreeSet::len)!=1 || !state.with(|view| view.loaded)
+        <div class="file-browser"
+            aria-busy=move || loading.get().to_string()>
+            <button type="button"
+                disabled=move || loading.get() || creating.get() || !state.with(|view| view.loaded)
+                on:click=move |_| {
+                    rename_from.set(None); folder_form.set(true);
+                    folder_name.set(String::new()); error.set(None);
+                }
+            >"新增資料夾"</button>
+            <button type="button"
+                disabled=move || loading.get() || creating.get() || selected.with(BTreeSet::len)!=1 || !state.with(|view| view.loaded)
                 on:click=move |_| {
                     let name=selected.with_untracked(|names| names.iter().next().cloned());
                     if let Some(name)=name {
-                        folder_form.set(false);error.set(None);rename_to.set(name.clone());
+                        folder_form.set(false);error.set(None);
+                        rename_to.set(name.clone());
                         rename_from.set(Some((state.with_untracked(|view|view.path().clone()),name)));
                     }
-                }>"重新命名"</button>
+                }
+            >"重新命名"</button>
             <Show when=move || rename_from.with(Option::is_some)>
-                <fieldset class="file-new-directory" disabled=move || creating.get()>
+                <fieldset class="file-new-directory"
+                    disabled=move || creating.get()>
                     <legend>"重新命名確認"</legend>
                     <p>{move || rename_from.with(|item| item.as_ref().map(|(path,name)|format!("原項目：授權根目錄/{}/{name}",path.join("/"))))}</p>
-                    <label>"新名稱"<input name="rename-entry-name" prop:value=move || rename_to.get()
-                        on:input=move |event|rename_to.set(event_target_value(&event))/></label>
-                    <button type="button" disabled=move || rename_to.with(|name|name.trim().is_empty())
-                        on:click=move |_| {
-                            if creating.get_untracked() { return; }
-                            let Some((path,from))=rename_from.get_untracked() else { return; };
-                            let to=rename_to.get_untracked();creating.set(true);created.set(None);error.set(None);
-                            spawn_local(async move {
-                                let result=bridge::rename_authorized_entry(&path,&from,&to).await;
-                                creating.set(false);
-                                match result {
-                                    Ok(())=>{rename_from.set(None);created.set(Some(format!("已重新命名：{from} → {to}")));navigate.run((path,Navigation::Open));}
-                                    Err(message)=>error.set(Some(message)),
-                                }
-                            });
-                        }>"確認重新命名"</button>
-                    <button type="button" on:click=move |_|rename_from.set(None)>"取消重新命名"</button>
-                </fieldset>
-            </Show>
-            <Show when=move || folder_form.get()>
-                <fieldset class="file-new-directory" disabled=move || creating.get()>
-                    <legend>"建立資料夾確認"</legend>
-                    <p>{move || format!("建立位置：授權根目錄/{}", state.with(|view| view.path().join("/")))}</p>
-                    <label>"資料夾名稱"
-                       <input name="new-directory-name" prop:value=move || folder_name.get()
-                            on:input=move |ev| folder_name.set(event_target_value(&ev)) />
+                    <label>"新名稱"
+                        <input name="rename-entry-name"
+                            prop:value=move || rename_to.get()
+                            on:input=move |event|rename_to.set(event_target_value(&event))/>
                     </label>
-                    <button type="button" disabled=move || folder_name.with(|name| name.trim().is_empty())
+                    <button type="button"
+                        disabled=move || rename_to.with(|name|name.trim().is_empty())
                         on:click=move |_| {
                             if creating.get_untracked() { return; }
-                            let path = state.with_untracked(|view| view.path().clone());
-                            let name = folder_name.get_untracked();
+
+                            let Some((path,from))=rename_from.get_untracked() else { return; };
+                            let to=rename_to.get_untracked();
+
                             creating.set(true);
                             created.set(None);
                             error.set(None);
+
+                            spawn_local(async move {
+                                let result=bridge::rename_authorized_entry(&path,&from,&to).await;
+
+                                creating.set(false);
+
+                                match result {
+                                    Ok(())=>{
+                                        rename_from.set(None);
+                                        created.set(Some(format!("已重新命名：{from} → {to}")));
+                                        navigate.run((path,Navigation::Open));
+                                    }
+                                    Err(message)=>error.set(Some(message)),
+                                }
+                            });
+                        }
+                    >"確認重新命名"</button>
+                    <button type="button"
+                        on:click=move |_|rename_from.set(None)
+                    >"取消重新命名"</button>
+                </fieldset>
+            </Show>
+            <Show when=move || folder_form.get()>
+                <fieldset class="file-new-directory"
+                    disabled=move || creating.get()>
+                    <legend>"建立資料夾確認"</legend>
+                    <p>{move || format!("建立位置：授權根目錄/{}", state.with(|view| view.path().join("/")))}</p>
+                    <label>"資料夾名稱"
+                        <input name="new-directory-name"
+                            prop:value=move || folder_name.get()
+                            on:input=move |ev| folder_name.set(event_target_value(&ev)) />
+                    </label>
+                    <button type="button"
+                        disabled=move || folder_name.with(|name| name.trim().is_empty())
+                        on:click=move |_| {
+                            if creating.get_untracked() { return; }
+
+                            let path = state.with_untracked(|view| view.path().clone());
+                            let name = folder_name.get_untracked();
+
+                            creating.set(true);
+                            created.set(None);
+                            error.set(None);
+
                             spawn_local(async move {
                                 let result = bridge::create_authorized_directory(&path, &name).await;
+
                                 creating.set(false);
+
                                 match result {
                                     Ok(()) => {
                                         folder_form.set(false);
@@ -244,51 +284,85 @@ pub(crate) fn FileBrowser(
                                     Err(message) => error.set(Some(message)),
                                 }
                             });
-                        }>"確認建立"</button>
-                    <button type="button" on:click=move |_| folder_form.set(false)>"取消"</button>
+                        }
+                    >"確認建立"</button>
+                    <button type="button"
+                        on:click=move |_| folder_form.set(false)
+                    >"取消"</button>
                 </fieldset>
             </Show>
             {move || created.get().map(|message| view! { <p role="status">{message}</p> })}
+            <Show when=move || failed_target.get().is_some()>
+                <button type="button"
+                    disabled=move ||loading.get()||creating.get()
+                    on:click=move |_|{if let Some(target)=failed_target.get_untracked(){navigate.run(target);}}
+                >"重試讀取"</button>
+            </Show>
             <div class="file-tools">
-                <div class="file-navigation" role="group" aria-label="目錄導覽">
-                     <button type="button" disabled=move || loading.get() || creating.get() || state.with(|view| view.index == 0)
-                        on:click=move |_| go_history(true)>"上一頁"</button>
-                      <button type="button" disabled=move || loading.get() || creating.get() || state.with(|view| view.index + 1 >= view.history.len())
-                        on:click=move |_| go_history(false)>"下一頁"</button>
-                    <button type="button" disabled=move || loading.get() || creating.get() || state.with(|view| view.path().is_empty())
+                <div class="file-navigation"
+                    role="group"
+                    aria-label="目錄導覽">
+                    <button type="button"
+                        disabled=move || loading.get() || creating.get() || state.with(|view| view.index == 0)
+                        on:click=move |_| go_history(true)
+                    >"上一頁"</button>
+                    <button type="button"
+                        disabled=move || loading.get() || creating.get() || state.with(|view| view.index + 1 >= view.history.len())
+                        on:click=move |_| go_history(false)
+                    >"下一頁"</button>
+                    <button type="button"
+                        disabled=move || loading.get() || creating.get() || state.with(|view| view.path().is_empty())
                         on:click=move |_| {
                             let mut path = state.with_untracked(|view| view.path().clone());
                             path.pop();
                             navigate.run((path, Navigation::Open));
-                        }>"上一層"</button>
-                    <button type="button" disabled=move || loading.get() on:click=move |_| {
-                        navigate.run((state.with_untracked(|view| view.path().clone()), Navigation::Open));
-                    }>"重新整理"</button>
+                        }
+                    >"上一層"</button>
+                    <button type="button"
+                        disabled=move || loading.get()
+                        on:click=move |_| {
+                            navigate.run((state.with_untracked(|view| view.path().clone()), Navigation::Open));
+                        }
+                    >"重新整理"</button>
                 </div>
                 <div role="group" aria-label="內容顯示方式">
-                    <button type="button" aria-pressed=move || (!icons.get()).to_string() on:click=move |_| icons.set(false)>"詳細清單"</button>
-                    <button type="button" aria-pressed=move || icons.get().to_string() on:click=move |_| icons.set(true)>"圖示"</button>
+                    <button type="button"
+                        aria-pressed=move || (!icons.get()).to_string()
+                        on:click=move |_| icons.set(false)
+                    >"詳細清單"</button>
+                    <button type="button"
+                        aria-pressed=move || icons.get().to_string()
+                        on:click=move |_| icons.set(true)
+                    >"圖示"</button>
                 </div>
             </div>
-            <nav class="file-breadcrumbs" aria-label="目前目錄路徑">
-                <button type="button" disabled=move || loading.get() on:click=move |_| navigate.run((Vec::new(), Navigation::Open))>
-                    "授權根目錄"
-                </button>
+            <nav class="file-breadcrumbs"
+                aria-label="目前目錄路徑">
+                <button type="button"
+                    disabled=move || loading.get()
+                    on:click=move |_| navigate.run((Vec::new(), Navigation::Open))
+                >"授權根目錄"</button>
                 {move || state.with(|view| view.path().clone()).into_iter().enumerate().map(|(index, name)| {
                     let path = state.with_untracked(|view| view.path()[..=index].to_vec());
                     view! {
                         <span aria-hidden="true">"/"</span>
-                        <button type="button" disabled=move || loading.get() || creating.get()
-                            on:click=move |_| navigate.run((path.clone(), Navigation::Open))>{name}</button>
+                        <button type="button"
+                            disabled=move || loading.get() || creating.get()
+                            on:click=move |_| navigate.run((path.clone(), Navigation::Open))
+                        >{name}</button>
                     }
                 }).collect_view()}
             </nav>
             {move || error.get().map(|message| view! { <p class="control-error" role="alert">{message}</p> })}
             <div class="file-body">
-                <nav class="file-tree" aria-label="授權目錄樹">
+                <nav class="file-tree"
+                    aria-label="授權目錄樹">
                     <h3>"目錄"</h3>
-                    <button type="button" aria-current=move || state.with(|view| view.path().is_empty()).then_some("location")
-                        disabled=move || loading.get() on:click=move |_| navigate.run((Vec::new(), Navigation::Open))>"授權根目錄"</button>
+                    <button type="button"
+                        aria-current=move || state.with(|view| view.path().is_empty()).then_some("location")
+                        disabled=move || loading.get()
+                        on:click=move |_| navigate.run((Vec::new(), Navigation::Open))
+                    >"授權根目錄"</button>
                     {move || state.with(|view| {
                         view.tree.iter().flat_map(|(path, children)| children.iter().map(|name| extend(path, name))).collect::<BTreeSet<_>>()
                     }).into_iter().map(|path| {
@@ -296,70 +370,106 @@ pub(crate) fn FileBrowser(
                         let indent = format!("--tree-depth:{}", path.len().min(5));
                         let active_path = path.clone();
                         view! {
-                            <button type="button" class="file-tree-item" style=indent
+                            <button type="button"
+                                class="file-tree-item"
+                                style=indent
                                 aria-current=move || state.with(|view| view.path() == &active_path).then_some("location")
                                 disabled=move || loading.get() || creating.get()
-                                on:click=move |_| navigate.run((path.clone(), Navigation::Open))>{name}</button>
+                                on:click=move |_| navigate.run((path.clone(), Navigation::Open))
+                            >{name}</button>
                         }
                     }).collect_view()}
                 </nav>
                 <div class="file-list">
-                    <p class="file-count" role="status">{move || state.with(|view| {
-                        if loading.get() { "正在讀取目錄…".to_owned() }
-                        else if !view.loaded { "目錄內容尚未載入。".to_owned() }
-                        else if view.skipped > 0 { format!("{} 個項目 · 選取 {} 個 · 略過 {} 個不可讀或連結項目", view.entries.len(), selected.with(BTreeSet::len), view.skipped) }
-                        else if view.entries.is_empty() { "這個目錄是空的。".to_owned() }
-                        else { format!("{} 個項目 · 選取 {} 個", view.entries.len(), selected.with(BTreeSet::len)) }
-                    })}</p>
+                    <p class="file-count"
+                        role="status">{move || state.with(|view| {
+                            if loading.get() {
+                                "正在讀取目錄…".to_owned()
+                            } else if !view.loaded {
+                                "目錄內容尚未載入。".to_owned()
+                            } else if view.skipped > 0 {
+                                format!("{} 個項目 · 選取 {} 個 · 略過 {} 個不可讀或連結項目", view.entries.len(), selected.with(BTreeSet::len), view.skipped)
+                            } else if view.entries.is_empty() {
+                                "這個目錄是空的。".to_owned()
+                            } else {
+                                format!("{} 個項目 · 選取 {} 個", view.entries.len(), selected.with(BTreeSet::len))
+                            }
+                        })}
+                    </p>
                     <Show when=move || state.with(|view| view.loaded && !view.entries.is_empty())>
                         {move || if icons.get() {
                             view! { <ul class="file-icons">
-                                <For each=move || sorted.get() key=|entry| entry.name.clone()
+                                <For each=move || sorted.get()
+                                    key=|entry| entry.name.clone()
                                     children=move |entry| {
                                         let name = entry.name.clone();
                                         view! { <li>
-                                            <span class="file-kind" aria-hidden="true">{if entry.is_directory { "▰" } else { "▤" }}</span>
+                                            <span class="file-kind"
+                                                aria-hidden="true">
+                                                {if entry.is_directory {
+                                                    "▰"
+                                                } else {
+                                                     "▤"
+                                                }}
+                                            </span>
                                             <FileSelection name=entry.name.clone() selected />
                                             {if entry.is_directory {
                                                 view! { <button type="button" on:click=move |_| open_folder(&name)>{entry.name}</button> }.into_any()
-                                            } else { view! { <span>{entry.name}</span> }.into_any() }}
-                                        </li> }
-                                    } />
+                                            } else {
+                                                view! { <span>{entry.name}</span> }.into_any()
+                                            }}
+                                        </li>}
+                                    }
+                                />
                             </ul> }.into_any()
                         } else {
-                            view! { <div class="file-table-scroll" tabindex="0" role="region" aria-label="詳細內容">
-                                <table>
-                                    <thead><tr><th scope="col">"選取"</th>
-                                        {[SortField::Name, SortField::Kind, SortField::Size, SortField::Modified].into_iter().map(|field| view! {
-                                            <th scope="col" aria-sort=move || sort.with(|(current, reverse)| (*current == field).then_some(if *reverse { "descending" } else { "ascending" }))>
-                                                <button type="button" on:click=move |_| sort.update(|(current, reverse)| {
-                                                    *reverse = *current == field && !*reverse;
-                                                    *current = field;
-                                                })>{field.title()}</button>
-                                            </th>
-                                        }).collect_view()}
-                                    </tr></thead>
-                                    <tbody>
-                                    <For each=move || sorted.get() key=|entry| (entry.name.clone(), entry.is_directory, entry.size_bytes, entry.modified_at)
-                                        children=move |entry| {
-                                            let name = entry.name.clone();
-                                            let double = name.clone();
-                                            view! {
-                                                <tr on:dblclick=move |_| { if entry.is_directory { open_folder(&double); } }>
-                                                    <td><FileSelection name=entry.name.clone() selected /></td>
-                                                    <td>{if entry.is_directory {
-                                                        view! { <button type="button" on:click=move |_| open_folder(&name)>{entry.name}</button> }.into_any()
-                                                    } else { view! { <span>{entry.name}</span> }.into_any() }}</td>
-                                                    <td>{if entry.is_directory { "資料夾" } else { "檔案" }}</td>
-                                                    <td>{entry.size_bytes.map(|bytes| format!("{bytes} B")).unwrap_or_else(|| "—".into())}</td>
-                                                    <td>{entry.modified_at.map(format_time).unwrap_or_else(|| "—".into())}</td>
-                                                </tr>
-                                            }
-                                        } />
-                                    </tbody>
-                                </table>
-                            </div> }.into_any()
-                        }}
+                            view! {
+                                <div class="file-table-scroll"
+                                    tabindex="0"
+                                    role="region"
+                                    aria-label="詳細內容">
+                                    <table>
+                                        <thead>
+                                            <tr>
+                                                <th scope="col">"選取"</th>
+                                                {[SortField::Name, SortField::Kind, SortField::Size, SortField::Modified].into_iter().map(|field| view! {
+                                                <th scope="col"
+                                                    aria-sort=move || sort.with(|(current, reverse)| (*current == field).then_some(if *reverse { "descending" } else { "ascending" }))>
+                                                    <button type="button"
+                                                        on:click=move |_| sort.update(|(current, reverse)| {
+                                                            *reverse = *current == field && !*reverse;
+                                                            *current = field;
+                                                        })
+                                                    >{field.title()}</button>
+                                                </th>
+                                                }).collect_view()}
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                        <For each=move || sorted.get()
+                                            key=|entry| (entry.name.clone(), entry.is_directory, entry.size_bytes, entry.modified_at)
+                                            children=move |entry| {
+                                                let name = entry.name.clone();
+                                                let double = name.clone();
+                                                view! {
+                                                    <tr on:dblclick=move |_| { if entry.is_directory { open_folder(&double); } }>
+                                                        <td><FileSelection name=entry.name.clone() selected /></td>
+                                                        <td>{if entry.is_directory {
+                                                            view! { <button type="button" on:click=move |_| open_folder(&name)>{entry.name}</button> }.into_any()
+                                                        } else {
+                                                            view! { <span>{entry.name}</span> }.into_any()
+                                                        }}</td>
+                                                        <td>{if entry.is_directory { "資料夾" } else { "檔案" }}</td>
+                                                        <td>{entry.size_bytes.map(|bytes| format!("{bytes} B")).unwrap_or_else(|| "—".into())}</td>
+                                                        <td>{entry.modified_at.map(format_time).unwrap_or_else(|| "—".into())}</td>
+                                                    </tr>
+                                                }
+                                            }/>
+                                        </tbody>
+                                    </table>
+                                </div> }.into_any()
+                            }
+                        }
                     </Show>
                 </div>
             </div>
@@ -372,11 +482,17 @@ fn FileSelection(name: String, selected: RwSignal<BTreeSet<String>>) -> impl Int
     let checked = name.clone();
     let label = format!("選取 {name}");
     view! {
-        <input type="checkbox" aria-label=label prop:checked=move || selected.with(|names| names.contains(&checked))
+        <input type="checkbox"
+            aria-label=label
+            prop:checked=move || selected.with(|names| names.contains(&checked))
             on:change=move |event| selected.update(|names| {
-                if event_target_checked(&event) { names.insert(name.clone()); }
-                else { names.remove(&name); }
-            }) />
+                if event_target_checked(&event) {
+                    names.insert(name.clone());
+                } else {
+                    names.remove(&name);
+                }
+            })
+        />
     }
 }
 

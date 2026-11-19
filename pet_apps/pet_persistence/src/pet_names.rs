@@ -3,6 +3,58 @@ use pet_application::pet_names::{NamedPet, PetNames};
 pub struct SqlitePetNames(pub sqlx::SqlitePool);
 
 impl PetNames for SqlitePetNames {
+    async fn create(&self, name: &str) -> Result<NamedPet, String> {
+        let id = uuid::Uuid::new_v4().to_string();
+
+        let mut tx = self.0.begin().await.map_err(|_| "無法開始儲存")?;
+
+        sqlx::query(
+            r#"INSERT INTO pet_owner(id
+                ,name
+            ) VALUES('local-owner','本機使用者') ON CONFLICT(id) DO NOTHING"#,
+        )
+        .execute(&mut *tx)
+        .await
+        .map_err(|_| "無法儲存主人")?;
+
+        sqlx::query(
+            r#"INSERT INTO pet_profile(id
+                ,name
+                ,species
+                ,owner_id
+                ,is_default_closure
+            ) VALUES(?1,?2,'tortoise','local-owner',1)"#,
+        )
+        .bind(&id)
+        .bind(&name)
+        .execute(&mut *tx)
+        .await
+        .map_err(|_| "無法儲存寵物")?;
+
+        crate::activity::ensure_pair(&mut tx, &id).await?;
+
+        tx.commit().await.map_err(|_| "寵物提交失敗")?;
+
+        let (saved_id, saved_name, species): (String, String, String) = sqlx::query_as(
+            r#"SELECT id
+                ,name
+                ,species 
+            FROM pet_profile 
+            WHERE id=?1 
+                AND owner_id='local-owner'"#,
+        )
+        .bind(&id)
+        .fetch_one(&self.0)
+        .await
+        .map_err(|_| "已提交但讀回失敗，請先查核資料，勿立即重送")?;
+
+        Ok(NamedPet {
+            id: saved_id,
+            name: saved_name,
+            species,
+        })
+    }
+
     async fn active(&self) -> Result<Option<NamedPet>, String> {
         let row: Option<(String, String, String)> = sqlx::query_as(
             r#"SELECT p.id

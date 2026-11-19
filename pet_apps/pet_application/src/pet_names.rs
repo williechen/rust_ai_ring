@@ -8,6 +8,10 @@ pub struct NamedPet {
 }
 
 pub trait PetNames {
+    fn create(&self, name: &str) -> impl Future<Output = Result<NamedPet, String>> + Send {
+        let _ = name;
+        async { Err("寵物建立未接通".into()) }
+    }
     fn active(&self) -> impl Future<Output = Result<Option<NamedPet>, String>> + Send {
         async { Err("生活窗選取讀取未接通".into()) }
     }
@@ -35,4 +39,9 @@ pub async fn list_pets(store: &impl PetNames) -> Result<Vec<NamedPet>, String> {
 
 pub async fn active_pet(store: &impl PetNames) -> Result<Option<NamedPet>, String> {
     store.active().await
+}
+
+pub async fn create_pet(store: &impl PetNames, input: &str) -> Result<NamedPet, String> {
+    let name = crate::normalize_new_pet_name(input)?;
+    store.create(&name).await
 }
