@@ -13,12 +13,28 @@ impl LoginAttempt {
     pub async fn begin(pool: &PgPool, name: &str) -> Result<Option<Self>, String> {
         let mut tx = pool.begin().await.map_err(|_| "無法開始登入交易")?;
         // 帳號列鎖將同帳號的跨連線、跨程序登入序列化。
-        let rows:Vec<(String,String,bool,String)>=sqlx::query_as("SELECT id,user_pd,is_init_pd,user_status FROM uac_user WHERE lower(user_acnt)=lower($1) ORDER BY id LIMIT 2 FOR UPDATE").bind(name).fetch_all(&mut *tx).await.map_err(|_|"無法讀取帳號")?;
+        let rows: Vec<(String, String, bool, String)> = sqlx::query_as(
+            r#"SELECT id
+                ,user_pd
+                ,is_init_pd
+                ,user_status 
+            FROM uac_user 
+            WHERE lower(user_acnt)=lower($1) 
+            ORDER BY id 
+            LIMIT 2 
+            FOR UPDATE"#,
+        )
+        .bind(name)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(|_| "無法讀取帳號")?;
+
         if rows.len() != 1 || rows[0].3 != "active" {
             return Ok(None);
         }
+
         let (user_id, password_hash, initial, _) = rows.into_iter().next().unwrap();
-        sqlx::query("INSERT INTO uac_login_attempt(user_id) VALUES($1) ON CONFLICT DO NOTHING")
+        sqlx::query(r#"INSERT INTO uac_login_attempt(user_id) VALUES($1) ON CONFLICT DO NOTHING"#)
             .bind(&user_id)
             .execute(&mut *tx)
             .await
@@ -32,7 +48,7 @@ impl LoginAttempt {
     }
     pub async fn now(&mut self) -> Result<u64, String> {
         let n: i64 =
-            sqlx::query_scalar("SELECT floor(extract(epoch from clock_timestamp()))::bigint")
+            sqlx::query_scalar(r#"SELECT floor(extract(epoch from clock_timestamp()))::bigint"#)
                 .fetch_one(&mut *self.tx)
                 .await
                 .map_err(|_| "無法讀取時鐘")?;
@@ -45,14 +61,14 @@ impl LoginAttempt {
             .map_err(|_| "無法提交等待資料".into())
     }
     pub async fn session(mut self, token_hash: &str, fingerprint: &str) -> Result<i64, String> {
-        sqlx::query("DELETE FROM uac_login_session WHERE expires_at<=floor(extract(epoch from clock_timestamp()))::bigint").execute(&mut *self.tx).await.map_err(|_|"無法清理Session")?;
+        sqlx::query(r#"DELETE FROM uac_login_session WHERE expires_at<=floor(extract(epoch from clock_timestamp()))::bigint"#).execute(&mut *self.tx).await.map_err(|_|"無法清理Session")?;
         let seconds: i64 = sqlx::query_scalar(
-            "SELECT idle_seconds FROM analytics_session_policy WHERE id=1 FOR SHARE",
+            r#"SELECT idle_seconds FROM analytics_session_policy WHERE id=1 FOR SHARE"#,
         )
         .fetch_one(&mut *self.tx)
         .await
         .map_err(|_| "無法讀取閒置期限")?;
-        sqlx::query("INSERT INTO uac_login_session(token_hash,user_id,credential_fingerprint,restricted,expires_at) VALUES($1,$2,$3,$4,floor(extract(epoch from clock_timestamp()))::bigint+$5)").bind(token_hash).bind(&self.user_id).bind(fingerprint).bind(self.initial).bind(seconds).execute(&mut *self.tx).await.map_err(|_|"無法建立Session")?;
+        sqlx::query(r#"INSERT INTO uac_login_session(token_hash,user_id,credential_fingerprint,restricted,expires_at) VALUES($1,$2,$3,$4,floor(extract(epoch from clock_timestamp()))::bigint+$5)"#).bind(token_hash).bind(&self.user_id).bind(fingerprint).bind(self.initial).bind(seconds).execute(&mut *self.tx).await.map_err(|_|"無法建立Session")?;
         self.commit().await?;
         Ok(seconds)
     }
@@ -61,7 +77,7 @@ impl LoginAttempt {
 impl AttemptStore for LoginAttempt {
     async fn read(&mut self) -> Result<WaitState, String> {
         let r: (String, String, String) = sqlx::query_as(
-            "SELECT failures,next_delay,blocked_until FROM uac_login_attempt WHERE user_id=$1",
+            r#"SELECT failures,next_delay,blocked_until FROM uac_login_attempt WHERE user_id=$1"#,
         )
         .bind(&self.user_id)
         .fetch_one(&mut *self.tx)
@@ -74,7 +90,7 @@ impl AttemptStore for LoginAttempt {
         })
     }
     async fn write(&mut self, s: &WaitState) -> Result<(), String> {
-        sqlx::query("UPDATE uac_login_attempt SET failures=$1,next_delay=$2,blocked_until=$3 WHERE user_id=$4").bind(&s.failures).bind(&s.delay).bind(&s.until).bind(&self.user_id).execute(&mut *self.tx).await.map_err(|_|"無法保存等待")?;
+        sqlx::query(r#"UPDATE uac_login_attempt SET failures=$1,next_delay=$2,blocked_until=$3 WHERE user_id=$4"#).bind(&s.failures).bind(&s.delay).bind(&s.until).bind(&self.user_id).execute(&mut *self.tx).await.map_err(|_|"無法保存等待")?;
         Ok(())
     }
 }

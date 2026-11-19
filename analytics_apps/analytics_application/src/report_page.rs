@@ -6,6 +6,7 @@ pub struct PageWindow {
     pub total_pages: usize,
     pub offset: usize,
 }
+
 impl PageWindow {
     pub fn from_count(total: usize, requested_page: usize, requested_size: usize) -> Self {
         let page_size = requested_size.max(1);
@@ -19,6 +20,7 @@ impl PageWindow {
         }
     }
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;

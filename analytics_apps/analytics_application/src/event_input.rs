@@ -1,5 +1,6 @@
 use serde::Deserialize;
 use uuid::Uuid;
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EventInput {
@@ -10,9 +11,11 @@ pub struct EventInput {
     #[serde(default)]
     pub occurred_at: Option<String>,
 }
+
 pub fn valid_event_type(value: &str) -> bool {
     analytics_domain::event_type::valid(value)
 }
+
 pub fn valid_event(event: &EventInput) -> bool {
     event.schema_version == 1
         && !event.event_id.is_nil()

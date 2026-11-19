@@ -70,23 +70,59 @@ pub(crate) async fn page(
         Vec::new()
     };
 
-    let viewer_forms=viewers.into_iter().map(|(id,username,chat,pet)| {
-        let delete_action=format!("/accounts/{id}/disable");let delete_token=digest(&format!("disable-account:{raw}:{id}"));
-        let update_action=format!("/accounts/{id}/sources");let update_token=digest(&format!("update-sources:{raw}:{id}"));
-        let delete_form=can_delete.then(||view! { <form method="post" action=delete_action><input type="hidden" name="csrf" value=delete_token/><button type="submit">"停用帳號"</button></form> });
-        let update_form=can_update.then(||view! {
-            <form method="post" action=update_action>
-                <input type="hidden" name="csrf" value=update_token/>
-                <label>"Chat來源"<select name="chat">
-                    <option value="inherit" selected=chat=="inherit">"沿用角色"</option><option value="allow" selected=chat=="allow">"個人允許"</option><option value="deny" selected=chat=="deny">"個人拒絕"</option>
-                </select></label>
-                <label>"Pet來源"<select name="pet">
-                    <option value="inherit" selected=pet=="inherit">"沿用角色"</option><option value="allow" selected=pet=="allow">"個人允許"</option><option value="deny" selected=pet=="deny">"個人拒絕"</option>
-                </select></label><button type="submit">"儲存來源權限"</button>
-            </form>
-        });
-        view! { <li><span>{username}</span>{update_form}{delete_form}</li> }
-    }).collect_view();
+    let viewer_forms = viewers
+        .into_iter()
+        .map(|(id, username, chat, pet)| {
+            let delete_action = format!("/accounts/{id}/disable");
+            let delete_token = digest(&format!("disable-account:{raw}:{id}"));
+            let update_action = format!("/accounts/{id}/sources");
+            let update_token = digest(&format!("update-sources:{raw}:{id}"));
+
+            let delete_form = can_delete.then(|| {
+                view! {
+                <form method="post"
+                    action=delete_action>
+                    <input type="hidden"
+                        name="csrf"
+                        value=delete_token/>
+                    <button type="submit">"停用帳號"</button>
+                </form> }
+            });
+
+            let update_form = can_update.then(|| {
+                view! {
+                    <form method="post"
+                        action=update_action>
+                        <input type="hidden"
+                            name="csrf"
+                            value=update_token/>
+                        <label>"Chat來源"
+                            <select name="chat">
+                                <option value="inherit"
+                                    selected=chat=="inherit">"沿用角色"</option>
+                                <option value="allow"
+                                    selected=chat=="allow">"個人允許"</option>
+                                <option value="deny"
+                                    selected=chat=="deny">"個人拒絕"</option>
+                            </select>
+                        </label>
+                        <label>"Pet來源"
+                            <select name="pet">
+                                <option value="inherit"
+                                    selected=pet=="inherit">"沿用角色"</option>
+                                <option value="allow"
+                                    selected=pet=="allow">"個人允許"</option>
+                                <option value="deny"
+                                    selected=pet=="deny">"個人拒絕"</option>
+                            </select>
+                        </label>
+                        <button type="submit">"儲存來源權限"</button>
+                    </form>
+                }
+            });
+            view! { <li><span>{username}</span>{update_form}{delete_form}</li> }
+        })
+        .collect_view();
 
     let can_create =
         crate::page_acl::allowed(&state, &raw, "/accounts/new", crate::page_acl::Crud::Create)
@@ -94,34 +130,56 @@ pub(crate) async fn page(
             .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     let pages = crate::page_acl::pages(&state, &raw).await?;
     let logout_csrf = digest(&format!("logout:{raw}"));
-    let html=view!{
+    let html = view! {
         <html lang="zh-Hant">
             <head>
-                <meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>"新增唯讀帳號"</title><style data-project-style="analytics">{include_str!("css/dashboard.css")}</style>
+                <meta charset="utf-8"/>
+                <meta name="viewport" content="width=device-width, initial-scale=1"/>
+                <title>"新增唯讀帳號"</title>
+                <style data-project-style="analytics">{include_str!("css/dashboard.css")}</style>
             </head>
             <body>
                 <ManagementShell pages logout_csrf>
                     <h1>"新增唯讀帳號"</h1>
                     <p role="status">{message}</p>
-                    {if can_create { view! { <form method="post" action="/accounts">
-                        <input type="hidden" name="csrf" value=csrf/>
-                        <label>"帳號"
-                            <input name="username" required minlength="3" maxlength="64" autocomplete="off"/>
-                        </label>
-                        <label>"初始密碼"
-                            <input type="password" name="password" required minlength="8" maxlength="128" autocomplete="new-password"/>
-                        </label>
-                        <label>"Email"
-                            <input type="email" name="email" required maxlength="254"/>
-                        </label>
-                        <label>
-                            <input type="checkbox" name="chat"/>"可讀 Chat"
-                        </label>
-                        <label>
-                            <input type="checkbox" name="pet"/>"可讀 Pet"
-                        </label>
-                        <button type="submit">"建立唯讀帳號"</button>
-                    </form> }.into_any() } else { view! { <p>"沒有新增 action。"</p> }.into_any() }}
+                    {if can_create {
+                        view! {
+                        <form method="post" action="/accounts">
+                            <input type="hidden"
+                                name="csrf"
+                                value=csrf/>
+                            <label>"帳號"
+                                <input name="username"
+                                    required minlength="3"
+                                    maxlength="64"
+                                    autocomplete="off"/>
+                            </label>
+                            <label>"初始密碼"
+                                <input type="password"
+                                    name="password"
+                                    required minlength="8"
+                                    maxlength="128"
+                                    autocomplete="new-password"/>
+                            </label>
+                            <label>"Email"
+                                <input type="email"
+                                    name="email"
+                                    required
+                                    maxlength="254"/>
+                            </label>
+                            <label>
+                                <input type="checkbox"
+                                    name="chat"/>"可讀 Chat"
+                            </label>
+                            <label>
+                                <input type="checkbox"
+                                    name="pet"/>"可讀 Pet"
+                            </label>
+                            <button type="submit">"建立唯讀帳號"</button>
+                        </form> }.into_any()
+                    } else {
+                        view! { <p>"沒有新增 action。"</p> }.into_any()
+                    }}
                     <section>
                         <h2>"檢視者帳號"</h2>
                         <ul>{viewer_forms}</ul>
@@ -129,7 +187,8 @@ pub(crate) async fn page(
                 </ManagementShell>
             </body>
         </html>
-    }.to_html();
+    }
+    .to_html();
 
     Ok(renewed(Html(html), &raw, seconds))
 }
@@ -156,11 +215,24 @@ pub(crate) async fn disable(
     }
     let mut tx = state.pool.begin().await.map_err(db_error)?;
     let authorized: Option<(String, String)> = sqlx::query_as(
-        "SELECT u.user_pd,s.credential_fingerprint FROM uac_user u
-         JOIN uac_login_session s ON s.user_id=u.id
-         WHERE u.id=$1 AND s.token_hash=$2 AND s.expires_at>floor(extract(epoch from now()))::bigint
-           AND s.restricted=FALSE AND u.user_status='active' AND u.is_init_pd=FALSE FOR SHARE OF u,s"
-    ).bind(&actor).bind(digest(&raw)).fetch_optional(&mut *tx).await.map_err(db_error)?;
+        r#"SELECT u.user_pd
+            ,s.credential_fingerprint 
+        FROM uac_user u
+        JOIN uac_login_session s 
+            ON s.user_id=u.id
+        WHERE u.id=$1 
+            AND s.token_hash=$2 
+            AND s.expires_at>floor(extract(epoch from now()))::bigint
+            AND s.restricted=FALSE 
+            AND u.user_status='active' 
+            AND u.is_init_pd=FALSE 
+        FOR SHARE OF u,s"#,
+    )
+    .bind(&actor)
+    .bind(digest(&raw))
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(db_error)?;
     let (credential, fingerprint) = authorized.ok_or(StatusCode::FORBIDDEN)?;
     if digest(&credential) != fingerprint {
         return Err(StatusCode::UNAUTHORIZED);
@@ -176,8 +248,14 @@ pub(crate) async fn disable(
         return Err(StatusCode::FORBIDDEN);
     }
     let status: Option<String> = sqlx::query_scalar(
-        "SELECT u.user_status FROM uac_user u JOIN uac_user_role ur ON ur.user_id=u.id
-        WHERE u.id=$1 AND ur.role_id='analytics-viewer' AND NOT EXISTS(SELECT 1 FROM uac_user_role ar WHERE ar.user_id=u.id AND ar.role_id='analytics-admin') FOR UPDATE OF u",
+        r#"SELECT u.user_status 
+        FROM uac_user u 
+        JOIN uac_user_role ur 
+            ON ur.user_id=u.id
+        WHERE u.id=$1 
+            AND ur.role_id='analytics-viewer' 
+            AND NOT EXISTS(SELECT 1 FROM uac_user_role ar WHERE ar.user_id=u.id AND ar.role_id='analytics-admin') 
+        FOR UPDATE OF u"#,
     )
     .bind(&id)
     .fetch_optional(&mut *tx)

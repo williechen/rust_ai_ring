@@ -28,10 +28,15 @@ async fn lookup_existing_event(
     occurred_at: Option<&str>,
 ) -> Result<(i16, String, bool), sqlx::Error> {
     sqlx::query_as(
-        "SELECT p.schema_version, c.wire_value, p.occurred_at IS NOT DISTINCT FROM $3::timestamptz
-         FROM product_events AS p
-         JOIN codemap AS c ON c.category = 'event_type' AND c.code = p.event_type
-         WHERE p.source_app = $1 AND p.event_id = $2",
+        r#"SELECT p.schema_version
+            , c.wire_value
+            , p.occurred_at IS NOT DISTINCT FROM $3::timestamptz
+        FROM product_events AS p
+        JOIN codemap AS c 
+            ON c.category = 'event_type' 
+            AND c.code = p.event_type
+        WHERE p.source_app = $1 
+            AND p.event_id = $2"#,
     )
     .bind(source_app)
     .bind(event_id)
@@ -50,9 +55,14 @@ pub async fn persist_event(
     let event_id = event.event_id.to_string();
     let mut tx = pool.begin().await?;
     let inserted = sqlx::query(
-        "INSERT INTO product_events (source_app, event_id, schema_version, event_type, occurred_at)
-     VALUES ($1, $2, $3, $4, $5::timestamptz)
-     ON CONFLICT (source_app, event_id) DO NOTHING",
+        r#"INSERT INTO product_events (source_app
+            , event_id
+            , schema_version
+            , event_type
+            , occurred_at
+        ) VALUES ($1, $2, $3, $4, $5::timestamptz)
+        ON CONFLICT (source_app, event_id) 
+        DO NOTHING"#,
     )
     .bind(&event.source_app)
     .bind(&event_id)
