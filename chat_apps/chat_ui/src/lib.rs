@@ -283,14 +283,38 @@ pub fn ChatPage(room_id: String) -> impl IntoView {
     let (history_status, set_history_status) = signal(String::from("正在載入歷史訊息"));
 
     let (room_title, set_room_title) = signal(format!("房間 {room_id}"));
+    let name_failed = RwSignal::new(false);
+    let name_loading = RwSignal::new(false);
+    let name_target = StoredValue::new(room_id.clone());
+    let name_alive = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let name_flag = StoredValue::new(name_alive.clone());
+    on_cleanup(move || name_alive.store(false, std::sync::atomic::Ordering::Relaxed));
+    let load_name = Callback::new(move |()| {
+        if name_loading.get_untracked() {
+            return;
+        }
+        name_loading.set(true);
+        #[cfg(target_arch = "wasm32")]
+        {
+            let requested = name_target.get_value();
+            let alive = name_flag.get_value();
+            wasm_bindgen_futures::spawn_local(async move {
+                let result = room_api::room_name(&requested).await;
+                if !alive.load(std::sync::atomic::Ordering::Relaxed) {
+                    return;
+                }
+                name_failed.set(result.is_err());
+                set_room_title.set(room_heading(&requested, result));
+                name_loading.set(false);
+            });
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        let _ = (name_target, name_flag, set_room_title);
+    });
+
     #[cfg(target_arch = "wasm32")]
-    {
-        let requested = room_id.clone();
-        wasm_bindgen_futures::spawn_local(async move {
-            let result = room_api::room_name(&requested).await;
-            set_room_title.set(room_heading(&requested, result));
-        });
-    }
+    Effect::new(move |_| load_name.run(()));
+
     #[cfg(not(target_arch = "wasm32"))]
     let _ = (set_room_title, set_messages, set_history_status);
 
@@ -377,100 +401,108 @@ pub fn ChatPage(room_id: String) -> impl IntoView {
     let send_keyboard = send.clone();
 
     view! {
-        <section class="conversation">
-             <header class="conversation-heading">
-                <div>
-                    <h2 title=move ||room_title.get()>{move || room_title.get()}</h2>
-                    <p role="status">{move || connection.get()}</p>
-                </div>
-                <div class="conversation-actions">
-                    <button class="call-action"
-                        type="button"
-                        aria-label="語音通話（尚未接通）"
-                        title="語音通話尚未接通" disabled>
-                            "語音"
-                    </button>
-                    <button class="call-action"
-                        type="button"
-                        aria-label="視訊通話（尚未接通）"
-                        title="視訊通話尚未接通" disabled>
-                        "視訊"
-                    </button>
+    <section class="conversation">
+        <header class="conversation-heading">
+            <div>
+                <h2 title=move ||room_title.get()>{move || room_title.get()}</h2>
+                <Show when=move || name_failed.get()>
                     <button class="history-reload"
                         type="button"
-                        aria-label="重新載入歷史"
-                        on:click=reload_history>
-                        "歷史"
-                    </button>
-                    <details class="chat-more">
-                        <summary>"更多"</summary>
-                        <div class="chat-more-panel">
-                            <p>"已定功能・尚未接通"</p>
-                            <button type="button" disabled>"文字顏色"</button>
-                        </div>
-                    </details>
-                </div>
-            </header>
-            <p class="history-disclosure"
-                role="status">
-                {move || history_status.get()}
-            </p>
-            <div class="message-history"
-                aria-live="polite">
-                {move || {
-                    if messages.get().is_empty() {
-                        view! {
-                            <p class="messages-empty">
-                                "目前尚無訊息"
-                            </p>
-                        }.into_any()
-                    } else {
-                        view! {
-                            <ul class="messages">
-                                {messages.get().into_iter().map(|message| view! {
-                                    <li>
-                                        <strong>{author_label(&message.author)}": "</strong>
-                                        {message.content}
-                                    </li>
-                                }).collect_view()}
-                            </ul>
-                        }.into_any()
-                    }
-                }}
+                        disabled=move ||name_loading.get()
+                        on:click=move |_|load_name.run(())
+                    >"重試房間名稱"</button>
+                </Show>
+                <p role="status">{move || connection.get()}</p>
             </div>
-            <div class="chat-composer">
-                <textarea node_ref=composer rows="1"
-                    aria-label="聊天訊息"
-                    placeholder="輸入訊息"
-                    prop:value=move || draft.get()
-                    on:input=move |event| {
-                        set_draft.set(event_target_value(&event));
-                        #[cfg(target_arch="wasm32")]
-                        { let input=event_target::<web_sys::HtmlTextAreaElement>(&event);
-                          let _=web_sys::HtmlElement::style(&input).set_property("height","auto");
-                          let _=web_sys::HtmlElement::style(&input).set_property("height",&format!("{}px",input.scroll_height().clamp(44,96))); }
-                    }
-                    on:keydown=move |event: leptos::ev::KeyboardEvent| {
-                        if composer_key::should_send_key(
-                            &event.key(), event.shift_key(), event.ctrl_key(),
-                            event.alt_key(), event.meta_key(), event.is_composing(),
-                            event.key_code(),
-                        ) {
-                            event.prevent_default();
-                            send_keyboard();
-                        }
-                    }
-                />
-
-                <button
+            <div class="conversation-actions">
+                <button class="call-action"
                     type="button"
-                    disabled=move || draft.get().trim().is_empty()
-                    on:click=move |_| send_button()>"傳送"</button>
+                    aria-label="語音通話（尚未接通）"
+                    title="語音通話尚未接通" disabled>
+                        "語音"
+                </button>
+                <button class="call-action"
+                    type="button"
+                    aria-label="視訊通話（尚未接通）"
+                    title="視訊通話尚未接通" disabled>
+                        "視訊"
+                </button>
+                <button class="history-reload"
+                    type="button"
+                    aria-label="重新載入歷史"
+                    on:click=reload_history>
+                        "歷史"
+                </button>
+                <details class="chat-more">
+                    <summary>"更多"</summary>
+                    <div class="chat-more-panel">
+                        <p>"已定功能・尚未接通"</p>
+                        <button type="button" disabled>"文字顏色"</button>
+                    </div>
+                </details>
             </div>
-            <p class="composer-help">"Enter 傳送；Shift+Enter 換行"
-                <span class="composer-ime">"；輸入法選字不傳送。"</span>
-            </p>
-        </section>
+        </header>
+        <p class="history-disclosure"
+            role="status">
+            {move || history_status.get()}
+        </p>
+        <div class="message-history"
+            aria-live="polite">
+            {move || {
+                if messages.get().is_empty() {
+                    view! {
+                        <p class="messages-empty">
+                            "目前尚無訊息"
+                        </p>
+                    }.into_any()
+                } else {
+                    view! {
+                        <ul class="messages">
+                            {messages.get().into_iter().map(|message| view! {
+                                <li>
+                                    <strong>{author_label(&message.author)}": "</strong>
+                                    {message.content}
+                                </li>
+                            }).collect_view()}
+                        </ul>
+                    }.into_any()
+                }
+            }}
+        </div>
+        <div class="chat-composer">
+            <textarea node_ref=composer rows="1"
+                aria-label="聊天訊息"
+                placeholder="輸入訊息"
+                prop:value=move || draft.get()
+                on:input=move |event| {
+                    set_draft.set(event_target_value(&event));
+                    #[cfg(target_arch="wasm32")]
+                    {
+                        let input=event_target::<web_sys::HtmlTextAreaElement>(&event);
+                        let _=web_sys::HtmlElement::style(&input).set_property("height","auto");
+                        let _=web_sys::HtmlElement::style(&input).set_property("height",&format!("{}px",input.scroll_height().clamp(44,96)));
+                    }
+                }
+                on:keydown=move |event: leptos::ev::KeyboardEvent| {
+                    if composer_key::should_send_key(
+                        &event.key(), event.shift_key(), event.ctrl_key(),
+                        event.alt_key(), event.meta_key(), event.is_composing(),
+                        event.key_code(),
+                    ) {
+                        event.prevent_default();
+                        send_keyboard();
+                    }
+                }
+            />
+            <button
+                type="button"
+                disabled=move || draft.get().trim().is_empty()
+                on:click=move |_| send_button()>"傳送"</button>
+        </div>
+        <p class="composer-help">"Enter 傳送；Shift+Enter 換行"
+            <span class="composer-ime">"；輸入法選字不傳送。"</span>
+        </p>
+    </section>
     }
 }
 

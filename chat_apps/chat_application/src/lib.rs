@@ -3,6 +3,7 @@ pub mod login_attempt;
 pub mod member_names;
 pub mod product_event;
 pub mod repository;
+pub mod room_details;
 pub mod room_directory;
 pub mod room_presence;
 

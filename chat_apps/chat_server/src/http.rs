@@ -75,16 +75,15 @@ pub async fn get_room(
     if id.trim().is_empty() || id.len() > 40 || id.contains('\0') {
         return Err(StatusCode::BAD_REQUEST);
     }
-    let room = state
-        .room_repository
-        .find_by_id(&id)
+    let room = chat_application::room_details::read(state.room_repository.as_ref(), &id)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
-    // Adapter 回傳錯誤房間時不洩漏該房間資料。
-    if room.id != id {
-        return Err(StatusCode::INTERNAL_SERVER_ERROR);
-    }
+        .map_err(|error| match error {
+            chat_application::room_details::DetailsError::Missing => StatusCode::NOT_FOUND,
+            chat_application::room_details::DetailsError::Mismatch
+            | chat_application::room_details::DetailsError::Store(_) => {
+                StatusCode::INTERNAL_SERVER_ERROR
+            }
+        })?;
     Ok(Json(RoomDetails {
         id: room.id,
         category_room_id: room.category_room_id,
