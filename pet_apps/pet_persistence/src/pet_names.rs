@@ -55,6 +55,27 @@ impl PetNames for SqlitePetNames {
         })
     }
 
+    async fn defaults(&self) -> Result<Vec<NamedPet>, String> {
+        sqlx::query_as::<_, (String, String, String)>(
+            r#"SELECT id
+                ,name
+                ,species 
+            FROM pet_profile 
+            WHERE owner_id='local-owner' 
+                 AND COALESCE(is_default_closure,0)=0 
+            ORDER BY name
+                ,id"#,
+        )
+        .fetch_all(&self.0)
+        .await
+        .map(|r| {
+            r.into_iter()
+                .map(|(id, name, species)| NamedPet { id, name, species })
+                .collect()
+        })
+        .map_err(|_| "無法讀取啟動預設寵物".into())
+    }
+
     async fn active(&self) -> Result<Option<NamedPet>, String> {
         let row: Option<(String, String, String)> = sqlx::query_as(
             r#"SELECT p.id

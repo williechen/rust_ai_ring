@@ -187,24 +187,19 @@ impl PetStore {
     }
 
     pub async fn default_pets(&self) -> Result<Vec<SavedPet>, String> {
-        sqlx::query_as::<_, (String, String, String)>(
-            r#"SELECT id
-                ,name
-                ,species 
-            FROM pet_profile 
-            WHERE owner_id='local-owner' 
-                 AND COALESCE(is_default_closure,0)=0 
-            ORDER BY name
-                ,id"#,
-        )
-        .fetch_all(&self.pool)
+        pet_application::pet_names::default_pets(&pet_persistence::pet_names::SqlitePetNames(
+            self.pool.clone(),
+        ))
         .await
-        .map(|r| {
-            r.into_iter()
-                .map(|(id, name, species)| SavedPet { id, name, species })
+        .map(|rows| {
+            rows.into_iter()
+                .map(|p| SavedPet {
+                    id: p.id,
+                    name: p.name,
+                    species: p.species,
+                })
                 .collect()
         })
-        .map_err(|_| "無法讀取啟動預設寵物".into())
     }
 }
 

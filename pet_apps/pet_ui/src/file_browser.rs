@@ -75,6 +75,7 @@ pub(crate) fn FileBrowser(
     let error = RwSignal::new(None::<String>);
     let icons = RwSignal::new(false);
     let sort = RwSignal::new((SortField::Name, false));
+    let name_filter = RwSignal::new(String::new());
     let selected = RwSignal::new(BTreeSet::<String>::new());
     let folder_form = RwSignal::new(false);
     let folder_name = RwSignal::new(String::new());
@@ -99,6 +100,9 @@ pub(crate) fn FileBrowser(
         spawn_local(async move {
             match bridge::browse_authorized_directory(&path).await {
                 Ok(listing) => {
+                    if state.with_untracked(|view| view.path() != &path) {
+                        name_filter.set(String::new());
+                    }
                     on_directory.run(Some(path.clone()));
                     state.update(|view| {
                         match via {
@@ -150,6 +154,8 @@ pub(crate) fn FileBrowser(
     let sorted = Memo::new(move |_| {
         let (field, reverse) = sort.get();
         let mut rows = state.with(|view| view.entries.clone());
+        let needle = name_filter.get().trim().to_lowercase();
+        rows.retain(|entry| entry.name.to_lowercase().contains(&needle));
         rows.sort_by(|left, right| {
             let value = match field {
                 SortField::Name => left.name.cmp(&right.name),
@@ -336,6 +342,24 @@ pub(crate) fn FileBrowser(
                     >"圖示"</button>
                 </div>
             </div>
+            <div class="file-name-filter">
+                <label for="file-name-filter">"目前目錄名稱篩選"</label>
+                <input id="file-name-filter"
+                    type="search"
+                    prop:value=move ||name_filter.get()
+                    disabled=move ||loading.get() || !state.with(|v|v.loaded)
+                    on:input=move |event|{
+                        name_filter.set(event_target_value(&event));
+                        selected.update(BTreeSet::clear);
+                    }
+                />
+                <Show when=move ||!name_filter.get().is_empty()>
+                    <button type="button"
+                        on:click=move |_|name_filter.set(String::new())
+                    >"清除名稱篩選"</button>
+                </Show>
+            </div>
+            <Show when=move ||state.with(|v|v.loaded && !v.entries.is_empty()) && sorted.with(Vec::is_empty)><p role="status">"沒有符合名稱的項目；可清除篩選查看目前目錄。"</p></Show>
             <nav class="file-breadcrumbs"
                 aria-label="目前目錄路徑">
                 <button type="button"
