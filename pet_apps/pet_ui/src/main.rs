@@ -10,6 +10,7 @@ mod file_browser;
 mod file_comparison;
 #[cfg(test)]
 mod file_scan_view;
+pub mod management_datatable;
 pub mod management_selection;
 mod saved_pet;
 mod scan_generation;
@@ -61,6 +62,30 @@ fn App() -> impl IntoView {
     let (new_pet_feedback, set_new_pet_feedback) = signal(String::new());
     let (saved_pets, set_saved_pets) = signal(Vec::<SavedPet>::new());
     let (pets_busy, set_pets_busy) = signal(false);
+
+    let table_query = RwSignal::new(String::new());
+    let table_size = RwSignal::new(10usize);
+    let table_page = RwSignal::new(1usize);
+    let table_sort = RwSignal::new(management_datatable::Sort::default());
+    let rename_drafts = RwSignal::new(HashMap::<String, String>::new());
+    let table_view = Memo::new(move |_| {
+        management_datatable::project(
+            &saved_pets.get(),
+            &table_query.get(),
+            table_sort.get(),
+            table_page.get(),
+            table_size.get(),
+        )
+    });
+    Effect::new(move |_| {
+        let rows = saved_pets.get();
+        rename_drafts.update(|drafts| drafts.retain(|id, _| rows.iter().any(|pet| &pet.id == id)));
+    });
+    let sort_pets = move |field| {
+        table_sort.update(|sort| sort.toggle(field));
+        table_page.set(1);
+    };
+
     let (active_pet, set_active_pet) = signal::<Option<SavedPet>>(None);
 
     let (file_directory, set_file_directory) = signal(None::<Vec<String>>);
@@ -495,8 +520,15 @@ fn App() -> impl IntoView {
                     }
                 >"建立寵物"</button>
                 <p role="status">{move || new_pet_feedback.get()}</p>
-                 <h3>"已儲存寵物"</h3>
-                <button type="button" disabled=move || pets_busy.get()
+                  <Show when=move || pets_busy.get() fallback=|| ()><p>"處理中…"</p></Show>
+                <div class="management-datatable" aria-busy=move ||pets_busy.get().to_string()>
+                    <div class="management-table-toolbar">
+                        <div class="management-query-row">
+                        <label for="management-table-search">"搜尋寵物"
+                            <input id="management-table-search" type="search" placeholder="名稱、種類或識別碼" prop:value=move ||table_query.get()
+                                on:input=move |event|{table_query.set(event_target_value(&event));table_page.set(1);}/>
+                        </label>
+<button type="button" disabled=move || pets_busy.get()
                     on:click=move |_| {
                         if pets_busy.get_untracked() { return; }
                         set_pets_busy.set(true);
@@ -519,9 +551,24 @@ fn App() -> impl IntoView {
                             set_pets_busy.set(false);
                         });
                     }>"重新載入清單"</button>
-                <Show when=move || pets_busy.get() fallback=|| ()><p>"處理中…"</p></Show>
-                <ul>
-                    <For each=move || saved_pets.get() key=|pet| pet.id.clone()
+                    </div>
+                        <Show when=move ||!table_query.get().is_empty()><button type="button" on:click=move |_|{table_query.set(String::new());table_page.set(1);}>"清除搜尋"</button></Show>
+                        <label for="management-table-size">"每頁筆數"
+                            <select id="management-table-size" prop:value=move ||table_size.get().to_string() on:change=move |event|{let n=event_target_value(&event).parse::<usize>().unwrap_or(10);table_size.set(if [10,25,50].contains(&n){n}else{10});table_page.set(1);}>
+                                <option value="10">"10"</option><option value="25">"25"</option><option value="50">"50"</option>
+                            </select>
+                        </label>
+                    </div>
+                    <p class="management-table-info" role="status">{move ||{let v=table_view.get();format!("顯示 {}–{} 筆，共 {} 筆符合；全部 {} 隻",v.start,v.end,v.filtered,saved_pets.with(Vec::len))}}</p>
+                    <div class="management-table-scroll" role="region" aria-label="寵物管理資料表" tabindex="0">
+                        <table class="management-data-table"><caption>"已儲存寵物管理清單"</caption>
+                        <thead><tr>
+                            <th scope="col" aria-sort=move ||table_sort.get().aria(management_datatable::Column::Name)><button type="button" on:click=move |_|sort_pets(management_datatable::Column::Name)>"名稱"</button></th>
+                            <th scope="col" aria-sort=move ||table_sort.get().aria(management_datatable::Column::Species)><button type="button" on:click=move |_|sort_pets(management_datatable::Column::Species)>"種類"</button></th>
+                            <th scope="col" aria-sort=move ||table_sort.get().aria(management_datatable::Column::Id)><button type="button" on:click=move |_|sort_pets(management_datatable::Column::Id)>"識別碼"</button></th>
+                            <th scope="col">"管理狀態"</th><th scope="col">"操作"</th>
+                        </tr></thead><tbody>
+                    <For each=move || table_view.get().rows key=|pet| pet.id.clone()
                         children=move |pet| {
                             let id=pet.id.clone();
                             let open_id=id.clone();
@@ -531,15 +578,23 @@ fn App() -> impl IntoView {
                             let display_id=id.clone();
                             let selected_id=id.clone();
                             let rename_scope=id.clone();
-                            let (rename_input, set_rename_input) = signal(pet.name.clone());
+                            let (rename_input, set_rename_input) = signal(rename_drafts.with_untracked(|drafts|drafts.get(&pet.id).cloned()).unwrap_or_else(||pet.name.clone()));
+                            let draft_id=StoredValue::new(pet.id.clone());
+                            let name_id=pet.id.clone();
+                            let species_id=pet.id.clone();
+                            let row_id=pet.id.clone();
                             let (rename_id, set_rename_id) = signal(pet.id.clone());
-                            view! { <li>{move || saved_pets.get().iter().find(|row| row.id == pet.id).map(|row| format!("{}／{}（{}）", row.name, row.species, row.id)).unwrap_or_default()}
-                                <p role="status">{move || if management_pet_id.get().as_deref()==Some(selected_id.as_str()) { "目前管理對象" } else { "" }}</p>
+                            view! { <tr data-pet-id=row_id.clone() class:management-selected=move ||management_pet_id.get().as_deref()==Some(row_id.as_str())>
+                                <td class="management-pet-name">{move ||saved_pets.with(|rows|rows.iter().find(|row|row.id==name_id).map(|row|row.name.clone()).unwrap_or_default())}</td>
+                                <td>{move ||saved_pets.with(|rows|rows.iter().find(|row|row.id==species_id).map(|row|row.species.clone()).unwrap_or_default())}</td>
+                                <td><code>{pet.id.clone()}</code></td>
+                                <td><span role="status">{move || if management_pet_id.get().as_deref()==Some(selected_id.as_str()) { "目前管理對象" } else { "未選取" }}</span></td>
+                                <td><details class="management-row-actions"><summary>"操作"</summary><div>
                                 <Show when=move || management_pet_id.get().as_deref()==Some(rename_scope.as_str()) fallback=|| ()>
                                 <label>"修改名稱"
                                     <input aria-label="寵物新名稱" maxlength="64"
                                         prop:value=move || rename_input.get()
-                                        on:input=move |event| set_rename_input.set(event_target_value(&event)) />
+                                         on:input=move |event| {let value=event_target_value(&event);set_rename_input.set(value.clone());rename_drafts.update(|drafts|{drafts.insert(draft_id.get_value(),value);});} />
                                 </label>
                                 <button type="button" disabled=move || pets_busy.get()
                                     on:click=move |_| {
@@ -558,6 +613,7 @@ fn App() -> impl IntoView {
                                                     if active_pet.get_untracked().as_ref().is_some_and(|p| p.id == id) {
                                                         set_active_pet.set(Some(updated));
                                                     }
+                                                     rename_drafts.update(|drafts|{if drafts.get(&id)==Some(&proposed){drafts.remove(&id);}});
                                                     set_new_pet_feedback.set("已更新寵物名稱".into());
                                                 }
                                                 Err(error) => set_new_pet_feedback.set(format!("更名失敗：{error}")),
@@ -636,9 +692,17 @@ fn App() -> impl IntoView {
                                                 set_pets_busy.set(false);
                                             });
                                         }>"找回寵物"</button>
-                            </li> }
+                            </div></details></td></tr> }
                         } />
-                </ul>
+                 <Show when=move ||table_view.with(|v|v.rows.is_empty())><tr><td colspan="5">{move ||if table_query.get().trim().is_empty(){"目前沒有可顯示的寵物；可重新載入清單。"}else{"沒有符合的寵物，請調整或清除搜尋。"}}</td></tr></Show>
+                        </tbody></table>
+                    </div>
+                    <nav class="management-table-pagination" aria-label="寵物表格分頁">
+                        <button type="button" disabled=move ||table_view.with(|v|v.page<=1) on:click=move |_|table_page.set(table_view.get_untracked().page.saturating_sub(1).max(1))>"上一頁"</button>
+                        <span>{move ||{let v=table_view.get();format!("第 {} / {} 頁",v.page,v.pages)}}</span>
+                        <button type="button" disabled=move ||table_view.with(|v|v.page>=v.pages) on:click=move |_|{let v=table_view.get_untracked();table_page.set((v.page+1).min(v.pages));}>"下一頁"</button>
+                    </nav>
+                </div>
             </section>
 
 <section id="pet-updates" role="tabpanel" aria-labelledby="pet-updates-tab" tabindex="0"

@@ -349,3 +349,34 @@ body:has(.control-shell) { display: block; background: var(--pet-canvas); overfl
 }
 .settings-navigation-confirmation h2 { margin: 0 0 6px; font-size: 1rem; }
 .settings-navigation-confirmation p { margin: 0 0 10px; }
+.management-datatable { margin-top: 12px; min-width: 0; }
+.management-table-toolbar { display:flex; flex-wrap:wrap; align-items:end; gap:10px 14px; }
+.management-table-toolbar label { display:grid; gap:5px; font-size:.875rem; font-weight:650; }
+.management-query-row { display:flex; align-items:end; gap:8px; flex:1 1 330px; max-width:520px; min-width:0; }
+.management-query-row label { flex:1; min-width:0; }
+.management-query-row input { width:100%; min-width:0; }
+.management-query-row > button { flex:0 0 auto; white-space:nowrap; margin:0; }
+.management-table-toolbar button { margin:0; }
+.management-table-info { color:var(--pet-muted); font-size:.85rem; margin:10px 0; }
+.management-table-scroll { max-width:100%; max-height:60vh; overflow:auto; border:1px solid var(--pet-line); border-radius:10px; }
+.management-data-table { width:100%; min-width:690px; border-collapse:collapse; font-size:.875rem; }
+.management-data-table caption { text-align:left; padding:10px 12px; font-weight:700; background:var(--pet-soft); }
+.management-data-table :is(th,td) { padding:10px 12px; border-bottom:1px solid var(--pet-line); text-align:left; vertical-align:top; }
+.management-data-table th { background:var(--pet-soft); white-space:nowrap; }
+.management-data-table th button { margin:0; border:0; background:transparent; color:var(--pet-action); padding:3px; min-height:44px; }
+.management-data-table th[aria-sort="ascending"] button::after { content:" ↑"; }
+.management-data-table th[aria-sort="descending"] button::after { content:" ↓"; }
+.management-data-table td code { font-size:.75rem; white-space:nowrap; }
+.management-pet-name { min-width:120px; font-weight:650; }
+.management-selected { background:var(--pet-soft); }
+.management-row-actions { min-width:90px; }
+.management-row-actions summary { color:var(--pet-action); cursor:pointer; min-height:44px; white-space:nowrap; }
+.management-row-actions > div { display:grid; gap:5px; min-width:210px; margin-top:7px; }
+.management-row-actions :is(button,p) { margin:0; }
+.management-row-actions label { display:grid; gap:5px; }
+.management-row-actions input { min-width:0; width:100%; }
+.management-table-pagination { display:flex; align-items:center; flex-wrap:wrap; gap:10px; margin-top:10px; }
+.management-table-pagination button { margin:0; }
+@media(max-width:520px){ .management-table-toolbar { align-items:stretch; } .management-query-row {flex-basis:100%;width:100%;max-width:none;} .management-query-row input {width:100%;} }
+
+.management-data-table thead th { position:sticky; top:0; z-index:1; }
