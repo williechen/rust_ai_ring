@@ -325,8 +325,8 @@ fn App() -> impl IntoView {
                         aria-labelledby="settings-navigation-title">
                         <h2 id="settings-navigation-title">"設定尚未儲存"</h2>
                         <p>"切換前請儲存設定、捨棄草稿，或留在目前畫面。儲存失敗會保留草稿與原對象。"</p>
-                        <button type="button" 
-                            disabled=move || settings_busy.get() 
+                        <button type="button"
+                            disabled=move || settings_busy.get()
                             on:click=move |_| pending.set(None)
                         >"留在此頁"</button>
                         <button type="button"
