@@ -333,7 +333,7 @@ async fn dashboard(
 
     let source = filter.source.unwrap_or_else(|| "web_chat".into());
 
-    let kind = filter.kind.unwrap_or_default();
+    let kind = filter.kind.unwrap_or_default().trim().to_owned();
 
     let (status, output) = match rows(&state,&source,&kind).await {
         Ok(rows) => {

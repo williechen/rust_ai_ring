@@ -124,9 +124,24 @@ async fn day39_authenticated_admin_exports_only_selected_source_csv(pool: sqlx::
     .await;
     assert_eq!(no_kind.status(), StatusCode::OK);
     assert!(!body_text(no_kind).await.contains("chat.message.persisted"));
-    let invalid = get(
+    let normalized = get(
         app.clone(),
         "/api/v1/events/web_chat/export.csv?event_type=%20invalid",
+        Some(&cookie),
+    )
+    .await;
+    assert_eq!(normalized.status(), StatusCode::OK);
+    assert!(
+        !body_text(normalized)
+            .await
+            .contains("chat.message.persisted")
+    );
+    let invalid = get(
+        app.clone(),
+        &format!(
+            "/api/v1/events/web_chat/export.csv?event_type={}",
+            "x".repeat(129)
+        ),
         Some(&cookie),
     )
     .await;

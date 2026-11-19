@@ -468,7 +468,7 @@ async fn dashboard(
         return (status, "您沒有此來源的檢視權限。").into_response();
     }
 
-    let kind = query.event_type.as_deref().unwrap_or("");
+    let kind = query.event_type.as_deref().unwrap_or("").trim();
     if !kind.is_empty() && (!crate::valid_event_type(kind) || kind.contains('\0')) {
         return StatusCode::BAD_REQUEST.into_response();
     }
@@ -604,9 +604,21 @@ async fn summary(
     if !matches!(source.as_str(), "web_chat" | "desktop_pet") {
         return Err(StatusCode::BAD_REQUEST);
     }
-    let rows = summary_for_source(&state.pool, &source)
-        .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let rows = analytics_application::summary::read(
+        &analytics_persistence::summary::PgSummary(state.pool.clone()),
+        &source,
+        "",
+    )
+    .await
+    .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let rows = rows
+        .into_iter()
+        .map(|r| analytics_persistence::EventSummary {
+            source_app: r.source_app,
+            event_type: r.event_type,
+            total: r.total,
+        })
+        .collect::<Vec<_>>();
     Ok(renewed(Json(rows), &raw, seconds))
 }
 

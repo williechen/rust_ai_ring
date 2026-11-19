@@ -6,6 +6,7 @@ pub mod login_attempt;
 pub mod login_session;
 pub mod navigation;
 pub mod page_permissions;
+pub mod search_text;
 pub mod session_settings;
 pub mod summary;
 pub mod viewer_access;
@@ -40,12 +41,15 @@ pub async fn summary_for_source(
     .await
 }
 
-/// 僅聚合已提交的精確來源與事件類型；輸入不拼入 SQL。
+/// 按單一來源與事件類型文字聚合；文字採不分大小寫的包含比對。
 pub async fn summary_for_source_and_type(
     pool: &sqlx::PgPool,
     source: &str,
     event_type: &str,
 ) -> Result<Vec<EventSummary>, sqlx::Error> {
+    if event_type.trim().is_empty() {
+        return summary_for_source(pool, source).await;
+    }
     sqlx::query_as::<_, EventSummary>(
         r#"SELECT p.source_app
             , c.wire_value AS event_type
@@ -55,12 +59,13 @@ pub async fn summary_for_source_and_type(
             ON c.category = 'event_type' 
             AND c.code = p.event_type
         WHERE p.source_app = $1 
-            AND c.wire_value = $2
+            AND (c.wire_value ILIKE $2 ESCAPE '\' OR c.value ILIKE $2 ESCAPE '\')
         GROUP BY p.source_app
-            , c.wire_value"#,
+            , c.wire_value
+        ORDER BY c.wire_value COLLATE "default""#,
     )
     .bind(source)
-    .bind(event_type)
+    .bind(search_text::pattern(event_type))
     .fetch_all(pool)
     .await
 }

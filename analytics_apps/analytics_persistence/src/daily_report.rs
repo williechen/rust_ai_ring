@@ -30,6 +30,7 @@ pub async fn read(
         return Err(DailyError::Invalid);
     }
 
+    let pattern = crate::search_text::pattern(kind);
     let mut tx = pool.begin().await?;
     sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
         .execute(&mut *tx)
@@ -69,14 +70,14 @@ pub async fn read(
                 FROM codemap c
                 WHERE c.category='event_type'
                     AND c.code=p.event_type
-                    AND c.wire_value=$2
+                    AND (c.wire_value ILIKE $2 ESCAPE '\' OR c.value ILIKE $2 ESCAPE '\')
                 )
             )
         GROUP BY report_day
         ORDER BY report_day"#
     )
     .bind(source)
-    .bind(kind)
+    .bind(&pattern)
     .bind(&start)
     .bind(&end)
     .fetch_all(&mut *tx)
@@ -92,12 +93,12 @@ pub async fn read(
                 FROM codemap c 
                 WHERE c.category='event_type' 
                     AND c.code=p.event_type 
-                    AND c.wire_value=$2
+                    AND (c.wire_value ILIKE $2 ESCAPE '\' OR c.value ILIKE $2 ESCAPE '\')
                 )
             )"#,
     )
     .bind(source)
-    .bind(kind)
+    .bind(&pattern)
     .fetch_one(&mut *tx)
     .await?;
 

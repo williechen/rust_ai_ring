@@ -21,3 +21,11 @@ pub async fn csv<S: SummaryStore>(store: &S, source: &str, kind: &str) -> Result
         (r.source_app.as_str(), r.event_type.as_str(), r.total)
     })))
 }
+
+pub async fn read<S: SummaryStore>(
+    store: &S,
+    source: &str,
+    kind: &str,
+) -> Result<Vec<SummaryRow>, S::Error> {
+    store.read(source, kind).await
+}

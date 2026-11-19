@@ -17,9 +17,10 @@ pub struct ExportQuery {
 pub async fn export_summary(
     State(state): State<IngestState>,
     Path(source): Path<String>,
-    Query(query): Query<ExportQuery>,
+    Query(mut query): Query<ExportQuery>,
     headers: HeaderMap,
 ) -> Result<Response, StatusCode> {
+    query.event_type = query.event_type.trim().to_owned();
     let (raw, seconds) = require_source_session(&state, &headers, &source).await?;
     if !matches!(source.as_str(), "web_chat" | "desktop_pet") {
         return Err(StatusCode::BAD_REQUEST);
@@ -58,9 +59,10 @@ pub struct DailyQuery {
 pub async fn export_daily(
     State(state): State<IngestState>,
     Path(source): Path<String>,
-    Query(query): Query<DailyQuery>,
+    Query(mut query): Query<DailyQuery>,
     headers: HeaderMap,
 ) -> Result<Response, StatusCode> {
+    query.event_type = query.event_type.trim().to_owned();
     let (raw, seconds) = require_source_session(&state, &headers, &source).await?;
     if !matches!(source.as_str(), "web_chat" | "desktop_pet")
         || (!query.event_type.is_empty() && !crate::valid_event_type(&query.event_type))
