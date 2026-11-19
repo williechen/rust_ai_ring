@@ -50,7 +50,7 @@ pub async fn read(
     .fetch_one(&mut *tx)
     .await?;
 
-    if !(1..=31).contains(&span) {
+    if !(0..=31).contains(&span) {
         return Err(DailyError::Invalid);
     }
 

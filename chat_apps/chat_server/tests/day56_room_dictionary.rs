@@ -41,6 +41,7 @@ async fn get_json(app: &Router, uri: &str) -> Value {
         .oneshot(Request::get(uri).body(Body::empty()).unwrap())
         .await
         .unwrap();
+    eprint!("Request URI: {}", uri);
     assert_eq!(response.status(), StatusCode::OK);
     serde_json::from_slice(&to_bytes(response.into_body(), 32768).await.unwrap()).unwrap()
 }

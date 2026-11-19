@@ -78,19 +78,6 @@ fn DashboardView(
         view! { <option value=id selected=selected>{name}</option> }
     })
     .collect_view();
-    let source_shortcuts = [
-        ("web_chat", "Chat", allow_chat),
-        ("desktop_pet", "Pet", allow_pet),
-    ]
-    .into_iter()
-    .filter(|(_, _, allowed)| *allowed)
-    .map(|(id, fallback, _)| {
-        let label = sources.get(id).cloned().unwrap_or_else(|| fallback.into());
-        let href = with_date_range(dashboard_url(id, &event_type, 1, page_size), &date_range);
-        let active = (id == source).then_some("page");
-        view! { <a href=href aria-current=active>{label}</a> }
-    })
-    .collect_view();
     let visible_kinds = rows
         .iter()
         .map(|(kind, _)| kind.as_str())
@@ -136,9 +123,6 @@ fn DashboardView(
                         <header class="report-heading">
                             <p>"資訊分析"</p>
                             <h2>"來源分析"</h2>
-                            <span class="report-source">{selected_source}</span>
-                            <nav class="report-actions"
-                                aria-label="切換報表來源">{source_shortcuts}</nav>
                         </header>
                         <section class="report-card"
                             aria-labelledby="report-filters-title">
@@ -161,17 +145,17 @@ fn DashboardView(
                                         maxlength="128"
                                         placeholder="例如 chat.message.persisted"
                                     />
+                                    <p>"可選取本頁事件的字典代碼，或輸入原始事件類型做精確比對。"</p>
                                 </div>
-                                <Show when=move||has_range>
-                                    <label>"起日（UTC）"
-                                        <input type="date" name="start" value=form_start.clone()/>
-                                    </label>
-                                    <label>"迄日（UTC，不含）"
-                                        <input type="date" name="end" value=form_end.clone()/>
-                                    </label>
-                                </Show>
+                                <div class="report-field">
+                                    <label>"起日（UTC）"</label>
+                                    <input type="date" name="start" value=form_start.clone()/>
+                                </div>
+                                <div class="report-field">
+                                    <label>"迄日（UTC，不含）"</label>
+                                    <input type="date" name="end" value=form_end.clone()/>
+                                </div>
                                 <datalist id="report-event-types">{event_suggestions}</datalist>
-                                <p>"可選取本頁事件的字典代碼，或輸入原始事件類型做精確比對。"</p>
                                 <div class="report-actions">
                                     <label for="report-page-size">"每頁筆數"</label>
                                     <select id="report-page-size"
@@ -184,7 +168,6 @@ fn DashboardView(
                                     <button type="submit"
                                         class="report-primary">"篩選"</button>
                                     <a href=clear_url>"清除篩選"</a>
-                                    <a href=if has_range {"#daily-chart-title"} else {"#report-results-title"}>"跳至查詢結果"</a>
                                 </div>
                             </form>
                         </section>
