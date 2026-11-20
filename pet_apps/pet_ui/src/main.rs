@@ -379,7 +379,7 @@ fn App() -> impl IntoView {
                                 let mut rows = startup_failures.get().into_values().collect::<Vec<_>>();
                                 rows.sort_by(|a, b| a.id.cmp(&b.id));
                                 rows
-                            } 
+                            }
                             key=|failure| failure.id.clone()
                             children=move |failure| view! {
                                 <li>{format!("{}（{}）：{}", failure.name, failure.id, failure.reason)}</li>
