@@ -43,9 +43,21 @@ fn DashboardView(
     let range_end = daily.as_ref().map(|r| r.end.clone()).unwrap_or_default();
     let legacy_open = daily.is_none();
     let has_range = !range_start.is_empty();
-    let form_start = range_start.clone();
-    let form_end = range_end.clone();
-    let date_range = daily.as_ref().map(|r| (r.start.clone(), r.end.clone()));
+
+    let form_start = daily
+        .as_ref()
+        .and_then(|r| r.requested_start.clone())
+        .unwrap_or_default();
+
+    let form_end = daily
+        .as_ref()
+        .and_then(|r| r.requested_end.clone())
+        .unwrap_or_default();
+
+    let date_range = daily
+        .as_ref()
+        .map(|_| (form_start.clone(), form_end.clone()));
+
     let mut sources = BTreeMap::new();
     let mut events = BTreeMap::new();
     for (category, key, label) in dictionary {
@@ -92,9 +104,9 @@ fn DashboardView(
         })
         .collect_view();
     let clear_url = with_date_range(dashboard_url(&source, "", 1, page_size), &date_range);
-    let export_url = export_csv_url(&source, &event_type);
+    let export_url = with_date_range(export_csv_url(&source, &event_type), &date_range);
     let recent_url = dashboard_url(&source, &event_type, 1, page_size)
-        .replace("#report-results-title", "#daily-chart-title");
+        .replace("#report-results-title", "&range=week#daily-chart-title");
     let filter_description = filter_description(&event_type);
 
     let count_label = summary_count_label(source_label, &event_type, total);
@@ -156,6 +168,7 @@ fn DashboardView(
                                 <label for="report-end">"迄日（UTC，不含）"</label>
                                 <input id="report-end" type="date" name="end" value=form_end.clone()/>
                             </div>
+                            <p class="date-query-help">"日期可不填；只填起日查該日起，只填迄日查該日前。"</p>
                             <datalist id="report-event-types">{event_suggestions}</datalist>
                             <div class="report-field">
                                 <label for="report-page-size">"每頁筆數"</label>
@@ -176,7 +189,7 @@ fn DashboardView(
                         </form>
                     </section>
                     {daily.map(|report|{
-                        let url=format!("/api/v1/events/{}/daily.csv?event_type={}&start={}&end={}",source,crate::dashboard_url::encode_query_component(&event_type),report.start,report.end);
+                        let url=format!("/api/v1/events/{}/daily.csv?event_type={}&start={}&end={}",source,crate::dashboard_url::encode_query_component(&event_type),report.requested_start.as_deref().unwrap_or(""),report.requested_end.as_deref().unwrap_or(""));
                         view!{
                             <crate::daily_chart::DailyChart report source=source.clone() kind=event_type.clone() page_size/>
                             {can_export.then(||view!{
@@ -189,7 +202,7 @@ fn DashboardView(
                     })}
                     <details class="legacy-statistics"
                         open=legacy_open>
-                        <summary>"類型統計與CSV明細（相容查詢，未套用日期範圍）"</summary>
+                        <summary>"類型統計與CSV明細（相同查詢條件）"</summary>
                         <section class="report-card"
                             aria-labelledby="report-results-title">
                             <header class="report-results-head">
@@ -303,6 +316,33 @@ pub(crate) fn render_dashboard_unavailable(retry: String) -> String {
                             <h1>"來源分析暫時無法讀取"</h1>
                             <p>"目前無法取得資料，可用相同條件重試。"</p>
                             <a class="report-export" href=retry>"重試查詢"</a>
+                        </section>
+                    </main>
+                </body>
+            </html>
+        }
+        .to_html()
+    )
+}
+
+pub(crate) fn render_invalid_date_range(retry: String) -> String {
+    format!(
+        "<!doctype html>{}",
+        view! {
+            <html lang="zh-Hant">
+                <head>
+                    <meta charset="utf-8"/>
+                    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+                    <title>"日期範圍無效"</title>
+                   <style data-project-style="analytics">{include_str!("css/dashboard.css")}</style>
+                    <link rel="stylesheet" href="/assets/source-report.css"/>
+                </head>
+                <body>
+                    <main class="report-unavailable">
+                        <section class="report-card" role="alert">
+                            <h1>"日期範圍無效"</h1>
+                            <p>"日期須有效，起日不得晚於迄日；時區為UTC。返回後保留來源、文字及每頁筆數，清除日期限制。"</p>
+                            <a class="report-export" href=retry>"回到查詢"</a>
                         </section>
                     </main>
                 </body>
@@ -1251,7 +1291,8 @@ fn with_date_range(url: String, range: &Option<(String, String)>) -> String {
         .map(|(a, b)| (a, Some(b)))
         .unwrap_or((&url, None));
     format!(
-        "{base}&start={}&end={}{}",
+        "{base}{}start={}&end={}{}",
+        if base.contains('?') { "&" } else { "?" },
         crate::dashboard_url::encode_query_component(start),
         crate::dashboard_url::encode_query_component(end),
         fragment

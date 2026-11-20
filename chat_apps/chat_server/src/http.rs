@@ -71,13 +71,10 @@ pub async fn get_room(
     State(state): State<AppState>,
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Result<Json<RoomDetails>, StatusCode> {
-    // 沿用既有 ID 契約，不要求歷史 ID 必須是 UUID。
-    if id.trim().is_empty() || id.len() > 40 || id.contains('\0') {
-        return Err(StatusCode::BAD_REQUEST);
-    }
     let room = chat_application::room_details::read(state.room_repository.as_ref(), &id)
         .await
         .map_err(|error| match error {
+            chat_application::room_details::DetailsError::Invalid => StatusCode::BAD_REQUEST,
             chat_application::room_details::DetailsError::Missing => StatusCode::NOT_FOUND,
             chat_application::room_details::DetailsError::Mismatch
             | chat_application::room_details::DetailsError::Store(_) => {

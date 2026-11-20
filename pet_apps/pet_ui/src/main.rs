@@ -23,7 +23,6 @@ use leptos::{prelude::*, task::spawn_local};
 use pet_domain::PetSnapshot;
 use std::collections::HashMap;
 
-use crate::cage_status::record_cage_status;
 use crate::saved_pet::SavedPet;
 use control_navigation::{ControlNavigation, ControlPage};
 use pet_application::lifecycle::StartupRestoreFailure;
@@ -52,7 +51,7 @@ fn App() -> impl IntoView {
 
     let (animation_phase, set_animation_phase) = signal(false);
 
-    let (chat_open, set_chat_open) = signal(false);
+    let (chat_open, set_chat_open) = signal(true);
     let (chat_input, set_chat_input) = signal(String::new());
     let (chat_loading, set_chat_loading) = signal(false);
     let (chat_response, set_chat_response) = signal::<Option<String>>(None);
@@ -67,7 +66,7 @@ fn App() -> impl IntoView {
     let table_size = RwSignal::new(10usize);
     let table_page = RwSignal::new(1usize);
     let table_sort = RwSignal::new(management_datatable::Sort::default());
-    let rename_drafts = RwSignal::new(HashMap::<String, String>::new());
+
     let table_view = Memo::new(move |_| {
         management_datatable::project(
             &saved_pets.get(),
@@ -77,10 +76,7 @@ fn App() -> impl IntoView {
             table_size.get(),
         )
     });
-    Effect::new(move |_| {
-        let rows = saved_pets.get();
-        rename_drafts.update(|drafts| drafts.retain(|id, _| rows.iter().any(|pet| &pet.id == id)));
-    });
+
     let sort_pets = move |field| {
         table_sort.update(|sort| sort.toggle(field));
         table_page.set(1);
@@ -91,7 +87,6 @@ fn App() -> impl IntoView {
     let (file_directory, set_file_directory) = signal(None::<Vec<String>>);
     let (management_pet_id, set_management_pet_id) = signal(None::<String>);
 
-    let cage_status = RwSignal::new(HashMap::<String, String>::new());
     let startup_failures = RwSignal::new(HashMap::<String, StartupRestoreFailure>::new());
     let profile_events = RwSignal::new(0_u64);
 
@@ -161,7 +156,6 @@ fn App() -> impl IntoView {
             match bridge::list_pets().await {
                 Ok(rows) => {
                     set_saved_pets.set(rows);
-                    cage_status.set(HashMap::new());
                     set_new_pet_feedback.set("已載入儲存清單".into());
                 }
                 Err(error) => set_new_pet_feedback.set(error),
@@ -372,21 +366,39 @@ fn App() -> impl IntoView {
                     {move || if saved_pets.with(Vec::is_empty) {
                         "請先從管理區新增寵物。"
                     } else {
-                        "請先選擇一隻寵物，查看生活窗預覽和目前活動。"
+                        "請先選擇一隻寵物，查看目前活動。"
                     }}
                     </p>
                 </Show>
 
-                <details class="control-live-actions">
-                    <summary>"生活窗互動與聊天"</summary>
+                <Show when=move || !startup_failures.get().is_empty() fallback=|| ()>
+                    <section role="alert" aria-label="啟動恢復失敗">
+                        <h3>"部分寵物啟動時未能恢復"</h3>
+                        <ul>
+                            <For each=move || {
+                                let mut rows = startup_failures.get().into_values().collect::<Vec<_>>();
+                                rows.sort_by(|a, b| a.id.cmp(&b.id));
+                                rows
+                            } 
+                            key=|failure| failure.id.clone()
+                            children=move |failure| view! {
+                                <li>{format!("{}（{}）：{}", failure.name, failure.id, failure.reason)}</li>
+                            }/>
+                        </ul>
+                    </section>
+                </Show>
+
+                <section class="control-chat" aria-label="聊天">
+                    <h3>"聊天"</h3>
                     <ErrorMessage error />
                     <p>{move || active_pet.get().map(|pet| format!("作用對象：{}", pet.name)).unwrap_or_else(|| "尚無作用中的生活窗。".into())}</p>
-                    <PetControls active_pet profile_events snapshot set_snapshot set_error />
-                    <button
-                        class="chat-trigger"
-                        type="button"
-                        on:click=move |_| {set_chat_open.set(true);}
-                    >"聊天"</button>
+                    <Show when=move ||!chat_open.get()>
+                        <button
+                            class="chat-trigger"
+                            type="button"
+                            on:click=move |_| {set_chat_open.set(true);}
+                        >"開啟聊天"</button>
+                    </Show>
 
                     <ChatBubble
                         chat_open
@@ -400,7 +412,7 @@ fn App() -> impl IntoView {
                         chat_error
                         set_chat_error
                     />
-                </details>
+                </section>
             </section>
 
             <section id="pet-settings"
@@ -504,21 +516,6 @@ fn App() -> impl IntoView {
                 tabindex="0"
                 hidden=move || page.get() != ControlPage::Management>
                 <h2 id="pet-management-title">"管理"</h2>
-                <Show when=move || !startup_failures.get().is_empty() fallback=|| ()>
-                    <section role="alert" aria-label="啟動恢復失敗">
-                        <h3>"部分寵物啟動時未能恢復"</h3>
-                        <ul>
-                            <For each=move || {
-                                let mut rows = startup_failures.get().into_values().collect::<Vec<_>>();
-                                rows.sort_by(|a, b| a.id.cmp(&b.id));
-                                rows
-                            } key=|failure| failure.id.clone()
-                            children=move |failure| view! {
-                                <li>{format!("{}（{}）：{}", failure.name, failure.id, failure.reason)}</li>
-                            }/>
-                        </ul>
-                    </section>
-                </Show>
                 <h3>"新增寵物"</h3>
                 <label>"寵物名稱"
                     <input
@@ -637,6 +634,7 @@ fn App() -> impl IntoView {
                             format!("顯示 {}–{} 筆，共 {} 筆符合；全部 {} 隻",v.start,v.end,v.filtered,saved_pets.with(Vec::len))
                         }}
                     </p>
+                    <p class="control-context-note">"刪除功能尚未接通。"</p>
                     <div class="management-table-scroll"
                         role="region"
                         aria-label="寵物管理資料表"
@@ -663,7 +661,6 @@ fn App() -> impl IntoView {
                                             on:click=move |_|sort_pets(management_datatable::Column::Id)
                                         >"識別碼"</button>
                                     </th>
-                                    <th scope="col">"管理狀態"</th>
                                     <th scope="col">"操作"</th>
                                 </tr>
                             </thead>
@@ -673,19 +670,10 @@ fn App() -> impl IntoView {
                                     children=move |pet| {
 
                                         let id=pet.id.clone();
-                                        let open_id=id.clone();
-                                        let cage_id=id.clone();
-                                        let find_id=id.clone();
-                                        let status_id=id.clone();
-                                        let display_id=id.clone();
-                                        let selected_id=id.clone();
-                                        let rename_scope=id.clone();
-                                        let (rename_input, set_rename_input) = signal(rename_drafts.with_untracked(|drafts|drafts.get(&pet.id).cloned()).unwrap_or_else(||pet.name.clone()));
-                                        let draft_id=StoredValue::new(pet.id.clone());
                                         let name_id=pet.id.clone();
                                         let species_id=pet.id.clone();
                                         let row_id=pet.id.clone();
-                                        let (rename_id, set_rename_id) = signal(pet.id.clone());
+
                                         view! {
                                             <tr data-pet-id=row_id.clone() class:management-selected=move ||management_pet_id.get().as_deref()==Some(row_id.as_str())>
                                                 <td class="management-pet-name">
@@ -698,146 +686,14 @@ fn App() -> impl IntoView {
                                                     <code>{pet.id.clone()}</code>
                                                 </td>
                                                 <td>
-                                                    <span role="status">
-                                                        {move || if management_pet_id.get().as_deref()==Some(selected_id.as_str()) { "目前管理對象" } else { "未選取" }}
-                                                    </span>
-                                                </td>
-                                                <td>
-                                                    <details class="management-row-actions">
-                                                        <summary>"操作"</summary>
-                                                        <div>
-                                                            <Show when=move || management_pet_id.get().as_deref()==Some(rename_scope.as_str()) fallback=|| ()>
-                                                                <label>"修改名稱"
-                                                                    <input aria-label="寵物新名稱"
-                                                                        maxlength="64"
-                                                                        prop:value=move || rename_input.get()
-                                                                        on:input=move |event| {
-                                                                            let value=event_target_value(&event);
-                                                                            set_rename_input.set(value.clone());
-                                                                            rename_drafts.update(|drafts|{drafts.insert(draft_id.get_value(),value);});
-                                                                        }
-                                                                    />
-                                                                </label>
-                                                                <button type="button"
-                                                                    disabled=move || pets_busy.get()
-                                                                    on:click=move |_| {
-                                                                        if pets_busy.get_untracked() { return; }
-                                                                        set_pets_busy.set(true);
-                                                                        let id = rename_id.get_untracked();
-                                                                        let proposed = rename_input.get_untracked();
-                                                                        spawn_local(async move {
-                                                                            match bridge::rename_pet(&id, &proposed).await {
-                                                                                Ok(updated) => {
-                                                                                    set_saved_pets.update(|rows| {
-                                                                                        if let Some(row) = rows.iter_mut().find(|p| p.id == id) {
-                                                                                            row.name = updated.name.clone();
-                                                                                        }
-                                                                                    });
-                                                                                    if active_pet.get_untracked().as_ref().is_some_and(|p| p.id == id) {
-                                                                                        set_active_pet.set(Some(updated));
-                                                                                    }
-                                                                                    rename_drafts.update(|drafts|{if drafts.get(&id)==Some(&proposed){drafts.remove(&id);}});
-                                                                                    set_new_pet_feedback.set("已更新寵物名稱".into());
-                                                                                }
-                                                                                Err(error) => set_new_pet_feedback.set(format!("更名失敗：{error}")),
-                                                                            }
-                                                                            set_pets_busy.set(false);
-                                                                        });
-                                                                    }
-                                                                >"儲存名稱"</button>
-                                                            </Show>
-                                                            <button type="button"
-                                                                disabled=move || pets_busy.get()
-                                                                on:click=move |_| {
-                                                                    match management_selection::choose_management_pet(&id,&saved_pets.get_untracked(),set_management_pet_id) {
-                                                                        Ok(()) => set_new_pet_feedback.set("已選為管理對象；出入籠狀態保持不變".into()),
-                                                                        Err(message) => set_new_pet_feedback.set(message),
-                                                                    }
-                                                                }
-                                                            >"選為管理對象"</button>
-                                                            <button type="button"
-                                                                disabled=move || pets_busy.get()
-                                                                on:click=move |_| {
-                                                                    if pets_busy.get_untracked() {return;}
-                                                                    set_pets_busy.set(true);
-                                                                    let id=open_id.clone();
-                                                                    spawn_local(async move {
-                                                                        match bridge::open_saved_pet(&id).await {
-                                                                            Ok(())=>{
-                                                                                cage_status.update(|statuses| {
-                                                                                    statuses.remove(&id);
-                                                                                });
-                                                                                set_new_pet_feedback.set("已出籠；重複操作只聚焦既有生活窗".into());
-                                                                            }
-                                                                            ,Err(e)=>set_new_pet_feedback.set(e)
-                                                                        }
-                                                                        set_pets_busy.set(false);
-                                                                    });
-                                                                }
-                                                            >"出籠"</button>
-                                                            <button type="button"
-                                                                disabled=move || pets_busy.get()
-                                                                on:click=move |_| {
-                                                                    if pets_busy.get_untracked() { return; }
-                                                                    set_pets_busy.set(true);
-                                                                    let id = status_id.clone();
-                                                                    spawn_local(async move {
-                                                                        let result = bridge::pet_cage_status_by_id(&id).await;
-                                                                        cage_status.update(|statuses| record_cage_status(statuses, &id, result));
-                                                                        set_pets_busy.set(false);
-                                                                    });
-                                                                }
-                                                            >"查詢回籠狀態"</button>
-                                                            <p role="status"
-                                                                aria-live="polite">
-                                                                {move || cage_status.get().get(&display_id).cloned().unwrap_or_default()}
-                                                            </p>
-                                                            <button type="button"
-                                                                disabled=move || pets_busy.get()
-                                                                on:click=move |_| {
-                                                                    if pets_busy.get_untracked() { return; }
-                                                                    set_pets_busy.set(true);
-                                                                    let id = cage_id.clone();
-                                                                    spawn_local(async move {
-                                                                        match bridge::cage_saved_pet_by_id(&id).await {
-                                                                            Ok(()) => {
-                                                                                cage_status.update(|statuses| { statuses.remove(&id); });
-                                                                                if active_pet.get_untracked().as_ref().is_some_and(|pet| pet.id == id) {
-                                                                                    set_active_pet.set(None);
-                                                                                    set_snapshot.set(None);
-                                                                                }
-                                                                                set_new_pet_feedback.set("該隻已回籠；其他寵物保持原狀".into());
-                                                                            }
-                                                                            Err(error) => set_new_pet_feedback.set(format!("回籠失敗：{error}")),
-                                                                        }
-                                                                        set_pets_busy.set(false);
-                                                                    });
-                                                                }
-                                                            >"回籠這隻"</button>
-                                                            <button type="button"
-                                                                disabled=move || pets_busy.get()
-                                                                on:click=move |_| {
-                                                                    if pets_busy.get_untracked() { return; }
-                                                                    set_pets_busy.set(true);
-                                                                    let id = find_id.clone();
-                                                                    spawn_local(async move {
-                                                                        match bridge::find_saved_pet(&id).await {
-                                                                            Ok(()) => set_new_pet_feedback.set("已找回該隻生活窗".into()),
-                                                                            Err(e) => set_new_pet_feedback.set(e),
-                                                                        }
-                                                                        set_pets_busy.set(false);
-                                                                    });
-                                                                }
-                                                            >"找回寵物"</button>
-                                                        </div>
-                                                    </details>
+                                                    <button type="button" disabled title="刪除功能尚未接通">"刪除"</button>
                                                 </td>
                                             </tr>
                                         }
                                     } />
                                     <Show when=move ||table_view.with(|v|v.rows.is_empty())>
                                         <tr>
-                                            <td colspan="5">
+                                            <td colspan="4">
                                                 {move ||if table_query.get().trim().is_empty(){"目前沒有可顯示的寵物；可重新載入清單。"}else{"沒有符合的寵物，請調整或清除搜尋。"}}
                                             </td>
                                         </tr>

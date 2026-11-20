@@ -420,6 +420,7 @@ async fn change_password(
 
 #[derive(Default, Deserialize)]
 struct DashboardSourceQuery {
+    range: Option<String>,
     source: Option<String>,
     event_type: Option<String>,
     page: Option<usize>,
@@ -478,6 +479,12 @@ async fn dashboard(
             "/dashboard?source={source}&event_type={}",
             crate::dashboard_url::encode_query_component(kind)
         );
+        if let Some(range) = query.range.as_deref() {
+            retry.push_str(&format!(
+                "&range={}",
+                crate::dashboard_url::encode_query_component(range)
+            ));
+        }
         if query.page.is_some() || query.page_size.is_some() {
             retry.push_str(&format!("&page={page}&page_size={page_size}"));
         }
@@ -502,13 +509,57 @@ async fn dashboard(
         )
     };
 
-    let rows = if kind.is_empty() {
-        summary_for_source(&state.pool, source).await
+    let (date_start, date_end) = if query.range.as_deref() == Some("week") {
+        match analytics_persistence::daily_report::recent_week(&state.pool).await {
+            Ok((start, end)) => (Some(start), Some(end)),
+            Err(_) => return unavailable(),
+        }
     } else {
-        summary_for_source_and_type(&state.pool, source, kind).await
+        (query.start.clone(), query.end.clone())
     };
+    let daily = match analytics_application::daily_report::load(
+        &analytics_persistence::daily_report::PgDailyReport(state.pool.clone()),
+        source,
+        kind,
+        date_start.as_deref(),
+        date_end.as_deref(),
+    )
+    .await
+    {
+        Ok(value) => value,
+        Err(analytics_persistence::daily_report::DailyError::Invalid) => {
+            let back = crate::dashboard_url::dashboard_url(source, kind, 1, page_size)
+                .replace("#report-results-title", "#daily-chart-title");
+            return renewed(
+                (
+                    StatusCode::BAD_REQUEST,
+                    Html(crate::dashboard_ui::render_invalid_date_range(back)),
+                ),
+                &raw,
+                seconds,
+            );
+        }
+        Err(analytics_persistence::daily_report::DailyError::Database(_)) => return unavailable(),
+    };
+    let rows = analytics_application::summary::read(
+        &analytics_persistence::summary::PgFilteredSummary {
+            pool: state.pool.clone(),
+            start: daily.requested_start.clone(),
+            end: daily.requested_end.clone(),
+        },
+        source,
+        kind,
+    )
+    .await;
     let rows = match rows {
-        Ok(v) => v,
+        Ok(v) => v
+            .into_iter()
+            .map(|r| analytics_persistence::EventSummary {
+                source_app: r.source_app,
+                event_type: r.event_type,
+                total: r.total,
+            })
+            .collect::<Vec<_>>(),
         Err(_) => return unavailable(),
     };
     let Some(total) = crate::summary_total(&rows) else {
@@ -556,25 +607,6 @@ async fn dashboard(
     {
         Ok(dictionary) => dictionary,
         Err(_) => return unavailable(),
-    };
-    let daily = match analytics_application::daily_report::load(
-        &analytics_persistence::daily_report::PgDailyReport(state.pool.clone()),
-        source,
-        kind,
-        query.start.as_deref(),
-        query.end.as_deref(),
-    )
-    .await
-    {
-        Ok(value) => value,
-        Err(analytics_persistence::daily_report::DailyError::Invalid) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                "日期須有效、起日早於迄日，且最多31天；時區為UTC。",
-            )
-                .into_response();
-        }
-        Err(analytics_persistence::daily_report::DailyError::Database(_)) => return unavailable(),
     };
     let html = crate::dashboard_ui::render_dashboard_with_daily(
         source_label,

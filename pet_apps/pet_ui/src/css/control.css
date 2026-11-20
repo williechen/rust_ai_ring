@@ -380,3 +380,11 @@ body:has(.control-shell) { display: block; background: var(--pet-canvas); overfl
 @media(max-width:520px){ .management-table-toolbar { align-items:stretch; } .management-query-row {flex-basis:100%;width:100%;max-width:none;} .management-query-row input {width:100%;} }
 
 .management-data-table thead th { position:sticky; top:0; z-index:1; }
+.pet-lifecycle-actions { display:flex; flex-wrap:nowrap; gap:8px; align-items:center; overflow-x:auto; padding:6px 0; }
+.pet-lifecycle-actions button { flex:0 0 auto; white-space:nowrap; margin:0; }
+
+.pet-workspace-bar { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.pet-workspace-bar button { margin:0; white-space:nowrap; }
+.control-activity-actions { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
+.control-activity-actions button { margin:0; }
+.control-chat { margin-top:16px; }

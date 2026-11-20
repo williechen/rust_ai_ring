@@ -8,6 +8,9 @@ pub struct NamedPet {
 }
 
 pub trait PetNames {
+    fn uncaged(&self) -> impl Future<Output = Result<Vec<NamedPet>, String>> + Send {
+        async { Err("出籠清單讀取未接通".into()) }
+    }
     fn defaults(&self) -> impl Future<Output = Result<Vec<NamedPet>, String>> + Send {
         async { Err("啟動預設讀取未接通".into()) }
     }
@@ -51,4 +54,8 @@ pub async fn create_pet(store: &impl PetNames, input: &str) -> Result<NamedPet, 
 
 pub async fn default_pets(store: &impl PetNames) -> Result<Vec<NamedPet>, String> {
     store.defaults().await
+}
+
+pub async fn uncaged_pets(store: &impl PetNames) -> Result<Vec<NamedPet>, String> {
+    store.uncaged().await
 }

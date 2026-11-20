@@ -439,3 +439,4 @@ body:has(.report-unavailable) {
 .legacy-statistics>summary{cursor:pointer;padding:10px;color:#4a5480}
 .daily-report details{font-size:.8rem}
 .daily-report table{width:100%}
+.date-query-help { grid-column:1/-1; margin:0; font-size:.8rem; color:#56667f; }

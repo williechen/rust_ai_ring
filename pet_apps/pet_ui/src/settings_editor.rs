@@ -230,7 +230,9 @@ pub fn PetSettingsEditor(
                     <summary>"外觀覆寫（選用）"</summary>
                     <p>"目前尚未接通外觀儲存。"</p>
                 </details>
-                <div class="settings-actions">
+                <div class="settings-actions"
+                    role="group"
+                    aria-label="設定變更">
                     <button type="button"
                         on:click=move |_| {
                             draft.set(saved.get_untracked());

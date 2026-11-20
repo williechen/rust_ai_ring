@@ -26,6 +26,11 @@ pub async fn read(
     start: Option<&str>,
     end: Option<&str>,
 ) -> Result<DailyReport, DailyError> {
+    let start = start.map(str::trim).filter(|value| !value.is_empty());
+    let end = end.map(str::trim).filter(|value| !value.is_empty());
+    let requested_start = start.map(str::to_owned);
+    let requested_end = end.map(str::to_owned);
+
     if start.is_some_and(|s| !date_shape(s)) || end.is_some_and(|s| !date_shape(s)) {
         return Err(DailyError::Invalid);
     }
@@ -37,21 +42,30 @@ pub async fn read(
         .await?;
 
     let (start, end, span): (String, String, i32) = sqlx::query_as(
-        r#"WITH r AS (
-            SELECT COALESCE($1::date,(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::date-6) a
-                ,COALESCE($2::date,(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::date+1) b
-        )
-        SELECT a::text
-            ,b::text
-            ,b-a
-        FROM r"#,
+        r#"WITH bounds AS (
+            SELECT MIN((p.occurred_at AT TIME ZONE 'UTC')::date) lo,
+                   MAX((p.occurred_at AT TIME ZONE 'UTC')::date)+1 hi
+            FROM product_events p
+            WHERE p.source_app=$3 AND p.occurred_at IS NOT NULL
+              AND ($1::date IS NULL OR p.occurred_at >= ($1::date::timestamp AT TIME ZONE 'UTC'))
+              AND ($2::date IS NULL OR p.occurred_at < ($2::date::timestamp AT TIME ZONE 'UTC'))
+              AND ($4='' OR EXISTS(SELECT 1 FROM codemap c
+                WHERE c.category='event_type' AND c.code=p.event_type
+                  AND (c.wire_value ILIKE $4 ESCAPE '\' OR c.value ILIKE $4 ESCAPE '\')))
+        ), r AS (
+            SELECT COALESCE($1::date,lo,$2::date,(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::date) a,
+                   COALESCE($2::date,hi,$1::date,(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::date) b
+            FROM bounds
+        ) SELECT a::text,b::text,b-a FROM r"#,
     )
     .bind(start)
     .bind(end)
+    .bind(source)
+    .bind(&pattern)
     .fetch_one(&mut *tx)
     .await?;
 
-    if !(0..=31).contains(&span) {
+    if span < 0 {
         return Err(DailyError::Invalid);
     }
 
@@ -105,6 +119,8 @@ pub async fn read(
     tx.commit().await?;
 
     Ok(DailyReport {
+        requested_start,
+        requested_end,
         start,
         end,
         rows,
@@ -208,7 +224,6 @@ mod tests {
         for (a, b) in [
             ("2026-02-30", "2026-03-02"),
             ("2026-11-09", "2026-11-08"),
-            ("2026-01-01", "2026-03-01"),
             ("now", "2026-11-09"),
         ] {
             assert!(matches!(
@@ -221,5 +236,42 @@ mod tests {
             read(&pool, "web_chat", "", None, None).await,
             Err(DailyError::Database(_))
         ));
+    }
+}
+
+/// 快捷操作明確指定最近七日；空白查詢本身沒有日期限制。
+pub async fn recent_week(pool: &sqlx::PgPool) -> Result<(String, String), DailyError> {
+    Ok(sqlx::query_as("SELECT ((CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::date-6)::text, ((CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::date+1)::text").fetch_one(pool).await?)
+}
+
+#[cfg(all(test, feature = "postgres-integration"))]
+mod open_dates_tests {
+    use super::*;
+    #[sqlx::test(migrations = "../migrations")]
+    async fn empty_and_one_sided_dates_include_all_matching_history(pool: sqlx::PgPool) {
+        for time in [
+            Some("2026-01-01T00:00:00Z"),
+            Some("2026-02-10T00:00:00Z"),
+            Some("2026-11-10T00:00:00Z"),
+            None,
+        ] {
+            sqlx::query("INSERT INTO product_events(source_app,event_id,schema_version,event_type,occurred_at) VALUES('web_chat',$1,1,'message.persisted',$2::timestamptz)").bind(uuid::Uuid::new_v4().to_string()).bind(time).execute(&pool).await.unwrap();
+        }
+        for (start, end, total) in [
+            (Some(""), Some(""), 3),
+            (Some("2026-02-10"), None, 2),
+            (None, Some("2026-02-10"), 1),
+            (Some("2026-02-10"), Some("2026-11-10"), 1),
+        ] {
+            let report = read(&pool, "web_chat", "", start, end).await.unwrap();
+            assert_eq!(report.rows.iter().map(|row| row.1).sum::<i64>(), total);
+            assert_eq!(report.unknown_dates, 1);
+        }
+        let all = read(&pool, "web_chat", "", None, None).await.unwrap();
+        assert!(all.rows.len() > 31);
+        assert_eq!(all.requested_start, None);
+        assert_eq!(all.requested_end, None);
+        let empty = read(&pool, "desktop_pet", "", None, None).await.unwrap();
+        assert!(empty.rows.is_empty());
     }
 }

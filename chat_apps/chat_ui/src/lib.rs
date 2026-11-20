@@ -598,6 +598,8 @@ fn RoomList() -> impl IntoView {
 
 #[component]
 fn MemberList(room_id: String) -> impl IntoView {
+    let failed = RwSignal::new(false);
+    let retry = RwSignal::new(0u64);
     let rows = RwSignal::new(Vec::<String>::new());
     let loading = RwSignal::new(false);
     let status = RwSignal::new("正在讀取在線人員…".to_owned());
@@ -620,6 +622,7 @@ fn MemberList(room_id: String) -> impl IntoView {
                 }
                 match result {
                     Ok(next) => {
+                        failed.set(false);
                         status.set(
                             if next.is_empty() {
                                 "目前無在線人員"
@@ -633,6 +636,7 @@ fn MemberList(room_id: String) -> impl IntoView {
                         }
                     }
                     Err(error) => {
+                        failed.set(true);
                         rows.set(Vec::new());
                         status.set(error);
                     }
@@ -640,19 +644,20 @@ fn MemberList(room_id: String) -> impl IntoView {
                 loading.set(false);
             });
         });
+        let repeat = request.clone();
         Effect::new(move |_| {
+            retry.get();
             request();
-            let repeat = request.clone();
-            let timer = leptos::leptos_dom::helpers::set_interval_with_handle(
-                move || repeat(),
-                std::time::Duration::from_secs(5),
-            )
-            .ok();
-            on_cleanup(move || {
-                if let Some(timer) = timer {
-                    timer.clear();
-                }
-            });
+        });
+        let timer = leptos::leptos_dom::helpers::set_interval_with_handle(
+            move || repeat(),
+            std::time::Duration::from_secs(5),
+        )
+        .ok();
+        on_cleanup(move || {
+            if let Some(timer) = timer {
+                timer.clear();
+            }
         });
         on_cleanup(move || alive.store(false, std::sync::atomic::Ordering::Relaxed));
     }
@@ -667,6 +672,11 @@ fn MemberList(room_id: String) -> impl IntoView {
                 </span>
             </h2>
             <p role="status">{move ||status.get()}</p>
+            <Show when=move || failed.get()>
+                <button type="button" disabled=move || loading.get()
+                    on:click=move |_| retry.update(|value| *value=value.wrapping_add(1))
+                >"重試在線人員"</button>
+            </Show>
             <ul>{move ||rows.get().into_iter().map(|name|
                 view! {
                 <li>

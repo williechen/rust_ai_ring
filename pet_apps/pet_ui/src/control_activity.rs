@@ -16,6 +16,7 @@ pub(crate) fn ActivityWorkspace(
     let status = ArcRwSignal::new(None::<bridge::ActivityStatus>);
     let pose = ArcRwSignal::new(None::<PetState>);
     let error = ArcRwSignal::new(None::<String>);
+
     let action = Callback::new({
         let (status, pose, error) = (status.clone(), pose.clone(), error.clone());
         move |choice: ActivityAction| {
@@ -72,16 +73,19 @@ pub(crate) fn ActivityWorkspace(
             });
         }
     });
+
     Effect::new(move |_| action.run(Refresh));
 
     let ready = {
         let status = status.clone();
         move || busy.get() || status.with(Option::is_none)
     };
+
     let is_outside = {
         let status = status.clone();
         move || status.with(|state| state.as_ref().is_some_and(|state| state.outside))
     };
+
     let caption = {
         let status = status.clone();
         move || {
@@ -101,6 +105,7 @@ pub(crate) fn ActivityWorkspace(
             })
         }
     };
+
     let active_walk = {
         let status = status.clone();
         move || {
@@ -109,6 +114,7 @@ pub(crate) fn ActivityWorkspace(
                 .to_string()
         }
     };
+
     let active_sit = {
         let status = status.clone();
         move || {
@@ -117,6 +123,7 @@ pub(crate) fn ActivityWorkspace(
                 .to_string()
         }
     };
+
     let walk_label = {
         let status = status.clone();
         move || {
@@ -125,66 +132,78 @@ pub(crate) fn ActivityWorkspace(
                 .unwrap_or_else(|| "開始漫遊".into())
         }
     };
+
     let sit_label = move || {
         status
             .with(|state| state.as_ref().and_then(|s| s.sit_label.clone()))
             .unwrap_or_else(|| "停止漫遊".into())
     };
-    let frame = pose.clone();
+
     let sleep_label = pose.clone();
     let sleep_ready = pose.clone();
     let click_sleep = pose.clone();
     let outside_action = is_outside.clone();
+
     view! {
-       <div class="pet-workspace">
-            <div class="pet-workspace-bar">
+        <div class="pet-workspace">
+            <div class="pet-workspace-bar"
+                role="group"
+                aria-label="生活窗操作">
                 <span class="pet-status-chip" role="status">{caption}</span>
-                <button class="control-primary" type="button" disabled=ready.clone()
+                <button class="control-primary"
+                    type="button"
+                    disabled=ready.clone()
                     on:click=move |_| action.run(if outside_action() { Cage } else { Open })>
                     {move || if is_outside() { "回籠" } else { "出籠" }}
                 </button>
-                <details class="pet-workspace-more">
-                    <summary>"更多"</summary>
-                    <button type="button" disabled=move || busy.get() on:click=move |_| action.run(Refresh)>"更新活動"</button>
-                    <button type="button" disabled=ready.clone() on:click=move |_| action.run(Find)>"找回生活窗"</button>
-                </details>
+                <button type="button"
+                    data-action="refresh"
+                    disabled=move || busy.get()
+                    on:click=move |_| action.run(Refresh)
+                >"更新活動"</button>
+                <button type="button"
+                    disabled=ready.clone()
+                    on:click=move |_| action.run(Find)
+                >"找回生活窗"</button>
             </div>
             {move || error.get().map(|message| view! { <p class="control-error" role="alert">{message}</p> })}
             <div class="pet-workspace-columns">
-                <figure class="pet-preview">
-                    <figcaption>"生活窗預覽"</figcaption>
-                    <div class="pet-preview-image">
-                        <Show when=move || pet.with(|row| row.as_ref().is_some_and(|row| row.species == "tortoise"))
-                            fallback=|| view! { <p>"這個種類目前沒有預覽。"</p> }>
-                            <img src={
-                                let frame = frame.clone();
-                                move || frame_uri(if frame.get() == Some(PetState::Sleeping) { PetPose::SleepA } else { PetPose::Idle })
-                            } alt=""/>
-                        </Show>
-                    </div>
-                    <strong>{move || pet.with(|row| row.as_ref().map(|pet| pet.name.clone()).unwrap_or_default())}</strong>
-                    <p>"預覽不會建立另一個生活窗。"</p>
-                </figure>
                 <div class="pet-workspace-side">
                     <section class="control-activity" aria-label="所選寵物活動">
                         <h3>"目前活動"</h3>
                         <p>"選擇這隻寵物的活動。"</p>
-                        <div class="control-activity-actions" role="group" aria-label="活動模式">
-                            <button type="button" aria-pressed=active_sit disabled=ready.clone() on:click=move |_| action.run(Sit)>{sit_label}</button>
-                            <button type="button" aria-pressed=active_walk disabled=ready.clone() on:click=move |_| action.run(Walk)>{walk_label}</button>
+                        <div class="control-activity-actions"
+                            role="group"
+                            aria-label="活動模式">
+                            <button type="button"
+                                aria-pressed=active_sit
+                                disabled=ready.clone()
+                                on:click=move |_| action.run(Sit)>
+                                {sit_label}
+                            </button>
+                            <button type="button"
+                                aria-pressed=active_walk
+                                disabled=ready.clone()
+                                on:click=move |_| action.run(Walk)>
+                                {walk_label}
+                            </button>
+                            <button type="button"
+                                class="pet-sleep"
+                                disabled=move || busy.get() || sleep_ready.with(Option::is_none)
+                                on:click=move |_| action.run(if click_sleep.get_untracked() == Some(PetState::Sleeping) { Wake } else { Sleep })>
+                                {move || if sleep_label.get() == Some(PetState::Sleeping) { "醒來" } else { "睡覺" }}
+                            </button>
                         </div>
-                        <button type="button" class="pet-sleep" disabled=move || busy.get() || sleep_ready.with(Option::is_none)
-                            on:click=move |_| action.run(if click_sleep.get_untracked() == Some(PetState::Sleeping) { Wake } else { Sleep })>
-                            {move || if sleep_label.get() == Some(PetState::Sleeping) { "醒來" } else { "睡覺" }}
-                        </button>
                     </section>
                     <section class="pet-settings-prompt">
                         <h3>"調整寵物資料"</h3>
                         <p>"名字、喜好和啟動預設集中在設定。"</p>
-                        <button type="button" on:click=move |_| {
-                            page.set(ControlPage::Settings);
-                            ControlPage::Settings.focus_tab();
-                        }>"前往設定"</button>
+                        <button type="button"
+                            on:click=move |_| {
+                                page.set(ControlPage::Settings);
+                                ControlPage::Settings.focus_tab();
+                            }
+                        >"前往設定"</button>
                     </section>
                 </div>
             </div>
@@ -221,6 +240,7 @@ pub(crate) fn StartupPreferences(selected: ReadSignal<Option<String>>) -> impl I
             set_busy.set(false);
         });
     };
+
     Effect::new(move |_| {
         let id = selected.get();
         generation.update(|current| *current = current.wrapping_add(1));
@@ -233,17 +253,24 @@ pub(crate) fn StartupPreferences(selected: ReadSignal<Option<String>>) -> impl I
     });
 
     view! {
-        <p role="status">{move || {
-            if busy.get() { "正在讀取或更新啟動預設…".to_owned() }
-            else if let Some(message) = error.get() { message }
-            else if let Some((_, caged)) = current.get() {
+        <p role="status">
+            {move || {
+            if busy.get() {
+                "正在讀取或更新啟動預設…".to_owned()
+            } else if let Some(message) = error.get() {
+                message
+            } else if let Some((_, caged)) = current.get() {
                 if caged { "啟動時留籠" } else { "啟動時出籠" }.to_owned()
-            } else { "請先選擇寵物。".to_owned() }
+            } else {
+                "請先選擇寵物。".to_owned()
+            }
         }}</p>
         <div class="control-activity-actions">
-            <button type="button" disabled=move || busy.get() || selected.with(Option::is_none)
+            <button type="button"
+                disabled=move || busy.get() || selected.with(Option::is_none)
                 on:click=move |_| request(3)>"啟動時出籠"</button>
-            <button type="button" disabled=move || busy.get() || selected.with(Option::is_none)
+            <button type="button"
+                disabled=move || busy.get() || selected.with(Option::is_none)
                 on:click=move |_| request(4)>"啟動時留籠"</button>
         </div>
     }

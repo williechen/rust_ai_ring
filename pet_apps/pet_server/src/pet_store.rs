@@ -122,7 +122,10 @@ impl PetStore {
     }
 
     pub async fn uncaged(&self) -> Result<Vec<SavedPet>, String> {
-        let rows = pet_persistence::list_uncaged(&self.pool).await?;
+        let rows = pet_application::pet_names::uncaged_pets(
+            &pet_persistence::pet_names::SqlitePetNames(self.pool.clone()),
+        )
+        .await?;
         Ok(rows
             .into_iter()
             .map(|row| SavedPet {

@@ -50,6 +50,8 @@ mod day65_tests {
     #[test]
     fn daily_csv_keeps_dates_zero_days_unknown_count_and_formula_safety() {
         let r = crate::daily_report::DailyReport {
+            requested_start: None,
+            requested_end: None,
             start: "2026-11-01".into(),
             end: "2026-11-03".into(),
             rows: vec![("2026-11-01".into(), 2), ("2026-11-02".into(), 0)],

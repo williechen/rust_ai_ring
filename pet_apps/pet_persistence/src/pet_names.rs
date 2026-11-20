@@ -3,6 +3,18 @@ use pet_application::pet_names::{NamedPet, PetNames};
 pub struct SqlitePetNames(pub sqlx::SqlitePool);
 
 impl PetNames for SqlitePetNames {
+    async fn uncaged(&self) -> Result<Vec<NamedPet>, String> {
+        crate::list_uncaged(&self.0).await.map(|rows| {
+            rows.into_iter()
+                .map(|p| NamedPet {
+                    id: p.id,
+                    name: p.name,
+                    species: p.species,
+                })
+                .collect()
+        })
+    }
+
     async fn create(&self, name: &str) -> Result<NamedPet, String> {
         let id = uuid::Uuid::new_v4().to_string();
 

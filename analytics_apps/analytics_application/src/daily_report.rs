@@ -1,5 +1,7 @@
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DailyReport {
+    pub requested_start: Option<String>,
+    pub requested_end: Option<String>,
     pub start: String,
     pub end: String,
     pub rows: Vec<(String, i64)>,
@@ -48,11 +50,25 @@ pub fn day_window(report: &DailyReport, index: usize) -> Option<(&str, &str)> {
     Some((start, end))
 }
 
+/// 同一次讀模型同時決定每日CSV資料與日期範圍。
+pub async fn csv<S: DailyStore>(
+    store: &S,
+    source: &str,
+    kind: &str,
+    start: Option<&str>,
+    end: Option<&str>,
+) -> Result<String, S::Error> {
+    let report = load(store, source, kind, start, end).await?;
+    Ok(crate::report_csv::render_daily(source, kind, &report))
+}
+
 #[cfg(test)]
 mod day66_tests {
     #[test]
     fn selected_day_uses_next_boundary_and_last_day_keeps_exclusive_end() {
         let r = super::DailyReport {
+            requested_start: None,
+            requested_end: None,
             start: "2026-11-08".into(),
             end: "2026-11-11".into(),
             rows: vec![

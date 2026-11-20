@@ -9,6 +9,8 @@ use axum::{
 
 #[derive(Default, serde::Deserialize)]
 pub struct ExportQuery {
+    start: Option<String>,
+    end: Option<String>,
     #[serde(default)]
     event_type: String,
 }
@@ -29,12 +31,19 @@ pub async fn export_summary(
         return Err(StatusCode::BAD_REQUEST);
     }
     let csv = analytics_application::summary::csv(
-        &analytics_persistence::summary::PgSummary(state.pool.clone()),
+        &analytics_persistence::summary::PgFilteredSummary {
+            pool: state.pool.clone(),
+            start: query.start.clone(),
+            end: query.end.clone(),
+        },
         &source,
         &query.event_type,
     )
     .await
-    .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    .map_err(|e| match e {
+        analytics_persistence::daily_report::DailyError::Invalid => StatusCode::BAD_REQUEST,
+        _ => StatusCode::SERVICE_UNAVAILABLE,
+    })?;
     let mut response = csv.into_response();
     response.headers_mut().insert(
         header::CONTENT_TYPE,
@@ -69,7 +78,7 @@ pub async fn export_daily(
     {
         return Err(StatusCode::BAD_REQUEST);
     }
-    let report = analytics_application::daily_report::load(
+    let csv = analytics_application::daily_report::csv(
         &analytics_persistence::daily_report::PgDailyReport(state.pool.clone()),
         &source,
         &query.event_type,
@@ -81,9 +90,7 @@ pub async fn export_daily(
         analytics_persistence::daily_report::DailyError::Invalid => StatusCode::BAD_REQUEST,
         _ => StatusCode::SERVICE_UNAVAILABLE,
     })?;
-    let mut response =
-        analytics_application::report_csv::render_daily(&source, &query.event_type, &report)
-            .into_response();
+    let mut response = csv.into_response();
     response.headers_mut().insert(
         header::CONTENT_TYPE,
         "text/csv; charset=utf-8".parse().unwrap(),
