@@ -21,6 +21,10 @@ pub fn date_shape(value: &str) -> bool {
 
 pub trait DailyStore: Sync {
     type Error;
+    fn recent_week(
+        &self,
+    ) -> impl std::future::Future<Output = Result<(String, String), Self::Error>> + Send;
+    
     fn read(
         &self,
         source: &str,
@@ -60,6 +64,10 @@ pub async fn csv<S: DailyStore>(
 ) -> Result<String, S::Error> {
     let report = load(store, source, kind, start, end).await?;
     Ok(crate::report_csv::render_daily(source, kind, &report))
+}
+
+pub async fn recent_week<S: DailyStore>(store: &S) -> Result<(String, String), S::Error> {
+    store.recent_week().await
 }
 
 #[cfg(test)]

@@ -133,6 +133,10 @@ pub struct PgDailyReport(pub sqlx::PgPool);
 impl analytics_application::daily_report::DailyStore for PgDailyReport {
     type Error = DailyError;
 
+    async fn recent_week(&self) -> Result<(String, String), DailyError> {
+        recent_week(&self.0).await
+    }
+
     async fn read(
         &self,
         source: &str,

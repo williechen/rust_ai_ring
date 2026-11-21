@@ -510,7 +510,11 @@ async fn dashboard(
     };
 
     let (date_start, date_end) = if query.range.as_deref() == Some("week") {
-        match analytics_persistence::daily_report::recent_week(&state.pool).await {
+        match analytics_application::daily_report::recent_week(
+            &analytics_persistence::daily_report::PgDailyReport(state.pool.clone()),
+        )
+        .await
+        {
             Ok((start, end)) => (Some(start), Some(end)),
             Err(_) => return unavailable(),
         }

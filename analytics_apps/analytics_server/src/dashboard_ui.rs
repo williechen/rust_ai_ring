@@ -103,6 +103,8 @@ fn DashboardView(
             }
         })
         .collect_view();
+    let all_dates_url =
+        dashboard_url(&source, &event_type, 1, page_size).replace("#report-results-title", "");
     let clear_url = with_date_range(dashboard_url(&source, "", 1, page_size), &date_range);
     let export_url = with_date_range(export_csv_url(&source, &event_type), &date_range);
     let recent_url = dashboard_url(&source, &event_type, 1, page_size)
@@ -184,6 +186,7 @@ fn DashboardView(
                                 <button type="submit"
                                     class="report-primary">"篩選"</button>
                                 <a href=clear_url>"清除篩選"</a>
+                                <a href=all_dates_url class="all-dates">"全部日期"</a>
                                 <a href=recent_url class="recent-week">"最近7天"</a>
                             </div>
                         </form>
@@ -1306,4 +1309,13 @@ fn with_date_range(url: String, range: &Option<(String, String)>) -> String {
             ))
             .unwrap_or_default()
     )
+}
+
+#[cfg(test)]
+mod day69_tests {
+    #[test]
+    fn all_dates_is_explicit_and_preserves_filter() {
+        let html = super::render_dashboard("Chat", 0);
+        assert!(html.contains("全部日期"));
+    }
 }
