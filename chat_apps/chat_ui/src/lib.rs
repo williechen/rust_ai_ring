@@ -276,6 +276,7 @@ fn request_history(
 #[component]
 pub fn ChatPage(room_id: String) -> impl IntoView {
     let (draft, set_draft) = signal(String::new());
+    let message_area = NodeRef::<leptos::html::Div>::new();
     let composer = NodeRef::<leptos::html::Textarea>::new();
 
     let (connection, set_connection) = signal(String::from("尚未連線"));
@@ -433,6 +434,14 @@ pub fn ChatPage(room_id: String) -> impl IntoView {
                     on:click=reload_history>
                         "歷史"
                 </button>
+                <button type="button"
+                    class="history-reload"
+                    aria-label="跳至最新訊息"
+                    on:click=move |_| {
+                        #[cfg(target_arch="wasm32")]
+                        if let Some(area)=message_area.get_untracked(){ area.set_scroll_top(area.scroll_height()); }
+                    }
+                >"最新訊息"</button>
                 <details class="chat-more">
                     <summary>"更多"</summary>
                     <div class="chat-more-panel">
@@ -447,6 +456,7 @@ pub fn ChatPage(room_id: String) -> impl IntoView {
             {move || history_status.get()}
         </p>
         <div class="message-history"
+            node_ref=message_area
             aria-live="polite">
             {move || {
                 if messages.get().is_empty() {
@@ -920,6 +930,20 @@ mod day50_logout_navigation_tests {
             assert!(!signed_out.contains("action=\"/logout\""));
             let no_token = view! { <AuthNavigation state=SessionEntry::SignedIn logout_csrf=None /> }.to_html();
             assert!(!no_token.contains("action=\"/logout\""));
+        });
+    }
+}
+
+#[cfg(test)]
+mod day69_tests {
+    use super::*;
+    #[test]
+    fn room_has_latest_messages_control() {
+        let owner = Owner::new();
+        owner.with(|| {
+            let html = view! {<ChatPage room_id="r".to_string()/>}.to_html();
+            assert!(html.contains("最新訊息"));
+            assert!(html.contains("跳至最新訊息"));
         });
     }
 }

@@ -74,6 +74,9 @@ extern "C" {
     #[wasm_bindgen(js_namespace = window, js_name = createPet)]
     fn create_pet_js(name: &str) -> Promise;
 
+    #[wasm_bindgen(js_namespace=window, js_name=deletePet)]
+    fn delete_pet_js(id: &str, expected_name: &str) -> Promise;
+
     #[wasm_bindgen(js_namespace=window, js_name=renamePet)]
     fn rename_pet_js(id: &str, name: &str) -> Promise;
 
@@ -492,4 +495,11 @@ pub async fn save_pet_settings_checked(
         .await
         .map_err(js_error)?;
     serde_wasm_bindgen::from_value(value).map_err(|_| "設定回應格式錯誤".into())
+}
+
+pub async fn delete_pet(id: &str, expected_name: &str) -> Result<(), String> {
+    JsFuture::from(delete_pet_js(id, expected_name))
+        .await
+        .map_err(js_error)?;
+    Ok(())
 }

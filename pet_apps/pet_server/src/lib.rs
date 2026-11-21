@@ -166,6 +166,23 @@ fn validate_new_pet_name(name: String) -> Result<String, String> {
 }
 
 #[tauri::command]
+async fn delete_pet(
+    id: String,
+    expected_name: String,
+    app: tauri::AppHandle,
+    store: State<'_, pet_store::PetStore>,
+) -> Result<(), String> {
+    let _operation = pet_windows::lifecycle_guard().await;
+    let label = pet_windows::label(&id)?;
+    if app.get_webview_window(&label).is_some() {
+        return Err("請先在互動將寵物回籠，再刪除".into());
+    }
+    store.delete(&id, &expected_name).await?;
+    app.state::<pet_windows::Runtime>().remove(&id);
+    Ok(())
+}
+
+#[tauri::command]
 async fn create_pet(
     name: String,
     store: State<'_, pet_store::PetStore>,
@@ -488,6 +505,7 @@ pub fn application(db: sqlx::SqlitePool) {
             quit_pet,
             validate_new_pet_name,
             create_pet,
+            delete_pet,
             rename_pet,
             list_pets,
             startup_restore_failures,

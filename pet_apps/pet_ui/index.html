@@ -146,6 +146,8 @@
 
     window.savePetSettings = (id, profile) => invoke("save_pet_settings", { id, profile });
 
+    window.deletePet = (id, expectedName) => invoke("delete_pet", {id, expectedName});
+
     window.renamePet = (id, name) => invoke("rename_pet", { id, name });
 
     window.createPet = (name) => {

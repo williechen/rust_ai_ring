@@ -150,9 +150,7 @@ pub async fn room_history(
     Path(id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<Vec<chat_domain::ChatMessage>>, StatusCode> {
-    if id.trim().is_empty() || id.len() > 40 || id.contains('\0') {
-        return Err(StatusCode::BAD_REQUEST);
-    }
+    chat_application::history::validate_id(&id).map_err(|_| StatusCode::BAD_REQUEST)?;
     let member = crate::auth_session::active_member(&pool, &headers).await?;
     if crate::member_self::initial(&pool, &member).await? {
         return Err(StatusCode::FORBIDDEN);
@@ -172,6 +170,7 @@ pub async fn room_history(
     .await
     .map(Json)
     .map_err(|e| match e {
+        chat_application::history::HistoryError::Invalid => StatusCode::BAD_REQUEST,
         chat_application::history::HistoryError::Missing => StatusCode::NOT_FOUND,
         chat_application::history::HistoryError::Store(_) => StatusCode::SERVICE_UNAVAILABLE,
     })

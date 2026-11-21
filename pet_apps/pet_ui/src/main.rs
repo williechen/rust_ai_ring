@@ -61,6 +61,7 @@ fn App() -> impl IntoView {
     let (new_pet_feedback, set_new_pet_feedback) = signal(String::new());
     let (saved_pets, set_saved_pets) = signal(Vec::<SavedPet>::new());
     let (pets_busy, set_pets_busy) = signal(false);
+    let deleting = RwSignal::new(None::<SavedPet>);
 
     let table_query = RwSignal::new(String::new());
     let table_size = RwSignal::new(10usize);
@@ -634,7 +635,41 @@ fn App() -> impl IntoView {
                             format!("顯示 {}–{} 筆，共 {} 筆符合；全部 {} 隻",v.start,v.end,v.filtered,saved_pets.with(Vec::len))
                         }}
                     </p>
-                    <p class="control-context-note">"刪除功能尚未接通。"</p>
+                    <p class="control-context-note">"刪除前請先回籠；確認後會刪除該寵物的設定、活動與生活紀錄，無法復原。"</p>
+                    <Show when=move ||deleting.with(Option::is_some)>
+                        <div role="dialog" 
+                            aria-modal="false" 
+                            aria-labelledby="delete-pet-title" class="settings-navigation-confirmation">
+                            <h3 id="delete-pet-title">"確認刪除寵物"</h3>
+                            <p>{move ||deleting.with(|pet|pet.as_ref().map(|p|format!("{}（{}）",p.name,p.id)).unwrap_or_default())}</p>
+                            <p>"相關設定、活動與生活紀錄也會刪除，無法復原。"</p>
+                            <button type="button" 
+                                disabled=move ||pets_busy.get() 
+                                on:click=move |_|deleting.set(None)
+                            >"取消刪除"</button>
+                            <button type="button" 
+                                disabled=move ||pets_busy.get() 
+                                on:click=move |_|{
+                                    if pets_busy.get_untracked(){return;}
+                                    let Some(pet)=deleting.get_untracked() else{return;};
+                                    set_pets_busy.set(true);
+                                    spawn_local(async move {
+                                        match bridge::delete_pet(&pet.id,&pet.name).await {
+                                            Ok(())=>{
+                                                set_saved_pets.update(|rows|rows.retain(|row|row.id!=pet.id));
+                                                let rows=saved_pets.get_untracked();
+                                                management_selection::reconcile_management_pet(&rows,management_pet_id,set_management_pet_id);
+                                                deleting.set(None);
+                                                set_new_pet_feedback.set(format!("已刪除寵物：{}",pet.name));
+                                            }
+                                            Err(error)=>set_new_pet_feedback.set(format!("刪除失敗：{error}")),
+                                        } 
+                                        set_pets_busy.set(false);
+                                    });
+                                }
+                            >"確認刪除"</button>
+                        </div>
+                    </Show>
                     <div class="management-table-scroll"
                         role="region"
                         aria-label="寵物管理資料表"
@@ -686,7 +721,15 @@ fn App() -> impl IntoView {
                                                     <code>{pet.id.clone()}</code>
                                                 </td>
                                                 <td>
-                                                    <button type="button" disabled title="刪除功能尚未接通">"刪除"</button>
+                                                    <button type="button" 
+                                                        disabled=move ||pets_busy.get() 
+                                                        on:click=move |_|{
+                                                            if let Some(pet)=saved_pets.with(|rows|rows.iter().find(|pet|pet.id==id).cloned()) {
+                                                                set_new_pet_feedback.set(String::new());
+                                                                deleting.set(Some(pet));
+                                                            }
+                                                        }
+                                                    >"刪除"</button>
                                                 </td>
                                             </tr>
                                         }

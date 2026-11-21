@@ -11,6 +11,15 @@ pub struct PetStore {
 }
 
 impl PetStore {
+    pub async fn delete(&self, id: &str, name: &str) -> Result<(), String> {
+        pet_application::deletion::delete(
+            &pet_persistence::deletion::SqlitePetDeletion(self.pool.clone()),
+            id,
+            name,
+        )
+        .await
+    }
+
     /// 僅更新本機主人指定寵物的名稱，不更動活動、預設或生活窗狀態。
     pub async fn rename(&self, id: &str, input: &str) -> Result<SavedPet, String> {
         let adapter = pet_persistence::pet_names::SqlitePetNames(self.pool.clone());
@@ -141,7 +150,11 @@ impl PetStore {
     }
 
     pub async fn read_caged(&self, id: &str) -> Result<bool, String> {
-        pet_persistence::read_caged(&self.pool, id).await
+        pet_application::cage_query::read(
+            &pet_persistence::cage_query::SqliteCageQuery(self.pool.clone()),
+            id,
+        )
+        .await
     }
 
     pub async fn activity_status(

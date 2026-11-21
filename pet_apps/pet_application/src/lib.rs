@@ -1,5 +1,7 @@
 pub mod activity_control;
+pub mod cage_query;
 pub mod creation;
+pub mod deletion;
 pub mod lifecycle;
 pub mod pet_names;
 pub mod settings;
