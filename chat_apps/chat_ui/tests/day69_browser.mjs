@@ -20,7 +20,7 @@ async function start(){
  child.stdout.on('data',b=>serverLog+=b);child.stderr.on('data',b=>serverLog+=b);
  for(let i=0;i<100;i++){assert.equal(child.exitCode,null,serverLog);if(await fetch(base+'/health').then(r=>r.ok,()=>false))return child;await delay(100);}
  throw Error('伺服器未就緒');
-+}
+}
 async function stop(s){if(s&&s.exitCode===null&&s.signalCode===null){const done=once(s,'exit');s.kill('SIGTERM');await done;}}
 async function context(){
  const ctx=await browser.newContext();contexts.push(ctx);ctx.on('page',p=>{
@@ -28,11 +28,11 @@ async function context(){
   p.on('console',m=>{if(m.type()==='error'&&/hydrat|unreachable/i.test(m.text()))errors.push({type:'console',url:p.url(),text:m.text()});});
   p.on('response',r=>{if(r.url().includes('/pkg/'))responses.push({url:r.url(),status:r.status()});});
  });return ctx;
-+}
+}
 async function wait(fn,label){
  for(let i=0;i<150;i++){assert.equal(errors.length,0,JSON.stringify(errors));if(await fn())return;await delay(100);}
  throw Error(label+'逾時');
-+}
+}
 async function navigation(p,label){await wait(async()=>await p.locator('nav[aria-label="主要導覽"] .site-session').innerText()===label&&await p.locator('.site-status').innerText()!=='確認登入狀態中','導覽狀態');}
 async function signup(p,user){
  await p.goto(base+'/signup');for(const [name,value]of Object.entries({username:user,password:'Synthetic-hydration-password',display_name:({hydrate_a:'小安',hydrate_b:'小晴',hydrate_c:'小宇'}[user]??user),email:user+'@example.test'}))await p.locator(`[name=${name}]`).fill(value);
@@ -90,7 +90,7 @@ try{
  const searchBounds=await pa.locator('.directory-search').boundingBox(),categoryBounds=await pa.locator('.directory-categories').boundingBox();assert(categoryBounds.y>=searchBounds.y+searchBounds.height);await pa.screenshot({path:join(out,'chat-day64-directory.png'),fullPage:true});record('CHAT-64-首頁查詢與分類分行');
  for(const id of [ra,rb,newCategoryRoom])db.prepare('DELETE FROM rooms WHERE id=?').run(id);for(const code of [ca,cb,ce])db.prepare("DELETE FROM codemap WHERE category='room_category' AND code=?").run(code);await pa.reload();await navigation(pa,'登入');
  await wait(async()=>await pa.locator('.directory-categories button').count()>=4,'首頁分類');
- const searchBox=await pa.locator('.directory-search').boundingBox(),categoryBox=await pa.locator('.directory-categories').boundingBox();assert(searchBox&&categoryBox);assert(categoryBox.y>=searchBox.y+searchBox.height8,'首頁查詢和分類必須各自一行');record('首頁桌面查詢一行、分類另一行');
+ const searchBox=await pa.locator('.directory-search').boundingBox(),categoryBox=await pa.locator('.directory-categories').boundingBox();assert(searchBox&&categoryBox);assert(categoryBox.y>=searchBox.y+searchBox.height+8,'首頁查詢和分類必須各自一行');record('首頁桌面查詢一行、分類另一行');
  await pa.screenshot({path:join(out,phase+'-default-home.png'),fullPage:true});
  await pa.setViewportSize({width:360,height:800});assert(await pa.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));const smallSearch=await pa.locator('.directory-search').boundingBox(),smallCategories=await pa.locator('.directory-categories').boundingBox();assert(smallCategories.y>=smallSearch.y+smallSearch.height);record('首頁360px仍分行且無水平溢出');await pa.setViewportSize({width:1280,height:900});
  await signup(pa,'hydrate_a');await login(pa,'hydrate_a');
@@ -176,7 +176,7 @@ try{
  for(const viewport of [{width:1024,height:600},{width:1366,height:768}]){
   await pa.setViewportSize(viewport);await wait(async()=>await popular.isVisible()&&await roster.isVisible(),'筆電雙側列表');const history=await pa.locator('.message-history').boundingBox(),section=await pa.locator('.conversation').boundingBox(),input=await pa.locator('.chat-composer').boundingBox();assert(history.height>=section.height*.70,'筆電訊息區至少佔對話區70%');assert(input.height<=48&&input.y+input.height<=viewport.height);assert(await pa.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
   assert((await pa.locator('.site-header').boundingBox()).height<=52,'桌面導覽列不超過52px');assert((await pa.locator('.conversation-heading').boundingBox()).height<=40,'房間資訊與狀態同列');
-  if(viewport.width===1024)await pa.screenshot({path:join(out,hase+'-default-room-laptop.png'),fullPage:true});
+  if(viewport.width===1024)await pa.screenshot({path:join(out,phase+'-default-room-laptop.png'),fullPage:true});
  }record('1024x600與1366x768筆電皆保留主要訊息區，控制列不擠占內容');
  await pa.setViewportSize({width:1280,height:900});await wait(async()=>await popular.isVisible()&&await popular.locator('li').count()===100,'桌面熱門列表恢復');
  const desktopHistory=await pa.locator('.message-history').boundingBox(),desktopConversation=await pa.locator('.conversation').boundingBox();assert(desktopHistory.height>=desktopConversation.height*.6);record('桌面訊息區至少佔對話區60%，歷史操作縮入標頭');

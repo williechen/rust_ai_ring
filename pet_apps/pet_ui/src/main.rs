@@ -644,10 +644,10 @@ fn App() -> impl IntoView {
                             <p>{move ||deleting.with(|pet|pet.as_ref().map(|p|format!("{}（{}）",p.name,p.id)).unwrap_or_default())}</p>
                             <p>"相關設定、活動與生活紀錄也會刪除，無法復原。"</p>
                             <button type="button" 
-                                disabled=move ||pets_busy.get() 
+                                disabled=move ||pets_busy.get()
                                 on:click=move |_|deleting.set(None)
                             >"取消刪除"</button>
-                            <button type="button" 
+                            <button type="button"
                                 disabled=move ||pets_busy.get() 
                                 on:click=move |_|{
                                     if pets_busy.get_untracked(){return;}
@@ -663,7 +663,7 @@ fn App() -> impl IntoView {
                                                 set_new_pet_feedback.set(format!("已刪除寵物：{}",pet.name));
                                             }
                                             Err(error)=>set_new_pet_feedback.set(format!("刪除失敗：{error}")),
-                                        } 
+                                        }
                                         set_pets_busy.set(false);
                                     });
                                 }
@@ -722,7 +722,7 @@ fn App() -> impl IntoView {
                                                 </td>
                                                 <td>
                                                     <button type="button" 
-                                                        disabled=move ||pets_busy.get() 
+                                                        disabled=move ||pets_busy.get()
                                                         on:click=move |_|{
                                                             if let Some(pet)=saved_pets.with(|rows|rows.iter().find(|pet|pet.id==id).cloned()) {
                                                                 set_new_pet_feedback.set(String::new());

@@ -24,7 +24,7 @@ pub trait DailyStore: Sync {
     fn recent_week(
         &self,
     ) -> impl std::future::Future<Output = Result<(String, String), Self::Error>> + Send;
-    
+
     fn read(
         &self,
         source: &str,
