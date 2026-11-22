@@ -106,6 +106,10 @@ fn DashboardView(
     let all_dates_url =
         dashboard_url(&source, &event_type, 1, page_size).replace("#report-results-title", "");
     let clear_url = with_date_range(dashboard_url(&source, "", 1, page_size), &date_range);
+    let refresh_url = with_date_range(
+        dashboard_url(&source, &event_type, page, page_size).replace("#report-results-title", ""),
+        &date_range,
+    );
     let export_url = with_date_range(export_csv_url(&source, &event_type), &date_range);
     let recent_url = dashboard_url(&source, &event_type, 1, page_size)
         .replace("#report-results-title", "&range=week#daily-chart-title");
@@ -186,6 +190,7 @@ fn DashboardView(
                                 <button type="submit"
                                     class="report-primary">"篩選"</button>
                                 <a href=clear_url>"清除篩選"</a>
+                                <crate::rpt::rpt1001::component::RefreshReportLink href=refresh_url/>
                                 <a href=all_dates_url class="all-dates">"全部日期"</a>
                                 <a href=recent_url class="recent-week">"最近7天"</a>
                             </div>
