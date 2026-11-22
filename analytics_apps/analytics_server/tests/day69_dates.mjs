@@ -7,8 +7,61 @@ try{
  browser=await chromium.launch({headless:true,executablePath:'/home/willie/.cache/ms-playwright/chromium-1248/chrome-linux64/chrome'});const p=await browser.newPage({viewport:{width:1280,height:900}});
  async function login(pass,target){await p.goto(base+'/login');await p.locator('[name=username]').fill('admin');await p.locator('[name=password]').fill(pass);await Promise.all([p.waitForURL(base+target),p.getByRole('button',{name:'登入',exact:true}).click()]);}
  await login('admin','/change-password');for(const [k,v]of Object.entries({current_password:'admin',new_password:'Synthetic-open-dates',confirm_password:'Synthetic-open-dates',email:'dates@example.test'}))await p.locator(`form[action="/change-password"] [name=${k}]`).fill(v);await Promise.all([p.waitForURL(base+'/login'),p.locator('form[action="/change-password"] button[type=submit]').click()]);await login('Synthetic-open-dates','/dashboard');
- for(const [source,time]of [['web_chat','2026-01-01T00:00:00Z'],['web_chat','2026-02-10T00:00:00Z'],['web_chat','2026-11-10T00:00:00Z'],['web_chat',null],['desktop_pet','2025-01-01T00:00:00Z']]){const data={schema_version:1,source_app:source,event_id:crypto.randomUUID(),event_type:'chat.message.sent'};if(time)data.occurred_at=time;assert.equal((await fetch(base+'/api/v1/events',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+(source==='web_chat'?'fixture-chat':'fixture-pet')},body:JSON.stringify(data)})).status,201);}
  async function check(start,end,total,label){const url=base+'/dashboard?source=web_chat&event_type=MeSsAgE&page_size=25&start='+start+'&end='+end;const r=await p.goto(url);assert.equal(r.status(),200);assert.equal(await p.locator('#report-start').inputValue(),start);assert.equal(await p.locator('#report-end').inputValue(),end);const values=await p.locator('.daily-column strong').allTextContents();assert.equal(values.reduce((a,b)=>a+Number(b),0),total);const csv=await p.request.get(base+await p.locator('.daily-export').getAttribute('href'));assert.equal(csv.status(),200);const lines=(await csv.text()).trim().split('\n').slice(1);assert.equal(lines.reduce((a,b)=>a+Number(b.split(',').at(-2)),0),total);assert.match(await p.locator('.daily-warning').innerText(),/1 筆缺少發生時間/);const summaryCSV=await p.request.get(base+'/api/v1/events/web_chat/export.csv?event_type=MeSsAgE&start='+start+'&end='+end);assert.equal(summaryCSV.status(),200);const summaryLines=(await summaryCSV.text()).trim().split('\n').slice(1);assert.equal(summaryLines.reduce((a,b)=>a+Number(b.split(',').at(-1)),0),total+(start===''&&end===''?1:0));record(label);}
+ async function ingest(source, time, eventType = 'chat.message.sent') {
+  const data={schema_version:1,source_app:source,event_id:crypto.randomUUID(),event_type:eventType};
+  if(time) data.occurred_at=time;
+  const token=source==='web_chat'?'fixture-chat':'fixture-pet';
+  const response=await fetch(base+'/api/v1/events',{
+   method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},
+   body:JSON.stringify(data)
+  });
+  assert.equal(response.status,201);
+ }
+ async function dailyCsvRows() {
+  const csv=await p.request.get(base+await p.locator('.daily-export').getAttribute('href'));
+  assert.equal(csv.status(),200);
+  return (await csv.text()).trim().split(/\r?\n/).slice(1);
+ }
+ const dashboard='/dashboard?source=web_chat&event_type=MeSsAgE&page_size=25';
+ assert.equal((await p.goto(base+dashboard)).status(),200);
+ assert.deepEqual(await dailyCsvRows(),[]);
+ record('全部日期無事件時每日 CSV 只有表頭');
+
+await ingest('web_chat',null);
+ await ingest('web_chat',null,'other.event');
+ await ingest('desktop_pet',null);
+ assert.equal((await p.goto(base+dashboard)).status(),200);
+ assert.deepEqual(await dailyCsvRows(),['"web_chat","MeSsAgE","UTC",,,,,1']);
+ assert.equal(await p.locator('.daily-column').count(),0);
+ assert.match(await p.locator('.daily-warning').innerText(),/1 筆缺少發生時間/);
+ assert.equal((await p.goto(base+dashboard+'&start=2026-11-10')).status(),200);
+ assert.deepEqual(await dailyCsvRows(),[]);
+record('只有未知日期時全部查詢輸出筆數、來源與文字隔離，指定起日不輸出');
+
+ for(const time of ['2026-01-01T00:00:00Z','2026-02-10T00:00:00Z','2026-11-10T00:00:00Z']) {
+  await ingest('web_chat',time);
+ }
+ await ingest('desktop_pet','2025-01-01T00:00:00Z');
+ async function check(start,end,total,label) {
+  const r=await p.goto(base+dashboard+'&start='+start+'&end='+end);
+  assert.equal(r.status(),200);
+  assert.equal(await p.locator('#report-start').inputValue(),start);
+  assert.equal(await p.locator('#report-end').inputValue(),end);
+  const values=await p.locator('.daily-column strong').allTextContents();
+  assert.equal(values.reduce((a,b)=>a+Number(b),0),total);
+  const dailyLines=await dailyCsvRows();
+  assert(dailyLines.length>0);
+  const allDates=start===''&&end==='';
+  assert(dailyLines.every(line=>line.split(',').at(-1)===(allDates?'1':'')));
+  assert.equal(dailyLines.reduce((a,b)=>a+Number(b.split(',').at(-2)),0),total);
+  assert.match(await p.locator('.daily-warning').innerText(),/1 筆缺少發生時間/);
+  const summaryCSV=await p.request.get(base+'/api/v1/events/web_chat/export.csv?event_type=MeSsAgE&start='+start+'&end='+end);
+  assert.equal(summaryCSV.status(),200);
+  const summaryLines=(await summaryCSV.text()).trim().split('\n').slice(1);
+  assert.equal(summaryLines.reduce((a,b)=>a+Number(b.split(',').at(-1)),0),total+(allDates?1:0));
+  record(label);
+ }
  await check('','',3,'日期全空跨超過31天仍顯示全部每日資料，CSV一致且來源隔離');await p.screenshot({path:out+'/all-dates.png',fullPage:true});
  await check('2026-02-10','',2,'只填起日採大於等於，迄日保持空白且CSV一致');
  await check('','2026-02-10',1,'只填迄日採小於，起日保持空白且CSV一致');
@@ -21,7 +74,10 @@ try{
  assert.equal(allURL.hash,'');assert.equal(await p.locator('#report-start').inputValue(),'');assert.equal(await p.locator('#report-end').inputValue(),'');
  assert.equal((await p.locator('.daily-column strong').allTextContents()).reduce((a,b)=>a+Number(b),0),3);
  await p.screenshot({path:out+'/day69-all-dates.png',fullPage:true});record('ANALYTICS-69-全部日期清除雙邊限制、保留來源模糊文字筆數且不跳結果');
- await p.getByRole('link',{name:'最近7天',exact:true}).click();await p.getByRole('link',{name:'全部日期',exact:true}).click();assert.equal(new URL(p.url()).searchParams.has('range'),false);record('ANALYTICS-69-最近七天可一鍵回全部歷史且匯出採同條件');
+ await p.getByRole('link',{name:'最近7天',exact:true}).click();
+ const weekRows=await dailyCsvRows();
+ assert(weekRows.length>0&&weekRows.every(line=>line.split(',').at(-1)===''));
+ await p.getByRole('link',{name:'全部日期',exact:true}).click();assert.equal(new URL(p.url()).searchParams.has('range'),false);record('ANALYTICS-69-最近七天可一鍵回全部歷史且匯出採同條件');
  const dburl='postgres://day65_accept@127.0.0.1:55465/'+phase+'_modes68';
  const sql=q=>execFileSync('/usr/lib/postgresql/18/bin/psql',[dburl,'-v','ON_ERROR_STOP=1','-c',q]);
  sql('ALTER TABLE product_events RENAME TO fixture_hidden_events');
