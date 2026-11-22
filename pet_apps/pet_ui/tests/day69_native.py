@@ -784,6 +784,20 @@ try:
     )
     assert snapshot() == deleted_before
     record("PET-69-刪除先確認、取消零IPC寫入且保留所有資料")
+    evaluate("document.querySelector('#pet-management tbody button').focus();")
+    stable_db = snapshot()
+    escape_keys = {"actions": [{"type": "key", "id": "keyboard", "actions": [
+        {"type": "keyDown", "value": "\ue00c"}, {"type": "keyUp", "value": "\ue00c"}
+    ]}]}
+    evaluate("document.activeElement.click();")
+    wait(lambda: evaluate("return !!document.querySelector('[aria-labelledby=delete-pet-title]');"))
+    assert evaluate("return document.activeElement.textContent.trim()==='取消刪除';"), "確認框需將焦點放在取消"
+    req("POST", f"/session/{sid}/actions", escape_keys)
+    wait(lambda: evaluate("return !document.querySelector('[aria-labelledby=delete-pet-title]');"))
+    assert evaluate("return document.activeElement===document.querySelector('#pet-management tbody button');")
+    assert snapshot() == stable_db
+    record("PET-70-鍵盤取消刪除，焦點回原列且SQLite零變更")
+
     # 真正出籠時，由後端拒絕刪除，錯誤保持確認對象。
     evaluate("document.querySelector('#pet-interaction-tab').click();")
     choose(A)

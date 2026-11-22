@@ -12,6 +12,7 @@ mod file_comparison;
 mod file_scan_view;
 pub mod management_datatable;
 pub mod management_selection;
+mod pcm;
 mod saved_pet;
 mod scan_generation;
 mod settings_editor;
@@ -62,7 +63,24 @@ fn App() -> impl IntoView {
     let (saved_pets, set_saved_pets) = signal(Vec::<SavedPet>::new());
     let (pets_busy, set_pets_busy) = signal(false);
     let deleting = RwSignal::new(None::<SavedPet>);
-
+    let delete_cancel = NodeRef::<leptos::html::Button>::new();
+    let delete_origin = StoredValue::new(None::<NodeRef<leptos::html::Button>>);
+    Effect::new(move |_| {
+        if let Some(button) = delete_cancel.get() {
+            let _ = button.focus();
+        }
+    });
+    let cancel_delete = Callback::new(move |()| {
+        if !pets_busy.get_untracked() {
+            deleting.set(None);
+            if let Some(button) = delete_origin
+                .get_value()
+                .and_then(|node| node.get_untracked())
+            {
+                let _ = button.focus();
+            }
+        }
+    });
     let table_query = RwSignal::new(String::new());
     let table_size = RwSignal::new(10usize);
     let table_page = RwSignal::new(1usize);
@@ -639,13 +657,17 @@ fn App() -> impl IntoView {
                     <Show when=move ||deleting.with(Option::is_some)>
                         <div role="dialog" 
                             aria-modal="false" 
-                            aria-labelledby="delete-pet-title" class="settings-navigation-confirmation">
+                            aria-labelledby="delete-pet-title" class="settings-navigation-confirmation"
+                            on:keydown=move |event| {
+                                pcm::pcm2001::component::cancel_on_escape(event, pets_busy.get_untracked(), cancel_delete);
+                            }>
                             <h3 id="delete-pet-title">"確認刪除寵物"</h3>
                             <p>{move ||deleting.with(|pet|pet.as_ref().map(|p|format!("{}（{}）",p.name,p.id)).unwrap_or_default())}</p>
                             <p>"相關設定、活動與生活紀錄也會刪除，無法復原。"</p>
                             <button type="button" 
                                 disabled=move ||pets_busy.get()
-                                on:click=move |_|deleting.set(None)
+                                node_ref=delete_cancel
+                                on:click=move |_|cancel_delete.run(())
                             >"取消刪除"</button>
                             <button type="button"
                                 disabled=move ||pets_busy.get()
@@ -708,6 +730,7 @@ fn App() -> impl IntoView {
                                         let name_id=pet.id.clone();
                                         let species_id=pet.id.clone();
                                         let row_id=pet.id.clone();
+                                        let delete_button=NodeRef::<leptos::html::Button>::new();
 
                                         view! {
                                             <tr data-pet-id=row_id.clone() class:management-selected=move ||management_pet_id.get().as_deref()==Some(row_id.as_str())>
@@ -721,11 +744,12 @@ fn App() -> impl IntoView {
                                                     <code>{pet.id.clone()}</code>
                                                 </td>
                                                 <td>
-                                                    <button type="button" 
+                                                    <button type="button" node_ref=delete_button
                                                         disabled=move ||pets_busy.get()
                                                         on:click=move |_|{
                                                             if let Some(pet)=saved_pets.with(|rows|rows.iter().find(|pet|pet.id==id).cloned()) {
                                                                 set_new_pet_feedback.set(String::new());
+                                                                delete_origin.set_value(Some(delete_button));
                                                                 deleting.set(Some(pet));
                                                             }
                                                         }

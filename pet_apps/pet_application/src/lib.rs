@@ -1,12 +1,14 @@
 pub mod activity_control;
-pub mod cage_query;
 pub mod creation;
 pub mod deletion;
 pub mod lifecycle;
 pub mod pet_names;
+mod pml;
 pub mod settings;
 pub mod settings_draft;
 pub mod settings_request;
+
+pub use pml::pml2001::service as cage_query;
 
 /// 建立寵物的輸入規則；不持有 Tauri、SQLx 或 OS driver。
 pub fn normalize_new_pet_name(input: &str) -> Result<String, String> {
