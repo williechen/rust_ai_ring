@@ -648,7 +648,7 @@ fn App() -> impl IntoView {
                                 on:click=move |_|deleting.set(None)
                             >"取消刪除"</button>
                             <button type="button"
-                                disabled=move ||pets_busy.get() 
+                                disabled=move ||pets_busy.get()
                                 on:click=move |_|{
                                     if pets_busy.get_untracked(){return;}
                                     let Some(pet)=deleting.get_untracked() else{return;};
