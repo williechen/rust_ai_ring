@@ -2,30 +2,6 @@ use crate::room_list_state::RoomListItem;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
 
-pub async fn room_history(id: &str) -> Result<Vec<chat_domain::ChatMessage>, String> {
-    if id.is_empty()
-        || !id
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
-    {
-        return Err("房間識別碼無效".into());
-    }
-    let window = web_sys::window().ok_or("無法取得瀏覽器")?;
-    let value = JsFuture::from(window.fetch_with_str(&format!("/api/rooms/{id}/messages")))
-        .await
-        .map_err(|_| "歷史讀取失敗")?;
-    let response: web_sys::Response = value.dyn_into().map_err(|_| "歷史回應無效")?;
-    if !response.ok() {
-        return Err(format!("歷史讀取失敗：HTTP {}", response.status()));
-    }
-    let text = JsFuture::from(response.text().map_err(|_| "歷史內容無效")?)
-        .await
-        .map_err(|_| "歷史內容無效")?
-        .as_string()
-        .ok_or("歷史內容無效")?;
-    serde_json::from_str(&text).map_err(|_| "歷史格式無效".into())
-}
-
 /// 公開房間清單與搜尋共用既有的查詢端點。
 pub async fn list_rooms() -> Result<Vec<RoomListItem>, String> {
     search_rooms("").await

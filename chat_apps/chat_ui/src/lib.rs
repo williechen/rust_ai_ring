@@ -5,8 +5,6 @@
 
 pub mod account;
 mod chat_socket;
-#[cfg(target_arch = "wasm32")]
-mod directory_request;
 pub mod member_pages;
 
 #[cfg(target_arch = "wasm32")]
@@ -19,13 +17,18 @@ mod room_list_state;
 mod session_entry;
 
 mod author_display;
+#[cfg(target_arch = "wasm32")]
+mod common;
 mod composer_key;
+mod msg;
 mod room_cards;
 mod room_directory;
 mod room_heading;
 #[cfg(all(test, feature = "ssr"))]
 mod signin_contract;
 pub mod signin_form;
+#[cfg(target_arch = "wasm32")]
+use common::request as directory_request;
 
 use std::rc::Rc;
 
@@ -255,24 +258,6 @@ fn RoomPage() -> impl IntoView {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
-fn request_history(
-    room_id: String,
-    set_messages: WriteSignal<Vec<ChatMessage>>,
-    set_status: WriteSignal<String>,
-) {
-    set_status.set("正在載入歷史訊息".into());
-    wasm_bindgen_futures::spawn_local(async move {
-        match room_api::room_history(&room_id).await {
-            Ok(history) => {
-                set_messages.update(|rows| *rows = merge_history(std::mem::take(rows), history));
-                set_status.set("已載入最近一百則歷史訊息".into());
-            }
-            Err(error) => set_status.set(format!("{error}；請重試")),
-        }
-    });
-}
-
 #[component]
 pub fn ChatPage(room_id: String) -> impl IntoView {
     let (draft, set_draft) = signal(String::new());
@@ -282,6 +267,48 @@ pub fn ChatPage(room_id: String) -> impl IntoView {
     let (connection, set_connection) = signal(String::from("尚未連線"));
     let (messages, set_messages) = signal(Vec::<ChatMessage>::new());
     let (history_status, set_history_status) = signal(String::from("正在載入歷史訊息"));
+    let history_loading = RwSignal::new(false);
+    let history_failed = RwSignal::new(false);
+    #[cfg(target_arch = "wasm32")]
+    let history_room = StoredValue::new(room_id.clone());
+    #[cfg(target_arch = "wasm32")]
+    let history_alive = {
+        let alive = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let cleanup = alive.clone();
+        on_cleanup(move || cleanup.store(false, std::sync::atomic::Ordering::Relaxed));
+        StoredValue::new(alive)
+    };
+    let reload_history = Callback::new(move |()| {
+        #[cfg(target_arch = "wasm32")]
+        {
+            if history_loading.get_untracked() {
+                return;
+            }
+            history_loading.set(true);
+            set_history_status.set("正在載入歷史訊息".into());
+            let id = history_room.get_value();
+            let alive = history_alive.get_value();
+            wasm_bindgen_futures::spawn_local(async move {
+                let result = msg::msg2001::service::room_history(&id).await;
+                if !alive.load(std::sync::atomic::Ordering::Relaxed) {
+                    return;
+                }
+                history_failed.set(result.is_err());
+                history_loading.set(false);
+                match result {
+                    Ok(history) => {
+                        set_messages.update(|rows| {
+                            *rows = merge_history(std::mem::take(rows), history);
+                        });
+                        set_history_status.set("已載入最近一百則歷史訊息".into());
+                    }
+                    Err(error) => set_history_status.set(error),
+                }
+            });
+        }
+    });
+    #[cfg(target_arch = "wasm32")]
+    reload_history.run(());
 
     let (room_title, set_room_title) = signal(format!("房間 {room_id}"));
     let name_failed = RwSignal::new(false);
@@ -320,9 +347,6 @@ pub fn ChatPage(room_id: String) -> impl IntoView {
     let _ = (set_room_title, set_messages, set_history_status);
 
     #[cfg(target_arch = "wasm32")]
-    request_history(room_id.clone(), set_messages, set_history_status);
-
-    #[cfg(target_arch = "wasm32")]
     let socket = {
         let location = web_sys::window().unwrap().location();
         let protocol = if location.protocol().unwrap() == "https:" {
@@ -354,16 +378,6 @@ pub fn ChatPage(room_id: String) -> impl IntoView {
 
     #[cfg(not(target_arch = "wasm32"))]
     let socket = Some(Rc::new(ChatSocket::server_stub()));
-
-    let reload_history = {
-        let room_id = room_id.clone();
-        move |_| {
-            #[cfg(target_arch = "wasm32")]
-            request_history(room_id.clone(), set_messages, set_history_status);
-            #[cfg(not(target_arch = "wasm32"))]
-            let _ = &room_id;
-        }
-    };
 
     let send = {
         let socket = socket.clone();
@@ -431,7 +445,8 @@ pub fn ChatPage(room_id: String) -> impl IntoView {
                 <button class="history-reload"
                     type="button"
                     aria-label="重新載入歷史"
-                    on:click=reload_history>
+                    disabled=move || history_loading.get()
+                    on:click=move |_| reload_history.run(())>
                         "歷史"
                 </button>
                 <button type="button"
@@ -451,10 +466,9 @@ pub fn ChatPage(room_id: String) -> impl IntoView {
                 </details>
             </div>
         </header>
-        <p class="history-disclosure"
-            role="status">
-            {move || history_status.get()}
-        </p>
+        <msg::msg2001::component::HistoryFeedback
+            status=history_status failed=history_failed loading=history_loading reload=reload_history
+        />
         <div class="message-history"
             node_ref=message_area
             aria-live="polite">
