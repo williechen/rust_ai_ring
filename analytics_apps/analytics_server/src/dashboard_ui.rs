@@ -40,7 +40,6 @@ fn DashboardView(
     daily: Option<DailyReport>,
 ) -> impl IntoView {
     let range_start = daily.as_ref().map(|r| r.start.clone()).unwrap_or_default();
-    let range_end = daily.as_ref().map(|r| r.end.clone()).unwrap_or_default();
     let legacy_open = daily.is_none();
     let has_range = !range_start.is_empty();
 
@@ -192,7 +191,7 @@ fn DashboardView(
                                 <button type="submit"
                                     class="report-primary">"篩選"</button>
                                 <a href=clear_url>"清除篩選"</a>
-                                <crate::rpt::rpt1001::component::RefreshReportLink href=refresh_url/>
+                                <crate::rpt::rpt1001::web::RefreshReportLink href=refresh_url/>
                                 <a href=all_dates_url class="all-dates">"全部日期"</a>
                                 <a href=recent_url class="recent-week">"最近7天"</a>
                             </div>
@@ -265,7 +264,7 @@ fn DashboardView(
                             </p>
                             <nav class="report-actions"
                                 aria-label="報表分頁">
-                                {first_url.map(|href| view! { <crate::rpt::rpt1001::component::FirstReportPageLink href/> })}
+                                {first_url.map(|href| view! { <crate::rpt::rpt1001::web::FirstReportPageLink href/> })}
                                 {previous_url.map(|href| view! { <a href=href>"上一頁"</a> })}
                                 <span>{format!("第 {page} / {total_pages} 頁 · 共 {total_kinds} 個事件類型")}</span>
                                 {next_url.map(|href| view! { <a href=href>"下一頁"</a> })}
@@ -284,10 +283,10 @@ fn DashboardView(
                                     {has_range.then(||view!{
                                         <input type="hidden"
                                             name="start"
-                                            value=range_start.clone()/>
+                                            value=form_start.clone()/>
                                         <input type="hidden"
                                             name="end"
-                                            value=range_end.clone()/>
+                                            value=form_end.clone()/>
                                     })}
                                     <label for="report-page-number">"前往頁碼"</label>
                                     <input id="report-page-number"

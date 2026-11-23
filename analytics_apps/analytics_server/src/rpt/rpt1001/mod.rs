@@ -1,2 +1,2 @@
-pub(crate) mod component;
 pub(crate) mod service;
+pub(crate) mod web;

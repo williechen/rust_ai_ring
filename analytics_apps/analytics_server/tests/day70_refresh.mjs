@@ -93,6 +93,21 @@ try {
   assert(await pager.isVisible());
   assert.match(await pager.innerText(), /第 1 \/ 2 頁/);
   record('ANALYTICS-71-一鍵回第一頁，結果維持展開並保留日期及條件');
+  for (const [start, end] of [['2026-11-10', ''], ['', '2026-11-11'], ['', '']]) {
+    const formQuery = { ...query, page: '1', start, end };
+    assert.equal((await page.goto(base + '/dashboard?' + new URLSearchParams(formQuery))).status(), 200);
+    await page.locator('.legacy-statistics > summary').click();
+    const jump = page.getByRole('navigation', { name: '報表分頁' });
+    await jump.getByLabel('前往頁碼').fill('2');
+    await Promise.all([page.waitForURL(u => u.searchParams.get('page') === '2'), jump.getByRole('button', { name: '前往', exact: true }).click()]);
+    const target = new URL(page.url()).searchParams;
+    for (const [name, value] of Object.entries({ ...formQuery, page: '2' })) {
+      assert.equal(target.get(name) ?? '', value, '跳頁必須保留原始條件 ' + name);
+    }
+    assert.equal(await page.locator('#report-start').inputValue(), start);
+    assert.equal(await page.locator('#report-end').inputValue(), end);
+  }
+  record('ANALYTICS-72-頁碼表單保留單邊及全空日期');
 } catch (error) {
   rows.push({ name: '重新整理報表', status: 'FAIL', error: String(error) });
   console.error(error);
