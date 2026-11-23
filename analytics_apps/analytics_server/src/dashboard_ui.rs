@@ -124,6 +124,8 @@ fn DashboardView(
             &date_range,
         )
     };
+    let first_url =
+        (page > 1).then(|| page_url(1).replace("#daily-chart-title", "#report-results-title"));
     let previous_url = (page > 1).then(|| page_url(page - 1));
     let next_url = (page < total_pages).then(|| page_url(page + 1));
 
@@ -263,6 +265,7 @@ fn DashboardView(
                             </p>
                             <nav class="report-actions"
                                 aria-label="報表分頁">
+                                {first_url.map(|href| view! { <crate::rpt::rpt1001::component::FirstReportPageLink href/> })}
                                 {previous_url.map(|href| view! { <a href=href>"上一頁"</a> })}
                                 <span>{format!("第 {page} / {total_pages} 頁 · 共 {total_kinds} 個事件類型")}</span>
                                 {next_url.map(|href| view! { <a href=href>"下一頁"</a> })}

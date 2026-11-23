@@ -148,6 +148,7 @@ try:
         )
 
     def edit(value):
+        wait(lambda: evaluate("return document.querySelector('[name=settings-name]')?.matches(':enabled')===true;"))
         evaluate(
             "const n=document.querySelector('[name=settings-name]');if(n.disabled||n.closest('fieldset').disabled)throw Error('設定欄位不可編輯');n.value=arguments[0];n.dispatchEvent(new Event('input',{bubbles:true}));",
             value,
@@ -163,6 +164,7 @@ try:
             "return document.querySelector('.control-pet-picker select').value;"
         )
 
+    wait(lambda: evaluate("return Array.from(document.querySelectorAll('.control-pet-picker select option')).some(option=>option.value===arguments[0]);", A))
     choose(A)
     wait(
         lambda: evaluate(
@@ -603,6 +605,16 @@ try:
         and db.execute("SELECT * FROM local_pet_selection").fetchall() == slot_before
     )
     record("PET-TABLE-01-真29隻清單、10／25／50分頁、排序與中文模糊搜尋零DB寫入")
+    focused_search = "document.activeElement===document.querySelector('#management-table-search')"
+    assert evaluate("return " + focused_search), "清除搜尋後焦點應回到搜尋欄"
+    req("POST", f"/session/{sid}/actions", {"actions": [{"type": "key", "id": "search-keyboard", "actions": [
+        {"type": "keyDown", "value": "X"}, {"type": "keyUp", "value": "X"}
+    ]}]})
+    wait(lambda: evaluate("return document.querySelector('#management-table-search').value==='X';"))
+    assert snapshot() == table_before
+    assert db.execute("SELECT * FROM local_pet_selection").fetchall() == slot_before
+    filter_text("")
+    record("PET-71-清除管理搜尋回焦點，可用鍵盤接續，SQLite及選取不變")
     # 管理表僅新增／刪除；互動與設定沿同一UUID選取器。
     assert evaluate(
         "return document.querySelectorAll('#pet-management .management-row-actions').length===0;"

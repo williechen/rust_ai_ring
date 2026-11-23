@@ -403,7 +403,7 @@ pub fn ChatPage(room_id: String) -> impl IntoView {
                     set_draft.set(String::new());
                     #[cfg(target_arch = "wasm32")]
                     if let Some(input) = composer.get_untracked() {
-                        let _ = web_sys::HtmlElement::style(&input).set_property("height", "44px");
+                        msg::msg2001::component::restore_composer(&input);
                     }
                     set_connection.set("已發送，等待回應...".into());
                 }

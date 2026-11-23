@@ -6,3 +6,5 @@ pub mod report_page;
 pub mod session_renewal;
 pub mod summary;
 pub mod viewer_access;
+mod rpt;
+pub use rpt::rpt1001::api_service as report_page;

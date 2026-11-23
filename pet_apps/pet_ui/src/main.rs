@@ -82,6 +82,7 @@ fn App() -> impl IntoView {
         }
     });
     let table_query = RwSignal::new(String::new());
+    let table_search = NodeRef::<leptos::html::Input>::new();
     let table_size = RwSignal::new(10usize);
     let table_page = RwSignal::new(1usize);
     let table_sort = RwSignal::new(management_datatable::Sort::default());
@@ -593,6 +594,7 @@ fn App() -> impl IntoView {
                         <div class="management-query-row">
                             <label for="management-table-search">"搜尋寵物"
                                 <input id="management-table-search"
+                                    node_ref=table_search
                                     type="search"
                                     placeholder="名稱、種類或識別碼"
                                     prop:value=move ||table_query.get()
@@ -627,8 +629,7 @@ fn App() -> impl IntoView {
                         <Show when=move ||!table_query.get().is_empty()>
                             <button type="button"
                                 on:click=move |_|{
-                                    table_query.set(String::new());
-                                    table_page.set(1);
+                                    pcm::pcm2001::component::clear_search(table_query, table_page, table_search);
                                 }
                             >"清除搜尋"</button>
                         </Show>

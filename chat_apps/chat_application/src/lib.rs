@@ -7,8 +7,9 @@ pub mod room_directory;
 pub mod room_presence;
 
 mod msg;
+mod rdi;
 pub use msg::msg2001::service as history;
-
+pub use rdi::rdi2001::api_service as room_directory;
 use chat_domain::{ChatMessage, MessageAuthor, Room};
 use uuid::Uuid;
 

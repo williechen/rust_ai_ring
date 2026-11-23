@@ -15,3 +15,9 @@ pub(crate) fn HistoryFeedback(
         </Show>
     }
 }
+
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn restore_composer(input: &web_sys::HtmlTextAreaElement) {
+    let _ = web_sys::HtmlElement::style(input).set_property("height", "44px");
+    let _ = input.focus();
+}
