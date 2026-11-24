@@ -1,6 +1,5 @@
 pub mod activity_control;
 pub mod creation;
-pub mod deletion;
 pub mod lifecycle;
 mod pcm;
 pub mod pet_names;
@@ -8,6 +7,7 @@ mod pml;
 pub mod settings_draft;
 pub mod settings_request;
 
+pub use pcm::pcm2001::api_service as deletion;
 pub use pcm::pcm2002::api_service as settings;
 pub use pml::pml2001::service as cage_query;
 

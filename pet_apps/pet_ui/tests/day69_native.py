@@ -500,7 +500,18 @@ try:
         )
     )
     req("POST", f"/session/{sid}/window/rect", {"width": 1280, "height": 900})
+    previous_row_count = evaluate("return document.querySelectorAll('.management-data-table tbody tr[data-pet-id]').length;")
+    evaluate("window.d72OriginalList=window.listPets;window.listPets=()=>new Promise(resolve=>{window.d72Release=()=>resolve(window.d72OriginalList());});")
     click("重新載入清單")
+    wait(lambda: evaluate("return typeof window.d72Release==='function';"))
+    assert evaluate("return document.querySelector('#pet-management').textContent.includes('正在重新載入清單…');"), "重新載入須顯示進行中狀態"
+    assert evaluate("return document.querySelectorAll('.management-data-table tbody tr[data-pet-id]').length;") == previous_row_count
+    assert evaluate("return document.querySelector('.management-query-row > button').disabled;")
+    evaluate("window.listPets=window.d72OriginalList;window.d72Release();")
+    wait(lambda: evaluate("return document.querySelector('#pet-management').textContent.includes('已重新載入清單');"))
+    assert snapshot() == table_before
+    assert db.execute("SELECT * FROM local_pet_selection").fetchall() == slot_before
+    record("PET-72-清單重載呈現進行中狀態，保留畫面與SQLite選取")
     wait(
         lambda: evaluate(
             "return document.querySelectorAll('.management-data-table tbody tr[data-pet-id]').length===10;"

@@ -607,6 +607,7 @@ fn App() -> impl IntoView {
                                 on:click=move |_| {
                                     if pets_busy.get_untracked() { return; }
                                     set_pets_busy.set(true);
+                                    set_new_pet_feedback.set("正在重新載入清單…".into());
                                     spawn_local(async move {
                                         match bridge::list_pets().await {
                                             Ok(rows) => {
@@ -629,7 +630,7 @@ fn App() -> impl IntoView {
                         <Show when=move ||!table_query.get().is_empty()>
                             <button type="button"
                                 on:click=move |_|{
-                                    pcm::pcm2001::component::clear_search(table_query, table_page, table_search);
+                                    pcm::pcm2001::web::clear_search(table_query, table_page, table_search);
                                 }
                             >"清除搜尋"</button>
                         </Show>
@@ -660,7 +661,7 @@ fn App() -> impl IntoView {
                             aria-modal="false" 
                             aria-labelledby="delete-pet-title" class="settings-navigation-confirmation"
                             on:keydown=move |event| {
-                                pcm::pcm2001::component::cancel_on_escape(event, pets_busy.get_untracked(), cancel_delete);
+                                pcm::pcm2001::web::cancel_on_escape(event, pets_busy.get_untracked(), cancel_delete);
                             }>
                             <h3 id="delete-pet-title">"確認刪除寵物"</h3>
                             <p>{move ||deleting.with(|pet|pet.as_ref().map(|p|format!("{}（{}）",p.name,p.id)).unwrap_or_default())}</p>
