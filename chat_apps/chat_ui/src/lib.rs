@@ -269,6 +269,7 @@ pub fn ChatPage(room_id: String) -> impl IntoView {
     let (history_status, set_history_status) = signal(String::from("正在載入歷史訊息"));
     let history_loading = RwSignal::new(false);
     let history_failed = RwSignal::new(false);
+    let history_ready = RwSignal::new(false);
     #[cfg(target_arch = "wasm32")]
     let history_room = StoredValue::new(room_id.clone());
     #[cfg(target_arch = "wasm32")]
@@ -285,6 +286,7 @@ pub fn ChatPage(room_id: String) -> impl IntoView {
                 return;
             }
             history_loading.set(true);
+            history_ready.set(false);
             set_history_status.set("正在載入歷史訊息".into());
             let id = history_room.get_value();
             let alive = history_alive.get_value();
@@ -300,6 +302,7 @@ pub fn ChatPage(room_id: String) -> impl IntoView {
                         set_messages.update(|rows| {
                             *rows = merge_history(std::mem::take(rows), history);
                         });
+                        history_ready.set(true);
                         set_history_status.set("已載入最近一百則歷史訊息".into());
                     }
                     Err(error) => set_history_status.set(error),
@@ -403,7 +406,7 @@ pub fn ChatPage(room_id: String) -> impl IntoView {
                     set_draft.set(String::new());
                     #[cfg(target_arch = "wasm32")]
                     if let Some(input) = composer.get_untracked() {
-                        msg::msg2001::component::restore_composer(&input);
+                        msg::msg2001::web::restore_composer(&input);
                     }
                     set_connection.set("已發送，等待回應...".into());
                 }
@@ -466,7 +469,7 @@ pub fn ChatPage(room_id: String) -> impl IntoView {
                 </details>
             </div>
         </header>
-        <msg::msg2001::component::HistoryFeedback
+        <msg::msg2001::web::HistoryFeedback
             status=history_status failed=history_failed loading=history_loading reload=reload_history
         />
         <div class="message-history"
@@ -475,9 +478,9 @@ pub fn ChatPage(room_id: String) -> impl IntoView {
             {move || {
                 if messages.get().is_empty() {
                     view! {
-                        <p class="messages-empty">
-                            "目前尚無訊息"
-                        </p>
+                        <Show when=move || history_ready.get()>
+                            <p class="messages-empty">"目前尚無訊息"</p>
+                        </Show>
                     }.into_any()
                 } else {
                     view! {
@@ -761,13 +764,13 @@ mod day31_account_tests {
 mod day32_history_disclosure_tests {
     use super::*;
     #[test]
-    fn room_discloses_loading_history_and_empty_messages() {
+    fn room_discloses_loading_without_claiming_empty_messages() {
         let owner = Owner::new();
         let html = owner.with(|| view! { <ChatPage room_id="day32-room".to_owned() /> }.to_html());
         assert!(html.contains("day32-room"));
         assert!(html.contains("正在載入歷史訊息"));
         assert!(html.contains("重新載入歷史"));
-        assert!(html.contains("目前尚無訊息"));
+        assert!(!html.contains("目前尚無訊息"));
         assert!(!html.contains("已載入最近一百則歷史訊息"));
         assert!(html.contains("aria-live=\"polite\""));
     }

@@ -140,8 +140,11 @@ try {
     await pa.route(historyRoute, brokenHistory);
     const historyButton = pa.getByRole('button', { name: '重新載入歷史', exact: true });
     await historyButton.click();
+    await wait(async () => await historyButton.isDisabled(), '開始讀取歷史');
+    assert.equal(await pa.locator('.messages-empty').count(), 0, '歷史載入時不能宣告沒有訊息');
     const retryHistory = pa.getByRole('button', { name: '重試歷史訊息', exact: true });
     await retryHistory.waitFor({ timeout: 4000 });
+    assert.equal(await pa.locator('.messages-empty').count(), 0, '歷史失敗時不能宣告沒有訊息');
     assert.equal(historyCalls, 1);
     await pa.unroute(historyRoute, brokenHistory);
     const exactHistory = async route => { historyCalls++; await delay(400); await route.continue(); };
@@ -159,6 +162,9 @@ try {
     assert.equal(historySockets, 0);
     assert.equal(await pa.locator('.chat-composer textarea').inputValue(), '歷史重試保留的草稿');
     record('CHAT-70-歷史HTTP失敗提供同房重試，防重入並保留草稿與現有連線');
+    assert.equal(db.prepare('SELECT count(*) AS n FROM messages WHERE room_id=?').get(room).n, 0);
+    await pa.getByText('目前尚無訊息', { exact: true }).waitFor();
+    record('CHAT-72-只在歷史成功且確實沒有訊息時顯示空狀態');   
 
     let memberFault = true, memberReads = 0; await a.route('**/api/rooms/*/members', async route => { memberReads++; if (memberFault) await route.fulfill({ status: 503, body: '' }); else await route.continue(); });
     await pa.locator('.chat-composer textarea').fill('在線名單重試保留草稿');

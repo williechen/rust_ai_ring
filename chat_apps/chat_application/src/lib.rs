@@ -1,4 +1,3 @@
-pub mod login_attempt;
 pub mod member_names;
 pub mod product_event;
 pub mod repository;
@@ -7,9 +6,11 @@ pub mod room_presence;
 
 mod msg;
 mod rdi;
+mod sso;
 use chat_domain::{ChatMessage, MessageAuthor, Room};
 pub use msg::msg2001::service as history;
 pub use rdi::rdi2001::api_service as room_directory;
+pub use sso::sso2001::api_service as login_attempt;
 use uuid::Uuid;
 
 use crate::repository::{MessageRepository, RepositoryError, RoomRepository};
