@@ -49,9 +49,6 @@ pub(crate) fn stop_for_pet(label: &str) {
 }
 
 pub(crate) fn spawn_for_pet(app: tauri::AppHandle, label: String) {
-    if !crate::roam_enabled() {
-        return;
-    }
     let Some(active) = register_task(&label) else {
         eprintln!("desktop roaming unavailable: task registry poisoned");
         return;
@@ -163,7 +160,7 @@ async fn roam_desktop(app: tauri::AppHandle, label: &str, active: &AtomicBool) {
             .state::<crate::pet_windows::Runtime>()
             .snapshot(&id)
             .is_ok_and(|s| s.state == pet_domain::PetState::Sleeping);
-        if !status.roaming || sleeping {
+        if !crate::idle::walking(&id) || sleeping {
             drop(lifecycle);
             tokio::time::sleep(ROAM_INTERVAL).await;
             continue;

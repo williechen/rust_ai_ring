@@ -49,9 +49,13 @@
 
     window.findSavedPet = (id) => invoke("find_saved_pet", { id });
 
-    window.chatWithPet = (message) => {
-      return invoke("chat_with_pet", { message });
+    window.chatWithPet = (petId,message) => {
+      return invoke("chat_with_pet", { petId,message });
     };
+
+    window.petIdleStatus=id=>invoke("pet_idle_status",{id});
+    
+    window.clearPetIdleChoice=id=>invoke("set_pet_idle_choice",{id,choice:"none"});
 
     window.isPetWindow = () => {
       return new URLSearchParams(window.location.search).get("view") === "pet";
@@ -78,12 +82,7 @@
       return Menu.new({
         items: [
           { id: `pet:${id}:open_control`, text: "開啟控制窗" },
-          { id: `pet:${id}:interact`, text: "互動" },
-          { id: `pet:${id}:walk`, text: activity?.walk_label || "開始漫遊" },
-          { id: `pet:${id}:sit`, text: activity?.sit_label || "停止漫遊" },
           { id: `pet:${id}:cage`, text: "回籠子" },
-          { id: `pet:${id}:sleep`, text: "睡覺" },
-          { id: `pet:${id}:wake`, text: "醒來" },
         ],
       });
     }

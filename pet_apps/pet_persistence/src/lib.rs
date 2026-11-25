@@ -2,6 +2,7 @@ pub mod activity;
 pub mod cage_query;
 pub mod deletion;
 pub mod pet_names;
+pub mod pml;
 pub mod settings;
 pub use activity::set_caged;
 pub use activity::{ActivitySnapshot, ActivityStatus};

@@ -1,15 +1,17 @@
 pub mod activity_control;
+pub mod common;
 pub mod creation;
 pub mod lifecycle;
 mod pcm;
-pub mod pet_names;
 mod pml;
 pub mod settings_draft;
 pub mod settings_request;
 
+pub use common::pet_names;
 pub use pcm::pcm2001::api_service as deletion;
 pub use pcm::pcm2002::api_service as settings;
-pub use pml::pml2001::service as cage_query;
+pub use pml::pml2001::api_service as cage_query;
+pub use pml::pml2001::{api_dto as idle_dto, api_service as idle};
 
 /// 建立寵物的輸入規則；不持有 Tauri、SQLx 或 OS driver。
 pub fn normalize_new_pet_name(input: &str) -> Result<String, String> {

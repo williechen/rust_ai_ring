@@ -11,6 +11,25 @@ pub struct PetStore {
 }
 
 impl PetStore {
+    pub async fn prepare_idle_startup(&self) -> Result<Vec<SavedPet>, String> {
+        pet_persistence::pml::pml2001::sql_mapper::startup(&self.pool)
+            .await
+            .map(|rows| {
+                rows.into_iter()
+                    .map(|(id, name, species)| SavedPet { id, name, species })
+                    .collect()
+            })
+    }
+
+    pub(crate) async fn delete_closed_profile(&self, id: &str, name: &str) -> Result<(), String> {
+        pet_application::deletion::delete(
+            &pet_persistence::deletion::SqliteClosedPetDeletion(self.pool.clone()),
+            id,
+            name,
+        )
+        .await
+    }
+
     pub async fn delete(&self, id: &str, name: &str) -> Result<(), String> {
         pet_application::deletion::delete(
             &pet_persistence::deletion::SqlitePetDeletion(self.pool.clone()),
@@ -55,6 +74,14 @@ impl PetStore {
         })
     }
     pub async fn select(&self, id: &str) -> Result<SavedPet, String> {
+        self.select_profile(id, true).await
+    }
+
+    pub async fn select_for_window(&self, id: &str) -> Result<SavedPet, String> {
+        self.select_profile(id, false).await
+    }
+
+    async fn select_profile(&self, id: &str, legacy_activate: bool) -> Result<SavedPet, String> {
         let mut tx = self
             .pool
             .begin()
@@ -89,7 +116,9 @@ impl PetStore {
         .await
         .map_err(|_| "無法儲存選取".to_owned())?;
 
-        pet_persistence::activity::set_caged_in(&mut tx, id, false).await?;
+        if legacy_activate {
+            pet_persistence::activity::set_caged_in(&mut tx, id, false).await?;
+        }
 
         tx.commit().await.map_err(|_| "選取提交失敗".to_owned())?;
         Ok(SavedPet {

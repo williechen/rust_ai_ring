@@ -13,6 +13,7 @@ mod file_scan_view;
 pub mod management_datatable;
 pub mod management_selection;
 mod pcm;
+mod pml;
 mod saved_pet;
 mod scan_generation;
 mod settings_editor;
@@ -233,6 +234,7 @@ fn App() -> impl IntoView {
                 </p>
                 <Show when=move || active_pet.get().is_some() fallback=|| ()>
                     <PetStatus snapshot blinking animation_phase />
+                    <pml::pml2001::web::NaturalActivity id=active_pet.get_untracked().map(|p|p.id).unwrap_or_default()/>
                 </Show>
                 <button type="button"
                     on:click=move |_| spawn_local(async move {
@@ -411,7 +413,7 @@ fn App() -> impl IntoView {
                 <section class="control-chat" aria-label="聊天">
                     <h3>"聊天"</h3>
                     <ErrorMessage error />
-                    <p>{move || active_pet.get().map(|pet| format!("作用對象：{}", pet.name)).unwrap_or_else(|| "尚無作用中的生活窗。".into())}</p>
+                    <p>{move || saved_pets.with(|rows|rows.iter().find(|pet|Some(&pet.id)==management_pet_id.get().as_ref()).map(|p|format!("聊天對象：{}",p.name)).unwrap_or_else(||"請先選擇寵物".into()))}</p>
                     <Show when=move ||!chat_open.get()>
                         <button
                             class="chat-trigger"
@@ -421,6 +423,7 @@ fn App() -> impl IntoView {
                     </Show>
 
                     <ChatBubble
+                        selected=management_pet_id
                         chat_open
                         set_chat_open
                         chat_input

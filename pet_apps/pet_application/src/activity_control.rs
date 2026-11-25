@@ -15,6 +15,7 @@ pub struct ActivityStatus {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ActivityAction {
     Refresh,
+    Clear,
     Walk,
     Sit,
     Open,
@@ -56,7 +57,7 @@ pub async fn execute(
             command_confirmed: true,
             status: Ok(store.set_walk(id, action == Walk).await?),
         }),
-        Open | Cage | Sleep | Wake | Find => {
+        Open | Cage | Sleep | Wake | Find | Clear => {
             store.command(id, action).await?;
             Ok(ActivityOutcome {
                 command_confirmed: true,

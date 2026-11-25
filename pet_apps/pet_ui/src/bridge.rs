@@ -66,7 +66,7 @@ extern "C" {
         js_namespace = window,
         js_name = chatWithPet
     )]
-    fn chat_with_pet_js(message: &str) -> Promise;
+    fn chat_with_pet_js(pet_id: &str, message: &str) -> Promise;
 
     #[wasm_bindgen(js_namespace = window, js_name = listPets)]
     fn list_pets_js() -> Promise;
@@ -183,8 +183,8 @@ pub async fn show_pet_context_menu(x: i32, y: i32) -> Result<(), String> {
 }
 
 // 與寵物進行聊天
-pub async fn chat_with_pet(message: String) -> Result<String, String> {
-    let value = JsFuture::from(chat_with_pet_js(&message))
+pub async fn chat_with_pet(pet_id: &str, message: String) -> Result<String, String> {
+    let value = JsFuture::from(chat_with_pet_js(pet_id, &message))
         .await
         .map_err(js_error)?;
 
@@ -403,6 +403,7 @@ impl pet_application::activity_control::ActivityControl for ActivityBridge {
     ) -> Result<(), String> {
         use pet_application::activity_control::ActivityAction::*;
         match action {
+            Clear => crate::pml::pml2001::web_service::clear(id).await,
             Open => open_saved_pet(id).await,
             Cage => cage_saved_pet_by_id(id).await,
             Find => find_saved_pet(id).await,

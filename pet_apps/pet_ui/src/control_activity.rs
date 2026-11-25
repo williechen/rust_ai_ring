@@ -1,8 +1,7 @@
-use crate::{bridge, component::frames::frame_uri, component::pose::PetPose};
+use crate::bridge;
 use crate::{control_navigation::ControlPage, saved_pet::SavedPet};
 use leptos::{prelude::*, task::spawn_local};
 use pet_application::activity_control::{ActivityAction, execute};
-use pet_domain::PetState;
 
 #[component]
 pub(crate) fn ActivityWorkspace(
@@ -13,12 +12,13 @@ pub(crate) fn ActivityWorkspace(
     page: RwSignal<ControlPage>,
 ) -> impl IntoView {
     use ActivityAction::*;
+
+    let natural_id = id.clone();
     let status = ArcRwSignal::new(None::<bridge::ActivityStatus>);
-    let pose = ArcRwSignal::new(None::<PetState>);
     let error = ArcRwSignal::new(None::<String>);
 
     let action = Callback::new({
-        let (status, pose, error) = (status.clone(), pose.clone(), error.clone());
+        let (status, error) = (status.clone(), error.clone());
         move |choice: ActivityAction| {
             if busy.get_untracked() {
                 return;
@@ -26,31 +26,16 @@ pub(crate) fn ActivityWorkspace(
             set_busy.set(true);
             error.set(None);
             let id = id.clone();
-            let (status, pose, error) = (status.clone(), pose.clone(), error.clone());
+            let (status, error) = (status.clone(), error.clone());
             spawn_local(async move {
                 let result = execute(&bridge::ActivityBridge, &id, choice).await;
                 match result {
                     Ok(outcome) => match outcome.status {
                         Ok(next) => {
-                            let next_pose = if next.outside {
-                                match bridge::get_pet_state_for(Some(id)).await {
-                                    Ok(state) => Some(state.state),
-                                    Err(message) => {
-                                        error.set(Some(format!(
-                                            "活動已讀取，姿態讀取失敗：{message}；請更新活動。"
-                                        )));
-                                        None
-                                    }
-                                }
-                            } else {
-                                None
-                            };
                             status.set(Some(next));
-                            pose.set(next_pose);
                         }
                         Err(message) => {
                             status.set(None);
-                            pose.set(None);
                             let prefix = if outcome.command_confirmed {
                                 "操作已回報成功，狀態讀取失敗"
                             } else {
@@ -63,7 +48,6 @@ pub(crate) fn ActivityWorkspace(
                     },
                     Err(message) => {
                         status.set(None);
-                        pose.set(None);
                         error.set(Some(format!(
                             "操作結果未確認：{message}；請先更新活動，勿直接重送。"
                         )));
@@ -90,58 +74,14 @@ pub(crate) fn ActivityWorkspace(
         let status = status.clone();
         move || {
             status.with(|value| match value {
-                Some(state) if state.roaming => format!(
-                    "已出籠 · {}",
-                    state.walk_label.as_deref().unwrap_or("漫遊中")
-                ),
-                Some(state) if state.sitting => format!(
-                    "已出籠 · {}",
-                    state.sit_label.as_deref().unwrap_or("未漫遊")
-                ),
-                Some(state) if state.outside => "已出籠".into(),
-                Some(_) => "已回籠".into(),
-                None if busy.get() => "正在讀取狀態…".into(),
-                None => "目前狀態未確認".into(),
+                Some(state) if state.outside => "已出籠",
+                Some(_) => "已回籠",
+                None if busy.get() => "正在讀取狀態…",
+                None => "目前狀態未確認",
             })
         }
     };
 
-    let active_walk = {
-        let status = status.clone();
-        move || {
-            status
-                .with(|state| state.as_ref().is_some_and(|s| s.roaming))
-                .to_string()
-        }
-    };
-
-    let active_sit = {
-        let status = status.clone();
-        move || {
-            status
-                .with(|state| state.as_ref().is_some_and(|s| s.sitting))
-                .to_string()
-        }
-    };
-
-    let walk_label = {
-        let status = status.clone();
-        move || {
-            status
-                .with(|state| state.as_ref().and_then(|s| s.walk_label.clone()))
-                .unwrap_or_else(|| "開始漫遊".into())
-        }
-    };
-
-    let sit_label = move || {
-        status
-            .with(|state| state.as_ref().and_then(|s| s.sit_label.clone()))
-            .unwrap_or_else(|| "停止漫遊".into())
-    };
-
-    let sleep_label = pose.clone();
-    let sleep_ready = pose.clone();
-    let click_sleep = pose.clone();
     let outside_action = is_outside.clone();
 
     view! {
@@ -166,35 +106,11 @@ pub(crate) fn ActivityWorkspace(
                     on:click=move |_| action.run(Find)
                 >"找回生活窗"</button>
             </div>
+            <crate::pml::pml2001::web::NaturalActivity id=natural_id/>
             {move || error.get().map(|message| view! { <p class="control-error" role="alert">{message}</p> })}
             <div class="pet-workspace-columns">
                 <div class="pet-workspace-side">
-                    <section class="control-activity" aria-label="所選寵物活動">
-                        <h3>"目前活動"</h3>
-                        <p>"選擇這隻寵物的活動。"</p>
-                        <div class="control-activity-actions"
-                            role="group"
-                            aria-label="活動模式">
-                            <button type="button"
-                                aria-pressed=active_sit
-                                disabled=ready.clone()
-                                on:click=move |_| action.run(Sit)>
-                                {sit_label}
-                            </button>
-                            <button type="button"
-                                aria-pressed=active_walk
-                                disabled=ready.clone()
-                                on:click=move |_| action.run(Walk)>
-                                {walk_label}
-                            </button>
-                            <button type="button"
-                                class="pet-sleep"
-                                disabled=move || busy.get() || sleep_ready.with(Option::is_none)
-                                on:click=move |_| action.run(if click_sleep.get_untracked() == Some(PetState::Sleeping) { Wake } else { Sleep })>
-                                {move || if sleep_label.get() == Some(PetState::Sleeping) { "醒來" } else { "睡覺" }}
-                            </button>
-                        </div>
-                    </section>
+                    <crate::pml::pml2001::web::IdleChoices status=status.clone() busy action />
                     <section class="pet-settings-prompt">
                         <h3>"調整寵物資料"</h3>
                         <p>"名字、喜好和啟動預設集中在設定。"</p>

@@ -36,6 +36,7 @@ impl Runtime {
         Ok(pet.snapshot())
     }
     pub fn remove(&self, id: &str) {
+        crate::idle::remove(id);
         // Lifecycle cleanup belongs to Runtime, regardless of cage IPC or native Destroyed.
         if let Ok(name) = label(id) {
             crate::roam::stop_for_pet(&name);
@@ -91,6 +92,7 @@ pub fn open(app: &tauri::AppHandle, pet: &SavedPet) -> Result<(), String> {
         return Err(e.to_string());
     }
     // 僅真正建立新生活窗後啟動；既有窗 show/focus 早退不重複 spawn。
+    crate::idle::start(app.clone(), &pet.id);
     crate::roam::spawn_for_pet(app.clone(), name);
     Ok(())
 }
@@ -136,13 +138,8 @@ pub async fn open_saved_pet(
 ) -> Result<(), String> {
     let _operation = lifecycle_guard().await;
     let pet = store.profile(&id).await?;
-    let snapshot = store.snapshot(&id).await?;
-    persist_then_apply(
-        || store.set_caged(&id, false),
-        || open(&app, &pet),
-        || store.restore(&id, &snapshot),
-    )
-    .await
+    store.activity_status(&id).await?;
+    open(&app, &pet)
 }
 
 #[tauri::command]
@@ -161,17 +158,10 @@ pub async fn cage_with_store(
 ) -> Result<(), String> {
     let _operation = lifecycle_guard().await;
     store.profile(id).await?;
-    let snapshot = store.snapshot(id).await?;
-    let window = app.get_webview_window(&label(id)?);
-    persist_then_apply(
-        || store.set_caged(id, true),
-        || match window {
-            Some(w) => w.destroy().map_err(|e| e.to_string()),
-            None => Ok(()),
-        },
-        || store.restore(id, &snapshot),
-    )
-    .await?;
+    store.activity_status(id).await?;
+    if let Some(window) = app.get_webview_window(&label(id)?) {
+        window.destroy().map_err(|e| e.to_string())?;
+    }
     app.state::<Runtime>().remove(id);
     Ok(())
 }
@@ -183,16 +173,13 @@ pub async fn switch_with_store(
     walking: bool,
 ) -> Result<pet_persistence::ActivityStatus, String> {
     let _operation = lifecycle_guard().await;
-    let pet = store.profile(id).await?;
-    let snapshot = store.snapshot(id).await?;
-    persist_then_apply(
-        || async { store.switch_activity(id, walking).await.map(|_| ()) },
-        || open(app, &pet),
-        || store.restore(id, &snapshot),
+    pet_persistence::pml::pml2001::sql_mapper::configure(
+        &store.pool,
+        id,
+        if walking { "walk" } else { "sit" },
     )
     .await?;
-    crate::roam::spawn_for_pet(app.clone(), label(id)?);
-    store.activity_status(id).await
+    crate::idle::super_status(app, store, id).await
 }
 
 #[tauri::command]
@@ -208,10 +195,11 @@ pub async fn set_pet_walk(
 #[tauri::command]
 pub async fn pet_activity_status(
     id: String,
+    app: tauri::AppHandle,
     store: State<'_, PetStore>,
 ) -> Result<pet_persistence::ActivityStatus, String> {
     let _operation = lifecycle_guard().await;
-    store.activity_status(&id).await
+    crate::idle::super_status(&app, &store, &id).await
 }
 
 #[tauri::command]

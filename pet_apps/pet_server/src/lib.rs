@@ -4,6 +4,7 @@ mod file_organizer;
 mod menu_scope;
 pub mod pet_store;
 pub mod pet_windows;
+mod pml;
 mod roam;
 mod settings;
 mod window_position;
@@ -11,6 +12,7 @@ use pet_application::{lifecycle::StartupRestoreFailure, normalize_new_pet_name};
 
 use ai_core::{ChatRequest, MockChatModel};
 use pet_domain::{PetCommand, PetMachine, PetSnapshot};
+use pml::pml2001::api_router as idle;
 use std::sync::{Arc, Mutex};
 use tauri::{Emitter, Manager, State};
 
@@ -70,13 +72,25 @@ fn send_pet_command(
 #[tauri::command]
 async fn chat_with_pet(
     message: String,
+    pet_id: String,
+    app: tauri::AppHandle,
+    store: State<'_, pet_store::PetStore>,
     state: tauri::State<'_, AiState>,
 ) -> Result<String, String> {
+    store.profile(&pet_id).await?;
+    if message.trim().is_empty() || message.len() > 4096 {
+        return Err("訊息須為1至4096位元組".into());
+    }
     let response = state
         .model
         .chat(ChatRequest::new(message))
         .await
         .map_err(|error| error.to_string())?;
+    {
+        let _operation = pet_windows::lifecycle_guard().await;
+        store.profile(&pet_id).await?;
+        idle::response(&app, &pet_id)?;
+    }
     Ok(response.text)
 }
 
@@ -177,7 +191,7 @@ async fn delete_pet(
     if app.get_webview_window(&label).is_some() {
         return Err("請先在互動將寵物回籠，再刪除".into());
     }
-    store.delete(&id, &expected_name).await?;
+    store.delete_closed_profile(&id, &expected_name).await?;
     app.state::<pet_windows::Runtime>().remove(&id);
     Ok(())
 }
@@ -194,8 +208,10 @@ async fn create_pet(
 async fn pet_cage_status_by_id(
     id: String,
     store: State<'_, pet_store::PetStore>,
+    app: tauri::AppHandle,
 ) -> Result<bool, String> {
-    store.read_caged(&id).await
+    store.profile(&id).await?;
+    Ok(app.get_webview_window(&pet_windows::label(&id)?).is_none())
 }
 
 #[tauri::command]
@@ -208,8 +224,17 @@ async fn list_pets(
 #[tauri::command]
 async fn active_pet(
     store: State<'_, pet_store::PetStore>,
+    app: tauri::AppHandle,
 ) -> Result<Option<pet_store::SavedPet>, String> {
-    store.active().await
+    for pet in store.list().await? {
+        if app
+            .get_webview_window(&pet_windows::label(&pet.id)?)
+            .is_some()
+        {
+            return Ok(Some(pet));
+        }
+    }
+    Ok(None)
 }
 
 #[tauri::command]
@@ -239,14 +264,7 @@ async fn select_pet(
     store: State<'_, pet_store::PetStore>,
 ) -> Result<pet_store::SavedPet, String> {
     let _operation = pet_windows::lifecycle_guard().await;
-    let saved = store.profile(&id).await?;
-    let snapshot = store.snapshot(&id).await?;
-    pet_application::lifecycle::persist_then_apply(
-        || async { store.select(&id).await.map(|_| ()) },
-        || pet_windows::open(&app, &saved),
-        || store.restore(&id, &snapshot),
-    )
-    .await?;
+    let saved = store.select_for_window(&id).await?;
     app.emit("pet-profile-changed", &saved)
         .map_err(|_| "選取已儲存，通知失敗，請重新載入生活窗".to_owned())?;
     Ok(saved)
@@ -343,7 +361,7 @@ pub fn application(db: sqlx::SqlitePool) {
             let store = app.state::<pet_store::PetStore>().inner().clone();
             tauri::async_runtime::spawn(async move {
                 let _operation = pet_windows::lifecycle_guard().await;
-                match store.prepare_startup().await {
+                match store.prepare_idle_startup().await {
                     Ok(pets) => {
                         let restore_store = store.clone();
                         let restore_handle = handle.clone();
@@ -355,13 +373,8 @@ pub fn application(db: sqlx::SqlitePool) {
                                 let store = restore_store.clone();
                                 let handle = restore_handle.clone();
                                 async move {
-                                    let snapshot = store.snapshot(&pet.id).await?;
-                                    pet_application::lifecycle::persist_then_apply(
-                                        || store.set_caged(&pet.id, false),
-                                        || pet_windows::open(&handle, &pet),
-                                        || store.restore(&pet.id, &snapshot),
-                                    )
-                                    .await
+                                    store.activity_status(&pet.id).await?;
+                                    pet_windows::open(&handle, &pet)
                                 }
                             },
                             move |pet, error| {
@@ -407,7 +420,7 @@ pub fn application(db: sqlx::SqlitePool) {
                     let store = app_handle.state::<pet_store::PetStore>().inner().clone();
                     tauri::async_runtime::spawn(async move {
                         let _operation = pet_windows::lifecycle_guard().await;
-                        match store.select(&id).await {
+                        match store.select_for_window(&id).await {
                             Ok(saved) => {
                                 // 控制窗原有 Leptos 監聽此事件，選取成功才通知。
                                 if let Err(error) = handle.emit("pet-profile-changed", &saved) {
@@ -487,41 +500,55 @@ pub fn application(db: sqlx::SqlitePool) {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![
-            settings::load_pet_settings,
-            settings::save_pet_settings,
-            settings::save_pet_settings_checked,
-            settings::resync_pet_settings,
-            get_pet_state,
-            send_pet_command,
-            chat_with_pet,
-            browse_authorized_directory,
-            create_authorized_directory,
-            rename_authorized_entry,
-            compare_authorized_directory,
-            scan_file_preview,
-            scan_duplicate_preview,
-            open_control_window,
-            quit_pet,
-            validate_new_pet_name,
-            create_pet,
-            delete_pet,
-            rename_pet,
-            list_pets,
-            startup_restore_failures,
-            pet_cage_status_by_id,
-            active_pet,
-            select_pet,
-            pet_windows::pet_activity_status,
-            pet_windows::set_pet_walk,
-            pet_windows::set_pet_default_caged,
-            pet_windows::saved_pet_profile,
-            pet_windows::open_saved_pet,
-            pet_windows::get_saved_pet_state,
-            pet_windows::send_saved_pet_command,
-            pet_windows::cage_saved_pet,
-            pet_windows::find_saved_pet,
-        ])
+        .invoke_handler({
+            let normal: Box<dyn Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync> =
+                Box::new(tauri::generate_handler![
+                    settings::load_pet_settings,
+                    settings::save_pet_settings,
+                    settings::save_pet_settings_checked,
+                    settings::resync_pet_settings,
+                    get_pet_state,
+                    send_pet_command,
+                    chat_with_pet,
+                    idle::pet_idle_status,
+                    idle::set_pet_idle_choice,
+                    browse_authorized_directory,
+                    create_authorized_directory,
+                    rename_authorized_entry,
+                    compare_authorized_directory,
+                    scan_file_preview,
+                    scan_duplicate_preview,
+                    open_control_window,
+                    quit_pet,
+                    validate_new_pet_name,
+                    create_pet,
+                    delete_pet,
+                    rename_pet,
+                    list_pets,
+                    startup_restore_failures,
+                    pet_cage_status_by_id,
+                    active_pet,
+                    select_pet,
+                    pet_windows::pet_activity_status,
+                    pet_windows::set_pet_walk,
+                    pet_windows::set_pet_default_caged,
+                    pet_windows::saved_pet_profile,
+                    pet_windows::open_saved_pet,
+                    pet_windows::get_saved_pet_state,
+                    pet_windows::send_saved_pet_command,
+                    pet_windows::cage_saved_pet,
+                    pet_windows::find_saved_pet,
+                ]);
+            move |invoke: tauri::ipc::Invoke<tauri::Wry>| {
+                #[cfg(feature = "e2e-tests")]
+                if invoke.message.command() == "advance_pet_idle_clock" {
+                    let advance: Box<dyn Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync> =
+                        Box::new(tauri::generate_handler![idle::advance_pet_idle_clock]);
+                    return advance(invoke);
+                }
+                normal(invoke)
+            }
+        })
         .run(tauri::generate_context!())
         .expect("failed to run Rust AI Desktop Pet");
 }

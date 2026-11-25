@@ -4,6 +4,7 @@ use wasm_bindgen_futures::spawn_local;
 
 #[component]
 pub fn ChatBubble(
+    selected: ReadSignal<Option<String>>,
     chat_open: ReadSignal<bool>,
     set_chat_open: WriteSignal<bool>,
     chat_input: ReadSignal<String>,
@@ -15,7 +16,16 @@ pub fn ChatBubble(
     chat_error: ReadSignal<Option<String>>,
     set_chat_error: WriteSignal<Option<String>>,
 ) -> impl IntoView {
+    Effect::new(move |_| {
+        let _ = selected.get();
+        set_chat_input.set(String::new());
+        set_chat_response.set(None);
+        set_chat_error.set(None);
+    });
     let submit = move || {
+        let Some(pet_id) = selected.get_untracked() else {
+            return;
+        };
         if chat_loading.get_untracked() {
             return;
         }
@@ -30,7 +40,12 @@ pub fn ChatBubble(
         set_chat_error.set(None);
 
         spawn_local(async move {
-            match bridge::chat_with_pet(message).await {
+            let result = bridge::chat_with_pet(&pet_id, message).await;
+            if selected.get_untracked().as_deref() != Some(pet_id.as_str()) {
+                set_chat_loading.set(false);
+                return;
+            }
+            match result {
                 Ok(response) => {
                     set_chat_response.set(Some(response));
                     set_chat_input.set(String::new());
@@ -81,7 +96,7 @@ pub fn ChatBubble(
                 <button
                     class="chat-bubble__send"
                     type="button"
-                    prop:disabled=move || {chat_loading.get() || chat_input.get().trim().is_empty() }
+                    prop:disabled=move || {chat_loading.get() || selected.get().is_none() || chat_input.get().trim().is_empty() }
                     on:click=move |_| submit()
                 >
                     {move || {
