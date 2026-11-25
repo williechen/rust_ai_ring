@@ -1,6 +1,7 @@
 mod accounts;
 pub mod admin;
 pub mod bootstrap;
+mod config;
 mod csv;
 pub mod daily_chart;
 mod dashboard_source;
@@ -13,6 +14,7 @@ pub mod password_login;
 pub mod pg_store;
 mod rpt;
 mod session_cookie;
+mod sso;
 
 use analytics_domain::account_rules;
 #[cfg(test)]

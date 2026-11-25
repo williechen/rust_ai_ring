@@ -3077,6 +3077,7 @@ dependencies = [
  "pet-application",
  "pet-domain",
  "pet-persistence",
+ "ring-test",
  "serde",
  "serde_json",
  "sha2 0.11.1",
@@ -3628,6 +3629,14 @@ dependencies = [
  "wasm-bindgen-futures",
  "wasm-streams",
  "web-sys",
+]
+
+[[package]]
+name = "ring-test"
+version = "0.2.64"
+dependencies = [
+ "base64 0.22.1",
+ "serde_json",
 ]
 
 [[package]]

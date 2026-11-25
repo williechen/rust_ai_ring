@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [features]
+e2e-tests = []
 default = []
 ssr = ["chat-ui/ssr"]
 
@@ -37,4 +38,5 @@ chat-ui = { path = "../chat_ui" }
 uuid.workspace = true
 
 [dev-dependencies]
+ring-test = {path = "../../crates/ring_test"}
 tower = { version = "0.5", features = ["util"] }

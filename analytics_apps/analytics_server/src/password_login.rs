@@ -15,7 +15,8 @@ use axum::{
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
-const ORIGIN: &str = "http://127.0.0.1:3100";
+use crate::config::auth::ORIGIN;
+use crate::sso::sso1001::api_router::{login, login_page};
 
 pub(crate) fn digest(value: &str) -> String {
     Sha256::digest(value.as_bytes())
@@ -34,131 +35,6 @@ pub(crate) fn renewed(response: impl IntoResponse, raw: &str, seconds: i64) -> R
         cookie(raw, seconds).parse().expect("validated hex token"),
     );
     response
-}
-
-#[derive(Deserialize)]
-struct Login {
-    username: String,
-    password: String,
-}
-
-async fn login_page() -> Html<String> {
-    Html(crate::dashboard_ui::render_login())
-}
-
-fn login_feedback(status: StatusCode, name: &str, wait: &str) -> Response {
-    let message = if wait == "0" {
-        "帳號或密碼錯誤".to_owned()
-    } else {
-        format!("請等待 {wait} 秒後重試")
-    };
-    let mut res = (
-        status,
-        Html(crate::dashboard_ui::render_login_result(name, &message)),
-    )
-        .into_response();
-    if wait != "0" {
-        if let Ok(value) = wait.parse() {
-            res.headers_mut().insert(header::RETRY_AFTER, value);
-        }
-    }
-    res
-}
-
-async fn login(
-    State(state): State<IngestState>,
-    headers: HeaderMap,
-    Form(form): Form<Login>,
-) -> Result<Response, StatusCode> {
-    if headers.get(header::ORIGIN).and_then(|h| h.to_str().ok()) != Some(ORIGIN) {
-        return Err(StatusCode::FORBIDDEN);
-    }
-
-    let username = form.username.trim().to_owned();
-    if !analytics_domain::login_input::valid(&form.username, "admin") {
-        return Ok(login_feedback(StatusCode::UNAUTHORIZED, "", "0"));
-    }
-
-    let mut attempt =
-        analytics_persistence::login_attempt::LoginAttempt::begin(&state.pool, &username)
-            .await
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    let Some(mut attempt) = attempt.take() else {
-        return Ok(login_feedback(StatusCode::UNAUTHORIZED, &username, "0"));
-    };
-    let now = attempt
-        .now()
-        .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    let wait = attempts::pending(&mut attempt, now)
-        .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    if wait != "0" {
-        attempt
-            .commit()
-            .await
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-        return Ok(login_feedback(
-            StatusCode::TOO_MANY_REQUESTS,
-            &username,
-            &wait,
-        ));
-    }
-
-    let encoded = attempt.password_hash.clone();
-    let fingerprint = digest(&encoded);
-    let restricted = attempt.initial;
-    let shape = analytics_domain::login_input::valid(&form.username, &form.password);
-    let verified = if shape {
-        tokio::task::spawn_blocking(move || {
-            let parsed = PasswordHash::new(&encoded).map_err(|_| ())?;
-            Argon2::default()
-                .verify_password(form.password.as_bytes(), &parsed)
-                .map_err(|_| ())
-        })
-        .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
-        .is_ok()
-    } else {
-        false
-    };
-    if !verified {
-        let now = attempt
-            .now()
-            .await
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-        let wait = attempts::reject(&mut attempt, now)
-            .await
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-        attempt
-            .commit()
-            .await
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-        return Ok(login_feedback(StatusCode::UNAUTHORIZED, &username, &wait));
-    }
-    attempts::accepted(&mut attempt)
-        .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-
-    let raw = format!(
-        "{}{}",
-        uuid::Uuid::new_v4().simple(),
-        uuid::Uuid::new_v4().simple()
-    );
-    let seconds = attempt
-        .session(&digest(&raw), &fingerprint)
-        .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-
-    Ok(renewed(
-        Redirect::to(if restricted {
-            "/change-password"
-        } else {
-            "/dashboard"
-        }),
-        &raw,
-        seconds,
-    ))
 }
 
 // Recheck account status, mandatory-change state and password fingerprint on each protected request.
@@ -433,10 +309,16 @@ async fn dashboard(
     State(state): State<IngestState>,
     headers: HeaderMap,
     Query(query): Query<DashboardSourceQuery>,
+    axum::extract::OriginalUri(uri): axum::extract::OriginalUri,
 ) -> Response {
     let (restricted, raw, seconds) = match session(&state, &headers).await {
         Ok(v) => v,
-        Err(StatusCode::UNAUTHORIZED) => return Redirect::to("/login").into_response(),
+        Err(StatusCode::UNAUTHORIZED) => {
+            return Redirect::to(&analytics_application::return_target::login_location(
+                &uri.to_string(),
+            ))
+            .into_response();
+        }
         Err(e) => return e.into_response(),
     };
     if restricted {

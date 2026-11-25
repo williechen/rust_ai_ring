@@ -56,10 +56,10 @@ mod browser {
             let onopen =
                 Closure::wrap(Box::new(move |_: Event| opened("已連線")) as Box<dyn FnMut(Event)>);
             let onclose = Closure::wrap(
-                Box::new(move |_: Event| closed("已斷線，請重新進房")) as Box<dyn FnMut(Event)>
+                Box::new(move |_: Event| closed("已斷線，可重新連線")) as Box<dyn FnMut(Event)>
             );
             let onerror =
-                Closure::wrap(Box::new(move |_: Event| failed("連線錯誤，請重新進房"))
+                Closure::wrap(Box::new(move |_: Event| failed("連線錯誤，可重新連線"))
                     as Box<dyn FnMut(Event)>);
 
             socket.set_onmessage(Some(onmessage.as_ref().unchecked_ref()));

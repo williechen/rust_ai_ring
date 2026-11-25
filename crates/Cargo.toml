@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["ai_core", "shared", "telemetry"]
+members = ["ai_core", "ring_test", "shared", "telemetry"]
 
 [workspace.package]
 version = "0.2.64"

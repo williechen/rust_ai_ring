@@ -4,6 +4,9 @@ version.workspace = true
 edition = "2024"
 build = "build.rs"
 
+[features]
+e2e-tests = []
+
 [dependencies]
 ai-core = { path = "../../crates/ai_core" }
 
@@ -29,3 +32,6 @@ libc.workspace = true
 
 [build-dependencies]
 tauri-build = { version = "2.7", features = [] }
+
+[dev-dependencies]
+ring-test = {path = "../../crates/ring_test"}

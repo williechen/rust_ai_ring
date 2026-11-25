@@ -78,7 +78,10 @@ pub(crate) async fn require(
     let (restricted, raw, _seconds) = match session(&state, request.headers()).await {
         Ok(v) => v,
         Err(StatusCode::UNAUTHORIZED) if page == "/dashboard" => {
-            return Redirect::to("/login").into_response();
+            return Redirect::to(&analytics_application::return_target::login_location(
+                &request.uri().to_string(),
+            ))
+            .into_response();
         }
         Err(e) => return e.into_response(),
     };

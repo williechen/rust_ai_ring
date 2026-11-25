@@ -11,6 +11,8 @@ use crate::dashboard_url::{dashboard_url, export_csv_url};
 use crate::management_shell::ManagementShell;
 use analytics_application::report_page::PageWindow;
 
+pub use crate::sso::sso1001::web::{render_login, render_login_result};
+
 /// 只格式化既有篩選文案，不影響來源與事件類型的授權。
 fn filter_description(event_type: &str) -> String {
     if event_type.is_empty() {
@@ -566,47 +568,6 @@ pub fn render_dashboard(source_label: &'static str, total: i64) -> String {
     render_dashboard_filtered(source_label, total, source, "")
 }
 
-#[component]
-fn LoginView(username: String, message: String) -> impl IntoView {
-    view! {
-        <html lang="zh-Hant">
-            <head>
-                <meta charset="utf-8"/>
-                <title>"Analytics 帳密登入"</title><meta name="viewport" content="width=device-width, initial-scale=1"/><style data-project-style="analytics">{include_str!("css/dashboard.css")}</style>
-            </head>
-            <body>
-                <main class="analytics-auth">
-                    <h1>"Analytics 帳密登入"</h1>
-                    <p role="alert">{message}</p>
-                    <form method="post" action="/login">
-                        <div>
-                            <label for="analytics-username">"帳號"</label>
-                            <input id="analytics-username" name="username" value=username
-                                autocomplete="username" required/>
-                        </div>
-                        <div>
-                            <label for="analytics-password">"密碼"</label>
-                            <input id="analytics-password" name="password"
-                                type="password" autocomplete="current-password" required/>
-                        </div>
-                        <button type="submit">"登入"</button>
-                    </form>
-                </main>
-            </body>
-        </html>
-    }
-}
-
-pub fn render_login() -> String {
-    render_login_result("", "")
-}
-
-pub fn render_login_result(username: &str, message: &str) -> String {
-    format!(
-        "<!doctype html>{}",
-        view! {<LoginView username=username.to_owned() message=message.to_owned()/>}.to_html()
-    )
-}
 #[component]
 fn ChangePasswordView(
     restricted: bool,

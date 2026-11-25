@@ -349,38 +349,33 @@ pub fn ChatPage(room_id: String) -> impl IntoView {
     #[cfg(not(target_arch = "wasm32"))]
     let _ = (set_room_title, set_messages, set_history_status);
 
+    let reconnect_failed = RwSignal::new(false);
+    let reconnect_busy = RwSignal::new(false);
     #[cfg(target_arch = "wasm32")]
-    let socket = {
-        let location = web_sys::window().unwrap().location();
-        let protocol = if location.protocol().unwrap() == "https:" {
-            "wss"
-        } else {
-            "ws"
-        };
-        let url = format!("{protocol}://{}/ws/{room_id}", location.host().unwrap());
-        match ChatSocket::connect(
-            &url,
-            move |event| {
-                if let ServerEvent::MessageCreated(message) = event {
-                    set_messages.update(|rows| {
-                        if !rows.iter().any(|m| m.id == message.id) {
-                            rows.push(message);
-                        }
-                    });
-                }
-            },
-            move |status| set_connection.set(status.into()),
-        ) {
-            Ok(socket) => Some(Rc::new(socket)),
-            Err(_) => {
-                set_connection.set("連線失敗，請重新進房".into());
-                None
-            }
-        }
+    let (socket, reconnect) = {
+        let socket = Rc::new(msg::msg2001::web_service::RoomConnection::default());
+        let current = socket.clone();
+        let target = room_id.clone();
+        let current = StoredValue::new_local(current);
+        let reconnect = Callback::new(move |()| {
+            let current = current.get_value();
+            current.connect(
+                &target,
+                set_messages,
+                set_connection,
+                reconnect_failed,
+                reconnect_busy,
+                reload_history,
+            )
+        });
+        let cleanup = StoredValue::new_local(socket.clone());
+        on_cleanup(move || cleanup.get_value().dispose());
+        Effect::new(move |_| reconnect.run(()));
+        (socket, reconnect)
     };
 
     #[cfg(not(target_arch = "wasm32"))]
-    let socket = Some(Rc::new(ChatSocket::server_stub()));
+    let (socket, reconnect) = (Rc::new(ChatSocket::server_stub()), Callback::new(|()| {}));
 
     let send = {
         let socket = socket.clone();
@@ -396,11 +391,7 @@ pub fn ChatPage(room_id: String) -> impl IntoView {
 
             let event = ClientEvent::SendMessage { room_id, content };
 
-            match socket
-                .as_ref()
-                .ok_or_else(|| "尚未連線".to_string())
-                .and_then(|socket| socket.send(&event).map_err(|_| "發送失敗".to_string()))
-            {
+            match socket.send(&event) {
                 Ok(()) => {
                     // WS 傳送不等於持久化 ACK；維持既有「等待回應」文案。
                     set_draft.set(String::new());
@@ -410,7 +401,10 @@ pub fn ChatPage(room_id: String) -> impl IntoView {
                     }
                     set_connection.set("已發送，等待回應...".into());
                 }
-                Err(_) => set_connection.set("發送失敗，請重新進房".into()),
+                Err(_) => {
+                    reconnect_failed.set(true);
+                    set_connection.set("發送失敗，請重新連線".into());
+                }
             }
         })
     };
@@ -433,6 +427,7 @@ pub fn ChatPage(room_id: String) -> impl IntoView {
                 <p role="status">{move || connection.get()}</p>
             </div>
             <div class="conversation-actions">
+                <msg::msg2001::web::ReconnectControl failed=reconnect_failed busy=reconnect_busy reconnect />
                 <button class="call-action"
                     type="button"
                     aria-label="語音通話（尚未接通）"

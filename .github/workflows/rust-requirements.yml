@@ -1,0 +1,406 @@
+name: Rust 統一測試
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rust-requirements-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_BUILD_JOBS: 2
+  CARGO_INCREMENTAL: 0
+  CARGO_PROFILE_DEV_DEBUG: 0
+  CARGO_PROFILE_TEST_DEBUG: 0
+  LEPTOS_OUTPUT_NAME: rust_ai_chat
+
+jobs:
+  core:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - id: chat
+          workspace: chat_apps
+          features: ssr
+        - id: pet
+          workspace: pet_apps
+          features: ''
+        - id: analytics
+          workspace: analytics_apps
+          features: ''
+        - id: shared
+          workspace: crates
+          features: ''
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ matrix.workspace }}
+    env:
+      DATABASE_URL: 'sqlite::memory:'
+      RING_ARTIFACTS: ${{ github.workspace }}/artifacts/core-${{ matrix.id }}
+    steps:
+    - uses: actions/checkout@v4
+    - &id001
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: 1.100.0
+        targets: wasm32-unknown-unknown
+        components: rustfmt
+    - name: Install native test dependencies
+      if: ${{ matrix.id == 'pet' }}
+      run: 'sudo apt-get update
+
+        sudo apt-get install -y build-essential pkg-config libssl-dev libxdo-dev librsvg2-dev libwebkit2gtk-4.1-dev
+        libayatana-appindicator3-dev'
+    - name: Core metadata format and Rust tests
+      run: 'set -euo pipefail
+
+        mkdir -p "$RING_ARTIFACTS"
+
+        { echo "sha=$GITHUB_SHA"; echo "run=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID";
+        rustc --version; cargo --version; } > "$RING_ARTIFACTS/provenance.txt"
+
+        cargo metadata --locked --format-version 1 > "$RING_ARTIFACTS/metadata.json"
+
+        cargo fmt --all -- --check
+
+        command=(cargo test --locked --workspace)
+
+        features=''${{ matrix.features }}''
+
+        if [[ -n "$features" ]]; then command+=(--features "$features"); fi
+
+        "${command[@]}" -- --nocapture 2>&1 | tee "$RING_ARTIFACTS/core.log"'
+    - uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: core-${{ matrix.id }}-${{ github.sha }}
+        path: artifacts/core-${{ matrix.id }}
+        if-no-files-found: error
+        
+  postgres:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: postgres:19.0
+        env:
+          POSTGRES_USER: ring_test
+          POSTGRES_PASSWORD: synthetic-ci-only
+          POSTGRES_DB: ring_requirements
+        ports:
+        - 5432:5432
+        options: --health-cmd="pg_isready -U ring_test -d ring_requirements" --health-interval=5s --health-timeout=5s
+          --health-retries=12
+    defaults:
+      run:
+        shell: bash
+        working-directory: analytics_apps
+    env:
+      DATABASE_URL: postgres://ring_test:synthetic-ci-only@127.0.0.1:5432/ring_requirements
+      ANALYTICS_DATABASE_URL: postgres://ring_test:synthetic-ci-only@127.0.0.1:5432/ring_requirements
+      ANALYTICS_CHAT_TOKEN: local-ci-chat-token
+      ANALYTICS_PET_TOKEN: local-ci-pet-token
+      RING_ARTIFACTS: ${{ github.workspace }}/artifacts/postgres
+    steps:
+    - uses: actions/checkout@v4
+    - *id001
+    - name: PostgreSQL integration
+      run: 'set -euo pipefail
+
+        mkdir -p "$RING_ARTIFACTS"
+
+        { echo "sha=$GITHUB_SHA"; echo "run=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID";
+        rustc --version; cargo --version; } > "$RING_ARTIFACTS/provenance.txt"
+
+        cargo test --locked -p analytics-server -p analytics-persistence --features postgres-integration -- --nocapture
+        2>&1 | tee "$RING_ARTIFACTS/postgres.log"'
+    - uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: postgres-${{ github.sha }}
+        path: artifacts/postgres
+        if-no-files-found: error
+  browser-chat:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+        working-directory: chat_apps
+    env:
+      RING_ARTIFACTS: ${{ github.workspace }}/artifacts/chat
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: 1.100.0
+        targets: wasm32-unknown-unknown
+    - name: Install runtime dependencies
+      run: 'sudo apt-get update
+
+        sudo apt-get install -y build-essential pkg-config curl unzip xvfb dbus-x11 libgtk-3-dev libwebkit2gtk-4.1-dev
+        webkit2gtk-driver libayatana-appindicator3-dev librsvg2-dev patchelf libnss3 libasound2t64 libgbm1
+
+        '
+    - name: Record provenance
+      run: 'mkdir -p "$RING_ARTIFACTS"
+
+        { echo "product_sha=$GITHUB_SHA"; echo "run=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID";
+        echo "runner=$RUNNER_OS"; rustc --version; cargo --version; pkg-config --modversion gtk+-3.0 webkit2gtk-4.1;
+        } > "$RING_ARTIFACTS/provenance.txt"
+
+        '
+    - name: Install paired Chrome tools
+      run: 'mkdir -p "$RUNNER_TEMP/chrome-tools"
+
+        cd "$RUNNER_TEMP/chrome-tools"
+
+        curl --fail --location --retry 3 -o chrome.zip https://storage.googleapis.com/chrome-for-testing-public/158.0.8127.88/linux64/chrome-linux64.zip
+
+        curl --fail --location --retry 3 -o driver.zip https://storage.googleapis.com/chrome-for-testing-public/158.0.8127.88/linux64/chromedriver-linux64.zip
+
+        echo ''59e3b43f8b3aaa292238fbdcfb36a93127debd53e212510dcdc2cc8812b4b57e  chrome.zip'' | sha256sum -c -
+
+        echo ''afabc2d0f866af4d9e209389f930ce34b5f2d365fb1b6c83874845cc123b0e2e  driver.zip'' | sha256sum -c -
+
+        unzip -q chrome.zip
+
+        unzip -q driver.zip
+
+        echo "RING_CHROME_BINARY=$PWD/chrome-linux64/chrome" >> "$GITHUB_ENV"
+
+        echo "RING_BROWSER_DRIVER=$PWD/chromedriver-linux64/chromedriver" >> "$GITHUB_ENV"
+
+        ./chrome-linux64/chrome --version >> "$RING_ARTIFACTS/provenance.txt"
+
+        ./chromedriver-linux64/chromedriver --version >> "$RING_ARTIFACTS/provenance.txt"
+
+        '
+    - name: Install build tool
+      run: cargo install cargo-leptos --version 0.3.12 --locked
+    - name: Build paired app
+      run: 'cargo leptos build --cargo-locked
+
+        find target/site -type f -exec sha256sum {} + > "$RING_ARTIFACTS/frontend-sha256.txt"
+
+        cp target/debug/chat-server "$RUNNER_TEMP/chat-server-e2e"
+
+        sha256sum "$RUNNER_TEMP/chat-server-e2e" >> "$RING_ARTIFACTS/provenance.txt"
+
+        echo "RING_CHAT_BINARY=$RUNNER_TEMP/chat-server-e2e" >> "$GITHUB_ENV"
+
+        echo "RING_CHAT_SITE=$PWD/target/site" >> "$GITHUB_ENV"
+
+        '
+    - name: Rust requirement E2E
+      run: 'set -o pipefail
+
+        xvfb-run -a cargo test --locked -p chat-server --features ssr,e2e-tests --test msg2001_e2e -- --test-threads=1
+        --nocapture 2>&1 | tee "$RING_ARTIFACTS/rust-e2e.log"
+
+        '
+    - uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: e2e-chat-${{ github.sha }}
+        path: artifacts/chat
+        if-no-files-found: error
+  browser-analytics:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: postgres:19.0
+        env:
+          POSTGRES_USER: ring_test
+          POSTGRES_PASSWORD: synthetic-ci-only
+          POSTGRES_DB: ring_requirements
+        ports:
+        - 5432:5432
+        options: --health-cmd="pg_isready -U ring_test -d ring_requirements" --health-interval=5s --health-timeout=5s
+          --health-retries=12
+    defaults:
+      run:
+        shell: bash
+        working-directory: analytics_apps
+    env:
+      RING_ARTIFACTS: ${{ github.workspace }}/artifacts/analytics
+      DATABASE_URL: postgres://ring_test:synthetic-ci-only@127.0.0.1:5432/ring_requirements
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: 1.100.0
+        targets: wasm32-unknown-unknown
+    - name: Install runtime dependencies
+      run: 'sudo apt-get update
+
+        sudo apt-get install -y build-essential pkg-config curl unzip xvfb dbus-x11 libgtk-3-dev libwebkit2gtk-4.1-dev
+        webkit2gtk-driver libayatana-appindicator3-dev librsvg2-dev patchelf libnss3 libasound2t64 libgbm1
+
+        '
+    - name: Record provenance
+      run: 'mkdir -p "$RING_ARTIFACTS"
+
+        { echo "product_sha=$GITHUB_SHA"; echo "run=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID";
+        echo "runner=$RUNNER_OS"; rustc --version; cargo --version; pkg-config --modversion gtk+-3.0 webkit2gtk-4.1;
+        } > "$RING_ARTIFACTS/provenance.txt"
+
+        '
+    - name: Install paired Chrome tools
+      run: 'mkdir -p "$RUNNER_TEMP/chrome-tools"
+
+        cd "$RUNNER_TEMP/chrome-tools"
+
+        curl --fail --location --retry 3 -o chrome.zip https://storage.googleapis.com/chrome-for-testing-public/158.0.8127.88/linux64/chrome-linux64.zip
+
+        curl --fail --location --retry 3 -o driver.zip https://storage.googleapis.com/chrome-for-testing-public/158.0.8127.88/linux64/chromedriver-linux64.zip
+
+        echo ''59e3b43f8b3aaa292238fbdcfb36a93127debd53e212510dcdc2cc8812b4b57e  chrome.zip'' | sha256sum -c -
+
+        echo ''afabc2d0f866af4d9e209389f930ce34b5f2d365fb1b6c83874845cc123b0e2e  driver.zip'' | sha256sum -c -
+
+        unzip -q chrome.zip
+
+        unzip -q driver.zip
+
+        echo "RING_CHROME_BINARY=$PWD/chrome-linux64/chrome" >> "$GITHUB_ENV"
+
+        echo "RING_BROWSER_DRIVER=$PWD/chromedriver-linux64/chromedriver" >> "$GITHUB_ENV"
+
+        ./chrome-linux64/chrome --version >> "$RING_ARTIFACTS/provenance.txt"
+
+        ./chromedriver-linux64/chromedriver --version >> "$RING_ARTIFACTS/provenance.txt"
+
+        '
+    - name: Build paired app
+      run: 'cargo build --locked -p analytics-server --bin analytics-server
+
+        cp target/debug/analytics-server "$RUNNER_TEMP/analytics-server-e2e"
+
+        sha256sum "$RUNNER_TEMP/analytics-server-e2e" >> "$RING_ARTIFACTS/provenance.txt"
+
+        echo "RING_ANALYTICS_BINARY=$RUNNER_TEMP/analytics-server-e2e" >> "$GITHUB_ENV"
+
+        '
+    - name: Rust requirement E2E
+      run: 'set -o pipefail
+
+        xvfb-run -a cargo test --locked -p analytics-server --features postgres-integration,e2e-tests --test sso1001_e2e
+        -- --test-threads=1 --nocapture 2>&1 | tee "$RING_ARTIFACTS/rust-e2e.log"
+
+        '
+    - uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: e2e-analytics-${{ github.sha }}
+        path: artifacts/analytics
+        if-no-files-found: error
+
+  native-pet:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+        working-directory: pet_apps
+    env:
+      RING_ARTIFACTS: ${{ github.workspace }}/artifacts/pet
+      WEBKIT_DISABLE_DMABUF_RENDERER: 1
+      WEBKIT_DISABLE_COMPOSITING_MODE: 1
+      LIBGL_ALWAYS_SOFTWARE: 1
+      GALLIUM_DRIVER: llvmpipe
+      GDK_BACKEND: x11
+
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: 1.100.0
+        targets: wasm32-unknown-unknown
+    - name: Install runtime dependencies
+      run: 'sudo apt-get update
+
+        sudo apt-get install -y build-essential pkg-config curl unzip xvfb dbus-x11 libgtk-3-dev libwebkit2gtk-4.1-dev
+        webkit2gtk-driver libayatana-appindicator3-dev librsvg2-dev patchelf libnss3 libasound2t64 libgbm1
+
+        '
+    - name: Record provenance
+      run: 'mkdir -p "$RING_ARTIFACTS"
+
+        { echo "product_sha=$GITHUB_SHA"; echo "run=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID";
+        echo "runner=$RUNNER_OS"; rustc --version; cargo --version; pkg-config --modversion gtk+-3.0 webkit2gtk-4.1;
+        } > "$RING_ARTIFACTS/provenance.txt"
+
+        '
+    - name: Install build and native tools
+      run: 'cargo install trunk --version 0.22.2 --locked
+
+        cargo install tauri-driver --version 2.1.0 --locked
+
+        echo "RING_TAURI_DRIVER=$HOME/.cargo/bin/tauri-driver" >> "$GITHUB_ENV"
+
+        '
+    - name: Build paired app
+      run: '(cd pet_ui && trunk build --locked)
+
+        cargo build --locked -p pet-server --features tauri/custom-protocol,e2e-tests
+
+        find pet_ui/dist -type f -exec sha256sum {} + > "$RING_ARTIFACTS/frontend-sha256.txt"
+
+        cp target/debug/pet-server "$RUNNER_TEMP/pet-server-e2e"
+
+        sha256sum "$RUNNER_TEMP/pet-server-e2e" >> "$RING_ARTIFACTS/provenance.txt"
+
+        echo "RING_PET_BINARY=$RUNNER_TEMP/pet-server-e2e" >> "$GITHUB_ENV"
+
+        '
+    - name: Rust requirement E2E
+      run: 'set -o pipefail
+
+        xvfb-run -a dbus-run-session -- cargo test --locked -p pet-server --features tauri/custom-protocol,e2e-tests
+        --test pml2001_e2e -- --test-threads=1 --nocapture 2>&1 | tee "$RING_ARTIFACTS/rust-e2e.log"
+
+        '
+    - uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: e2e-pet-${{ github.sha }}
+        path: artifacts/pet
+        if-no-files-found: error
+
+  legacy-node:
+    name: Legacy Node baseline (migration only)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
+      with:
+        node-version: '24'
+    - name: Existing Node baseline
+      working-directory: pet_apps/pet_ui
+      run: 'mkdir -p ../../artifacts/legacy-node
+
+        set -o pipefail
+
+        node --test 2>&1 | tee ../../artifacts/legacy-node/baseline.log'
+    - uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: legacy-node-${{ github.sha }}
+        path: artifacts/legacy-node
+        if-no-files-found: error
+'on':
+  push:
+    branches:
+    - main
+  pull_request:
+    branches:
+    - main
+  workflow_dispatch: null

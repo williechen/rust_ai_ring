@@ -63,6 +63,7 @@ dependencies = [
  "axum",
  "dotenv",
  "leptos",
+ "ring-test",
  "rpassword",
  "serde",
  "serde_json",
@@ -1827,6 +1828,14 @@ name = "regex-syntax"
 version = "0.8.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d902046e6a28a1e4c3cab97258a0ce11e994903f01c2d97a9447a0b3df85f4f6"
+
+[[package]]
+name = "ring-test"
+version = "0.2.64"
+dependencies = [
+ "base64",
+ "serde_json",
+]
 
 [[package]]
 name = "rpassword"
