@@ -1,6 +1,6 @@
 #![cfg(all(feature = "ssr", feature = "e2e-tests"))]
 
-use ring_test_support::{Browser, Process, required, wait};
+use ring_test::{Browser, Process, required, wait};
 use serde_json::json;
 use sqlx::ConnectOptions;
 use std::{net::TcpStream, path::PathBuf};

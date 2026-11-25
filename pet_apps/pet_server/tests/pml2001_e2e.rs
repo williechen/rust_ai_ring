@@ -1,6 +1,6 @@
 #![cfg(feature = "e2e-tests")]
 
-use ring_test_support::{Browser, required};
+use ring_test::{Browser, required};
 use serde_json::json;
 use sqlx::ConnectOptions;
 use std::path::PathBuf;
