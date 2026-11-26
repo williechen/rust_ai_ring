@@ -291,7 +291,7 @@ jobs:
       - name: Rust requirement E2E
         run: 'set -o pipefail
 
-          xvfb-run -a cargo test --locked -p analytics-server --features postgres-integration,e2e-tests --test sso1001_e2e
+          xvfb-run -a cargo test --locked -p analytics-server --features postgres-integration,e2e-tests --tests
           -- --test-threads=1 --nocapture 2>&1 | tee "$RING_ARTIFACTS/rust-e2e.log"
 
           '
