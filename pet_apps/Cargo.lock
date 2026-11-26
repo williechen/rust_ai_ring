@@ -19,7 +19,7 @@ dependencies = [
 
 [[package]]
 name = "ai-core"
-version = "0.2.64"
+version = "0.2.74"
 dependencies = [
  "async-trait",
  "thiserror 2.0.21",
@@ -42,9 +42,9 @@ dependencies = [
 
 [[package]]
 name = "allocator-api2"
-version = "0.2.21"
+version = "0.2.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
+checksum = "57b212daf2e827b1ccdd778b7eb48ba433e58cb0e4f27b43cd6b7a608425a014"
 
 [[package]]
 name = "android_system_properties"
@@ -3036,7 +3036,7 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
 name = "pet-application"
-version = "0.2.64"
+version = "0.2.74"
 dependencies = [
  "pet-domain",
  "serde",
@@ -3047,7 +3047,7 @@ dependencies = [
 
 [[package]]
 name = "pet-domain"
-version = "0.2.64"
+version = "0.2.74"
 dependencies = [
  "serde",
  "serde_json",
@@ -3057,7 +3057,7 @@ dependencies = [
 
 [[package]]
 name = "pet-persistence"
-version = "0.2.64"
+version = "0.2.74"
 dependencies = [
  "pet-application",
  "serde",
@@ -3069,7 +3069,7 @@ dependencies = [
 
 [[package]]
 name = "pet-server"
-version = "0.2.64"
+version = "0.2.74"
 dependencies = [
  "ai-core",
  "dotenv",
@@ -3080,7 +3080,7 @@ dependencies = [
  "ring-test",
  "serde",
  "serde_json",
- "sha2 0.11.1",
+ "sha2 0.11.2",
  "sqlx",
  "tauri",
  "tauri-build",
@@ -3091,7 +3091,7 @@ dependencies = [
 
 [[package]]
 name = "pet-ui"
-version = "0.2.64"
+version = "0.2.74"
 dependencies = [
  "gloo-timers",
  "js-sys",
@@ -3633,7 +3633,7 @@ dependencies = [
 
 [[package]]
 name = "ring-test"
-version = "0.2.64"
+version = "0.2.74"
 dependencies = [
  "base64 0.22.1",
  "serde_json",
@@ -4069,9 +4069,9 @@ dependencies = [
 
 [[package]]
 name = "sha2"
-version = "0.11.1"
+version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "47d7069beb7d6ac7b9acd1039986e73443f24234f41074da099d6f994ac9ad19"
+checksum = "5b0e5c7d67bc53f435386b2130fdc900488c5703770f6d8a4633060e34288a27"
 dependencies = [
  "cfg-if",
  "cpufeatures 0.3.1",
@@ -4235,7 +4235,7 @@ dependencies = [
  "percent-encoding",
  "serde",
  "serde_json",
- "sha2 0.11.1",
+ "sha2 0.11.2",
  "smallvec",
  "thiserror 2.0.21",
  "tokio",
@@ -4272,7 +4272,7 @@ dependencies = [
  "quote",
  "serde",
  "serde_json",
- "sha2 0.11.1",
+ "sha2 0.11.2",
  "sqlx-core",
  "sqlx-mysql",
  "sqlx-postgres",
@@ -4303,7 +4303,7 @@ dependencies = [
  "percent-encoding",
  "serde",
  "sha1",
- "sha2 0.11.1",
+ "sha2 0.11.2",
  "sqlx-core",
  "thiserror 2.0.21",
  "tracing",
@@ -4335,7 +4335,7 @@ dependencies = [
  "rand",
  "serde",
  "serde_json",
- "sha2 0.11.1",
+ "sha2 0.11.2",
  "smallvec",
  "sqlx-core",
  "stringprep",
@@ -4701,7 +4701,7 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
- "sha2 0.11.1",
+ "sha2 0.11.2",
  "syn 2.0.119",
  "tauri-utils",
  "thiserror 2.0.21",

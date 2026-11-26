@@ -3,7 +3,7 @@ resolver = "3"
 members = ["ai_core", "ring_test", "shared", "telemetry"]
 
 [workspace.package]
-version = "0.2.64"
+version = "0.2.74"
 edition = "2024"
 
 [workspace.dependencies]
