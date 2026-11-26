@@ -1,4 +1,3 @@
-pub mod member_names;
 pub mod product_event;
 pub mod repository;
 pub mod room_details;
@@ -9,6 +8,7 @@ mod sso;
 use chat_domain::{ChatMessage, MessageAuthor, Room};
 pub use msg::msg2001::api_service as room_presence;
 pub use msg::msg2001::api_service as history;
+pub use msg::msg2001::api_service as member_names;
 pub use rdi::rdi2001::api_service as room_directory;
 pub use sso::sso2001::api_service as login_attempt;
 

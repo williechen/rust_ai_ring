@@ -38,6 +38,22 @@ pub async fn exists(rooms: &dyn RoomRepository, room_id: &str) -> Result<bool, R
         .is_some_and(|room| room.id == room_id))
 }
 
+pub trait MemberNames: Sync {
+    fn names(
+        &self,
+        ids: Vec<String>,
+    ) -> impl std::future::Future<Output = Result<Vec<String>, String>> + Send;
+}
+
+pub async fn online_names(
+    store: &impl MemberNames,
+    ids: Vec<String>,
+) -> Result<Vec<String>, String> {
+    let mut names = store.names(ids).await?;
+    names.sort();
+    Ok(names)
+}
+
 #[cfg(test)]
 mod validation_tests {
     #[test]

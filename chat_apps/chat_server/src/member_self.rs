@@ -236,7 +236,7 @@ async fn profile(
         "UPDATE mbr_user SET user_name=?1,user_email=?2,updated_at=CURRENT_TIMESTAMP WHERE id=?3",
     )
     .bind(name)
-    .bind(email)
+    .bind(&email)
     .bind(id)
     .execute(&mut *tx)
     .await;
@@ -257,7 +257,12 @@ async fn profile(
     tx.commit().await.map_err(db_error)?;
     Ok((
         [(header::CACHE_CONTROL, "no-store")],
-        Redirect::to("/account"),
+        Html(chat_ui::account::render_profile_values(
+            csrf(&headers, "member-profile")?,
+            name.to_owned(),
+            email.to_owned(),
+            "本人資料已儲存".to_owned(),
+        )),
     )
         .into_response())
 }

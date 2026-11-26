@@ -111,7 +111,7 @@ async fn self_profile_is_separate_and_cannot_target_another_member() {
         )
         .await
         .status(),
-        StatusCode::SEE_OTHER
+        StatusCode::OK
     );
     let name: String = sqlx::query_scalar("SELECT user_name FROM mbr_user WHERE id='self-member'")
         .fetch_one(&pool)

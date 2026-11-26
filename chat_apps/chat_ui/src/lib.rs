@@ -5,6 +5,7 @@
 
 pub mod account;
 mod chat_socket;
+mod mbr;
 pub mod member_pages;
 
 #[cfg(target_arch = "wasm32")]
