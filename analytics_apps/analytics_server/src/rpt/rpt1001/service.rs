@@ -10,7 +10,7 @@ pub(crate) fn encode_query_component(value: &str) -> String {
     result
 }
 
-/// 報表導覽保留來源、精確類型和每頁筆數，定位查詢結果。
+/// 報表導覽保留來源、模糊查詢文字和每頁筆數，不自動跳至結果區。
 pub(crate) fn dashboard_url(
     source: &str,
     event_type: &str,
@@ -18,7 +18,7 @@ pub(crate) fn dashboard_url(
     page_size: usize,
 ) -> String {
     format!(
-        "/dashboard?source={}&event_type={}&page={page}&page_size={page_size}#report-results-title",
+        "/dashboard?source={}&event_type={}&page={page}&page_size={page_size}",
         encode_query_component(source),
         encode_query_component(event_type)
     )

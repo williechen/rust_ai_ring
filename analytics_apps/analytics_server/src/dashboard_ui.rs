@@ -112,8 +112,10 @@ fn DashboardView(
         &date_range,
     );
     let export_url = with_date_range(export_csv_url(&source, &event_type), &date_range);
-    let recent_url = dashboard_url(&source, &event_type, 1, page_size)
-        .replace("#report-results-title", "&range=week#daily-chart-title");
+    let recent_url = format!(
+        "{}&range=week",
+        dashboard_url(&source, &event_type, 1, page_size)
+    );
     let filter_description = filter_description(&event_type);
 
     let count_label = summary_count_label(source_label, &event_type, total);
@@ -151,7 +153,7 @@ fn DashboardView(
                         <h3 id="report-filters-title">"查詢條件"</h3>
                         <form class="report-filters"
                             method="get"
-                            action=if has_range {"/dashboard#daily-chart-title"} else {"/dashboard#report-results-title"}>
+                            action="/dashboard">
                             <div class="report-field">
                                 <label for="analytics-source">"來源"</label>
                                 <select id="analytics-source"
@@ -272,7 +274,7 @@ fn DashboardView(
                                 {next_url.map(|href| view! { <a href=href>"下一頁"</a> })}
                                 <form class="report-page-jump"
                                     method="get"
-                                    action=if has_range {"/dashboard#daily-chart-title"} else {"/dashboard#report-results-title"}>
+                                    action="/dashboard">3
                                     <input type="hidden"
                                         name="source"
                                         value=source/>
@@ -337,31 +339,38 @@ pub(crate) fn render_dashboard_unavailable(retry: String) -> String {
     )
 }
 
-pub(crate) fn render_invalid_date_range(retry: String) -> String {
+pub(crate) fn render_invalid_date_range(
+    retry: String,
+    source: String,
+    event_type: String,
+    page_size: usize,
+    start: String,
+    end: String,
+) -> String {
+    use crate::rpt::rpt1001::web::InvalidDateForm;
     format!(
-        "<!doctype html>{}",
+        "<!doctype html>{}", 
         view! {
-            <html lang="zh-Hant">
-                <head>
-                    <meta charset="utf-8"/>
-                    <meta name="viewport" content="width=device-width, initial-scale=1"/>
-                    <title>"日期範圍無效"</title>
-                   <style data-project-style="analytics">{include_str!("css/dashboard.css")}</style>
-                    <link rel="stylesheet" href="/assets/source-report.css"/>
-                </head>
-                <body>
-                    <main class="report-unavailable">
-                        <section class="report-card" role="alert">
-                            <h1>"日期範圍無效"</h1>
-                            <p>"日期須有效，起日不得晚於迄日；時區為UTC。返回後保留來源、文字及每頁筆數，清除日期限制。"</p>
-                            <a class="report-export" href=retry>"回到查詢"</a>
-                        </section>
-                    </main>
-                </body>
-            </html>
-        }
-        .to_html()
-    )
+        <html lang="zh-Hant">
+            <head>
+                <meta charset="utf-8"/>
+                <meta name="viewport" content="width=device-width, initial-scale=1"/>
+                <title>"日期範圍無效"</title>
+                <style data-project-style="analytics">{include_str!("css/dashboard.css")}</style>
+                <link rel="stylesheet" href="/assets/source-report.css"/>
+            </head>
+            <body>
+                <main class="report-unavailable">
+                    <section class="report-card" role="alert">
+                        <h1>"日期範圍無效"</h1>
+                        <p>"日期須有效，起日不得晚於迄日；時區為UTC。可直接修正日期，來源、模糊查詢文字及每頁筆數保持。"</p>
+                        <InvalidDateForm source event_type page_size start end/>
+                        <a class="report-export" href=retry>"清除日期並回到查詢"</a>
+                    </section>
+                </main>
+            </body>
+        </html>
+    }.to_html())
 }
 
 pub fn render_dashboard_filtered(
@@ -708,7 +717,7 @@ mod results_jump_tests {
         assert!(html.contains("for=\"report-start\""));
         assert!(html.contains("for=\"report-end\""));
         assert!(html.contains("清除篩選"));
-        assert!(html.contains("action=\"/dashboard#report-results-title\""));
+        assert!(html.contains("action=\"/dashboard\""));
     }
 }
 
@@ -807,7 +816,7 @@ mod day32_filter_tests {
         let html = super::render_dashboard_filtered("Chat", 0, "web_chat", "chat.\" onfocus=\"bad");
         assert_eq!(html.matches("<!doctype html>").count(), 1);
         assert!(html.contains("method=\"get\""));
-        assert!(html.contains("action=\"/dashboard#report-results-title\""));
+        assert!(html.contains("action=\"/dashboard\""));
         assert!(html.contains("name=\"source\""));
         assert!(html.contains("value=\"web_chat\""));
         assert!(html.contains("for=\"event-type\""));
@@ -988,7 +997,7 @@ mod day50_grid_layout_tests {
             html.find("<main class=\"analytics-content\"").unwrap()
                 < html.find("<footer class=\"analytics-footer\"").unwrap()
         );
-        assert!(html.contains("action=\"/dashboard#report-results-title\""));
+        assert!(html.contains("action=\"/dashboard\""));
         assert!(html.contains("已提交事件類型明細"));
     }
 }
@@ -1090,7 +1099,7 @@ mod page_jump_tests {
     fn jump_preserves_the_exact_filter_in_escaped_get_fields() {
         let html = super::render_dashboard_filtered("Chat", 1, "web_chat", "kind.\"&<");
         assert!(html.contains("report-page-number"));
-        assert!(html.contains("action=\"/dashboard#report-results-title\""));
+        assert!(html.contains("action=\"/dashboard\""));
         assert!(html.contains("name=\"page_size\""));
         assert!(html.contains("name=\"event_type\""));
         assert!(!html.contains("value=\"kind.\"&<\""));
@@ -1129,9 +1138,11 @@ mod day61_report_navigation_tests {
             25,
         );
         let decoded = html.replace("&amp;", "&");
-        assert!(decoded.contains("href=\"/dashboard?source=web_chat&event_type=&page=1&page_size=25#report-results-title\""));
-        assert!(decoded.contains("href=\"/dashboard?source=web_chat&event_type=chat.%E4%B8%AD%E6%96%87%20%26&page=1&page_size=25#report-results-title\""));
-        assert!(decoded.contains("action=\"/dashboard#report-results-title\""));
+        assert!(
+            decoded.contains("href=\"/dashboard?source=web_chat&event_type=&page=1&page_size=25\"")
+        );
+        assert!(decoded.contains("href=\"/dashboard?source=web_chat&event_type=chat.%E4%B8%AD%E6%96%87%20%26&page=1&page_size=25\""));
+        assert!(decoded.contains("action=\"/dashboard\""));
         assert!(decoded.contains("第 2 / 2 頁 · 共 27 個事件類型"));
         assert!(!decoded.contains("下一頁"));
         assert!(!html.contains("source=desktop_pet"));
@@ -1152,7 +1163,9 @@ mod day61_report_navigation_tests {
             25,
         )
         .replace("&amp;", "&");
-        assert!(first.contains("href=\"/dashboard?source=web_chat&event_type=&page=2&page_size=25#report-results-title\""));
+        assert!(
+            first.contains("href=\"/dashboard?source=web_chat&event_type=&page=2&page_size=25\"")
+        );
         assert!(!first.contains("上一頁"));
     }
 }

@@ -415,11 +415,18 @@ async fn dashboard(
         Ok(value) => value,
         Err(analytics_persistence::daily_report::DailyError::Invalid) => {
             let back = crate::dashboard_url::dashboard_url(source, kind, 1, page_size)
-                .replace("#report-results-title", "#daily-chart-title");
+                .replace("#report-results-title", "");
             return renewed(
                 (
                     StatusCode::BAD_REQUEST,
-                    Html(crate::dashboard_ui::render_invalid_date_range(back)),
+                    Html(crate::dashboard_ui::render_invalid_date_range(
+                        back,
+                        source.to_owned(),
+                        kind.to_owned(),
+                        page_size as usize,
+                        query.start.clone().unwrap_or_default(),
+                        query.end.clone().unwrap_or_default(),
+                    )),
                 ),
                 &raw,
                 seconds,
