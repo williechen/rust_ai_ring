@@ -142,6 +142,7 @@ async fn msg2001_e2e_002_offline_send_is_disabled_and_explicit_resend_is_once(
 ) {
     let root = PathBuf::from(required("RING_ARTIFACTS")).join("msg2001_e2e_002");
     std::fs::create_dir_all(&root).unwrap();
+    let options = pool.connect_options();
     let database = options
         .as_ref()
         .clone()
