@@ -1,3 +1,5 @@
+use std::future::Future;
+
 /// Application 的報表頁面切片；不依賴 HTTP、HTML 或資料庫。
 #[derive(Debug, PartialEq, Eq)]
 pub struct PageWindow {
@@ -73,6 +75,36 @@ pub fn render_daily(source: &str, kind: &str, report: &crate::daily_report::Dail
         csv.push_str(&format!("{source},{kind},\"UTC\",,,,,{unknown_dates}\r\n"));
     }
     csv
+}
+
+pub struct SummaryRow {
+    pub source_app: String,
+    pub event_type: String,
+    pub total: i64,
+}
+
+pub trait SummaryStore {
+    type Error;
+    fn read(
+        &self,
+        source: &str,
+        kind: &str,
+    ) -> impl Future<Output = Result<Vec<SummaryRow>, Self::Error>> + Send;
+}
+
+pub async fn csv<S: SummaryStore>(store: &S, source: &str, kind: &str) -> Result<String, S::Error> {
+    let rows = store.read(source, kind).await?;
+    Ok(crate::report_csv::render_csv(rows.iter().map(|r| {
+        (r.source_app.as_str(), r.event_type.as_str(), r.total)
+    })))
+}
+
+pub async fn read<S: SummaryStore>(
+    store: &S,
+    source: &str,
+    kind: &str,
+) -> Result<Vec<SummaryRow>, S::Error> {
+    store.read(source, kind).await
 }
 
 #[cfg(test)]

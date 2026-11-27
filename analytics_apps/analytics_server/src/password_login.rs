@@ -327,9 +327,6 @@ async fn dashboard(
 
     let page = query.page.unwrap_or(1);
     let page_size = query.page_size.unwrap_or(10);
-    if page == 0 || ![10, 25, 50].contains(&page_size) {
-        return StatusCode::BAD_REQUEST.into_response();
-    }
 
     let default_source = if query.source.is_none() {
         match require_source_session(&state, &headers, "web_chat").await {
@@ -356,6 +353,25 @@ async fn dashboard(
                 .into_response();
         }
         return status.into_response();
+    }
+
+    if page == 0 || ![10, 25, 50].contains(&page_size) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Html(crate::dashboard_ui::render_invalid_pagination(
+                source.to_owned(),
+                query.event_type.clone().unwrap_or_default(),
+                page.max(1),
+                if [10, 25, 50].contains(&page_size) {
+                    page_size
+                } else {
+                    10
+                },
+                query.start.clone().unwrap_or_default(),
+                query.end.clone().unwrap_or_default(),
+            )),
+        )
+            .into_response();
     }
 
     let kind = query.event_type.as_deref().unwrap_or("").trim();

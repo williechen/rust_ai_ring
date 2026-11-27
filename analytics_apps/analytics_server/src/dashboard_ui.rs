@@ -1316,3 +1316,34 @@ pub(crate) fn render_source_forbidden() -> String {
         </html>
     }.to_html())
 }
+
+pub(crate) fn render_invalid_pagination(
+    source: String,
+    event_type: String,
+    page: usize,
+    page_size: usize,
+    start: String,
+    end: String,
+) -> String {
+    use crate::rpt::rpt1001::web::InvalidPaginationForm;
+    format!("<!doctype html>{}", view! {
+        <html lang="zh-Hant">
+        <head>
+            <meta charset="utf-8"/>
+            <meta name="viewport" content="width=device-width, initial-scale=1"/>
+            <title>"分頁條件無效"</title>
+            <style data-project-style="analytics">{include_str!("css/dashboard.css")}</style>
+            <link rel="stylesheet" href="/assets/source-report.css"/>
+        </head>
+        <body>
+            <main class="report-unavailable">
+            <section class="report-card" role="alert">
+                <h1>"分頁條件無效"</h1>
+                <p>"頁碼須從1開始，每頁筆數限10、25或50。無效頁碼已改為1，無效筆數已改為10；請確認條件後重新查詢。"</p>
+                <InvalidPaginationForm source event_type page page_size start end/>
+            </section>
+            </main>
+        </body>
+        </html>
+    }.to_html())
+}

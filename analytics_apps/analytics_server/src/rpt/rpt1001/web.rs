@@ -57,3 +57,46 @@ pub(crate) fn SourceForbidden() -> impl IntoView {
         </main>
     }
 }
+
+#[component]
+pub(crate) fn InvalidPaginationForm(
+    source: String,
+    event_type: String,
+    page: usize,
+    page_size: usize,
+    start: String,
+    end: String,
+) -> impl IntoView {
+    view! {
+        <form class="report-filters" action="/dashboard" method="get" aria-label="修正分頁查詢">
+            <input type="hidden" name="source" value=source/>
+            <div class="report-field">
+                <label for="event-type">"事件類型（模糊查詢）"</label>
+                <input id="event-type" name="event_type" value=event_type/>
+            </div>
+            <div class="report-field">
+                <label for="report-start">"起日"</label>
+                <input id="report-start" name="start" type="date" value=start/>
+            </div>
+            <div class="report-field">
+                <label for="report-end">"迄日"</label>
+                <input id="report-end" name="end" type="date" value=end/>
+            </div>
+            <div class="report-field">
+                <label for="report-page">"頁碼"</label>
+                <input id="report-page" name="page" type="number" min="1" required value=page.to_string()/>
+            </div>
+            <div class="report-field">
+                <label for="report-page-size">"每頁筆數"</label>
+                <select id="report-page-size" name="page_size">
+                    {[10usize,25,50].into_iter().map(|size| view! {
+                        <option value=size.to_string() selected=size==page_size>{size.to_string()}</option>
+                    }).collect_view()}
+                </select>
+            </div>
+            <div class="report-actions">
+                <button class="report-primary" type="submit">"修正並查詢"</button>
+            </div>
+        </form>
+    }
+}

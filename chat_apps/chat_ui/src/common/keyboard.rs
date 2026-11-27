@@ -1,5 +1,5 @@
 /// 中文輸入法組字期間不可送出；Shift+Enter 保留多行輸入。
-pub(super) fn should_send_key(
+pub(crate) fn should_send_key(
     key: &str,
     shift: bool,
     ctrl: bool,

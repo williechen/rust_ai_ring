@@ -216,3 +216,84 @@ async fn rpt1001_e2e_002_forbidden_source_returns_to_authorized_report_without_l
     b.until("所有來源未授權明示","return document.title==='無法檢視此來源'&&document.body.textContent.includes('請聯絡管理員');");
     b.save("全部未授權");
 }
+
+#[sqlx::test(migrations = "../migrations")]
+async fn rpt1001_e2e_003_invalid_pagination_is_correctable_with_fuzzy_date_context(
+    pool: sqlx::PgPool,
+) {
+    let root = PathBuf::from(required("RING_ARTIFACTS")).join("rpt1001_e2e_003");
+    std::fs::create_dir_all(&root).unwrap();
+    let database = pool.connect_options().to_url_lossy().to_string();
+    let _server = Process::spawn(
+        &required("RING_ANALYTICS_BINARY"),
+        &[],
+        &[
+            ("ANALYTICS_DATABASE_URL", database.clone()),
+            ("ANALYTICS_CHAT_TOKEN", "fixture-chat".into()),
+            ("ANALYTICS_PET_TOKEN", "fixture-pet".into()),
+        ],
+        &root.join("server.log"),
+    );
+    wait("Analytics啟動", || {
+        TcpStream::connect(("127.0.0.1", 3100)).ok()
+    });
+    let b = Browser::start("rpt1001_e2e_003", None);
+    let login = |pass: &str| {
+        b.fill("[name=username]", "admin");
+        b.fill("[name=password]", pass);
+        b.click("form[action='/login'] button");
+    };
+    b.go("http://127.0.0.1:3100/login");
+    login("admin");
+    b.until(
+        "首次改密碼",
+        "return location.pathname==='/change-password';",
+    );
+    for (name, value) in [
+        ("current_password", "admin"),
+        ("new_password", "Synthetic-return-sso1001"),
+        ("confirm_password", "Synthetic-return-sso1001"),
+        ("email", "sso1001@example.test"),
+    ] {
+        b.fill(
+            &format!("form[action='/change-password'] [name={name}]"),
+            value,
+        );
+    }
+    b.click("form[action='/change-password'] button[type=submit]");
+    b.until("改密後登入", "return location.pathname==='/login';");
+    login("Synthetic-return-sso1001");
+    b.until("報表入口", "return location.pathname==='/dashboard';");
+
+    sqlx::query("INSERT INTO product_events(source_app,event_id,schema_version,event_type,occurred_at) VALUES('desktop_pet',$1,1,'pet.sleep.started','2026-11-27T00:00:00Z')").bind(uuid::Uuid::new_v4().to_string()).execute(&pool).await.unwrap();
+    b.go("http://127.0.0.1:3100/dashboard?source=desktop_pet&event_type=SLEEP&page=0&page_size=25&start=2026-11-20&end=");
+    b.until(
+        "分頁錯誤可修正",
+        "return !!document.querySelector('form[aria-label=\"修正分頁查詢\"]');",
+    );
+    assert_eq!(b.read("return ['source','event_type','page','page_size','start','end'].map(k=>document.querySelector('[name='+k+']').value);",json!([])),json!(["desktop_pet","SLEEP","1","25","2026-11-20",""]));
+    for (width, label) in [(1366, "分頁修正桌面"), (390, "分頁修正窄窗")] {
+        b.call("POST", "/window/rect", json!({"width":width,"height":900}))
+            .unwrap();
+        assert!(b.read("const h=['event-type','report-start','report-end','report-page','report-page-size'].map(k=>document.getElementById(k).getBoundingClientRect().height);return Math.max(...h)-Math.min(...h)<1&&document.documentElement.scrollWidth<=innerWidth;",json!([])).as_bool().unwrap());
+        b.save(label);
+    }
+    b.click("form[aria-label='修正分頁查詢'] button");
+    b.until("修正分頁成功","return document.title!=='分頁條件無效'&&document.body.textContent.includes('1 筆已提交事件');");
+    assert_eq!(b.read("return [document.querySelector('#event-type').value,document.querySelector('#report-start').value,location.hash];",json!([])),json!(["SLEEP","2026-11-20",""]));
+    b.go("http://127.0.0.1:3100/dashboard?source=desktop_pet&event_type=SLEEP&page=1&page_size=9");
+    b.until(
+        "無效筆數可修正",
+        "return !!document.querySelector('form[aria-label=\"修正分頁查詢\"]');",
+    );
+    assert_eq!(
+        b.read(
+            "return document.querySelector('[name=page_size]').value;",
+            json!([])
+        ),
+        json!("10")
+    );
+    b.click("form[aria-label='修正分頁查詢'] button");
+    b.until("筆數修正成功","return document.title!=='分頁條件無效'&&document.body.textContent.includes('1 筆已提交事件');");
+    b.save("完成");
+}

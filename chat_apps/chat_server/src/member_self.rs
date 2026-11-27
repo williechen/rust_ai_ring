@@ -360,26 +360,56 @@ pub async fn create_room_in_category(
     name: String,
     category: &str,
 ) -> Result<String, StatusCode> {
-    require_action(pool, headers, ROOM).await?;
-    if chat_application::validate_room_name(&name).is_err() {
-        return Err(StatusCode::UNPROCESSABLE_ENTITY);
-    }
-    let mut tx = pool.begin().await.map_err(db_error)?;
-    transaction_user(&mut tx, headers, ROOM).await?;
-    let registered: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM codemap WHERE category='room_category' AND code=?1)",
+    use chat_application::member_room::{MemberRoomError, MemberRoomInput};
+    chat_application::member_room::create(
+        &MemberRoomAdapter { pool, headers },
+        MemberRoomInput {
+            name,
+            category: category.to_owned(),
+        },
     )
-    .bind(category)
-    .fetch_one(&mut *tx)
     .await
-    .map_err(db_error)?;
-    if !registered {
-        return Err(StatusCode::UNPROCESSABLE_ENTITY);
+    .map_err(|error| match error {
+        MemberRoomError::InvalidName => StatusCode::UNPROCESSABLE_ENTITY,
+        MemberRoomError::Store(status) => status,
+    })
+}
+
+struct MemberRoomAdapter<'a> {
+    pool: &'a SqlitePool,
+    headers: &'a HeaderMap,
+}
+
+impl chat_application::member_room::MemberRoomStore for MemberRoomAdapter<'_> {
+    type Error = StatusCode;
+
+    async fn authorize(&self) -> Result<(), StatusCode> {
+        require_action(self.pool, self.headers, ROOM)
+            .await
+            .map(|_| ())
     }
-    let id = uuid::Uuid::new_v4().to_string();
-    sqlx::query("INSERT INTO rooms(id,category_room_id,name,desc,created_at,updated_at) VALUES(?1,?2,?3,'',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)").bind(&id).bind(category).bind(name).execute(&mut *tx).await.map_err(db_error)?;
-    tx.commit().await.map_err(db_error)?;
-    Ok(id)
+
+    async fn create_checked(
+        &self,
+        input: chat_application::member_room::MemberRoomInput,
+    ) -> Result<String, StatusCode> {
+        let mut tx = self.pool.begin().await.map_err(db_error)?;
+        transaction_user(&mut tx, self.headers, ROOM).await?;
+        let registered: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM codemap WHERE category='room_category' AND code=?1)",
+        )
+        .bind(&input.category)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(db_error)?;
+        if !registered {
+            return Err(StatusCode::UNPROCESSABLE_ENTITY);
+        }
+        let id = uuid::Uuid::new_v4().to_string();
+        sqlx::query("INSERT INTO rooms(id,category_room_id,name,desc,created_at,updated_at) VALUES(?1,?2,?3,'',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)").bind(&id).bind(&input.category).bind(input.name).execute(&mut *tx).await.map_err(db_error)?;
+        tx.commit().await.map_err(db_error)?;
+        Ok(id)
+    }
 }
 
 pub async fn create_room_api(

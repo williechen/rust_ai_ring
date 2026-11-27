@@ -18,9 +18,7 @@ mod room_list_state;
 mod session_entry;
 
 mod author_display;
-#[cfg(target_arch = "wasm32")]
 mod common;
-mod composer_key;
 mod msg;
 mod room_cards;
 mod room_directory;
@@ -28,9 +26,9 @@ mod room_heading;
 #[cfg(all(test, feature = "ssr"))]
 mod signin_contract;
 pub mod signin_form;
+pub(crate) use common::keyboard as composer_key;
 #[cfg(target_arch = "wasm32")]
 use common::request as directory_request;
-
 use std::rc::Rc;
 
 use chat_domain::ChatMessage;

@@ -203,6 +203,12 @@ pub(crate) fn RoomDirectory() -> impl IntoView {
                         <input id="directory-query"
                             node_ref=search_input
                             type="search"
+                            on:keydown=move |event: leptos::ev::KeyboardEvent| {
+                                if event.key() == "Enter" && !crate::common::keyboard::should_send_key(
+                                    &event.key(), event.shift_key(), event.ctrl_key(),
+                                    event.alt_key(), event.meta_key(), event.is_composing(), event.key_code(),
+                                ) { event.prevent_default(); }
+                            }
                             placeholder="輸入房間名稱"
                             prop:value=move || query.get()
                             on:input=move |event| {

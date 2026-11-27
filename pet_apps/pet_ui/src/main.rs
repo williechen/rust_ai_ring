@@ -60,6 +60,7 @@ fn App() -> impl IntoView {
     let (chat_error, set_chat_error) = signal::<Option<String>>(None);
 
     let (new_pet_name, set_new_pet_name) = signal(String::new());
+    let new_pet_edit = RwSignal::new(0u64);
     let (new_pet_feedback, set_new_pet_feedback) = signal(String::new());
     let (saved_pets, set_saved_pets) = signal(Vec::<SavedPet>::new());
     let (pets_busy, set_pets_busy) = signal(false);
@@ -543,7 +544,10 @@ fn App() -> impl IntoView {
                 <label>"寵物名稱"
                     <input
                         prop:value=move || new_pet_name.get()
-                        on:input=move |ev| set_new_pet_name.set(event_target_value(&ev)) />
+                        on:input=move |ev| {
+                            new_pet_edit.update(|n| *n = n.wrapping_add(1));
+                            set_new_pet_name.set(event_target_value(&ev));
+                        } />
                 </label>
                 <button
                     type="button"
@@ -552,6 +556,7 @@ fn App() -> impl IntoView {
                         if pets_busy.get_untracked() { return; }
                         set_pets_busy.set(true);
                         let proposed = new_pet_name.get_untracked();
+                        let edit = new_pet_edit.get_untracked();
                         spawn_local(async move {
                              match pet_application::creation::create_caged(&bridge::CreationBridge, proposed).await {
                                 Ok(result) => {
@@ -578,6 +583,9 @@ fn App() -> impl IntoView {
                                         );
                                     }
                                     set_new_pet_name.set(String::new());
+                                    if new_pet_edit.get_untracked() == edit {
+                                        set_new_pet_name.set(String::new());
+                                    }
                                     set_new_pet_feedback.set(format!(
                                         "已建立：{}（{}）；目前維持回籠。{}",
                                         created.name, created.id,
