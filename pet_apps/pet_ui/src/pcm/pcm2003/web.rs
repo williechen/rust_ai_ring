@@ -64,26 +64,27 @@ pub fn ChatBubble(
     };
 
     view! {
-            <Show
-                when=move || chat_open.get()
-                fallback=|| ()
-            >
-                <section class="chat-bubble">
-                    <div class="chat-bubble__header">
-                        <strong>"跟小寵物說話"</strong>
+        <Show
+            when=move || chat_open.get()
+            fallback=|| ()
+        >
+            <section class="chat-bubble">
+                <div class="chat-bubble__header">
+                    <strong>"跟小寵物說話"</strong>
 
-                        <button
-                            type="button"
-                            class="chat-bubble__close"
-                            aria-label="關閉對話"
-                            on:click=move |_| {
-                                set_chat_open.set(false);
-                            }
-                        >
-                            "×"
-                        </button>
-                    </div>
-    <form on:submit=move |event| { event.prevent_default(); submit(); }>
+                    <button
+                        type="button"
+                        class="chat-bubble__close"
+                        aria-label="關閉對話"
+                        on:click=move |_| {
+                            set_chat_open.set(false);
+                        }
+                    >
+                        "×"
+                    </button>
+                </div>
+
+                <form on:submit=move |event| { event.prevent_default(); submit(); }>
                     <input
                         class="chat-bubble__input"
                         type="text"
@@ -116,34 +117,34 @@ pub fn ChatBubble(
                         type="submit"
                         prop:disabled=move || {chat_loading.get() || selected.get().is_none() || chat_input.get().trim().is_empty() }
                     >
-                        {move || {
-                            if chat_loading.get() {
-                                "送出中…"
-                            } else {
-                                "送出"
-                            }
-                        }}
+                    {move || {
+                        if chat_loading.get() {
+                            "送出中…"
+                        } else {
+                            "送出"
+                        }
+                    }}
                     </button>
-                    </form>
-                    <Show
-                        when=move || chat_response.get().is_some()
-                        fallback=|| ()
-                    >
-                        <p class="chat-bubble__response">
-                            {move || chat_response.get().unwrap_or_default()}
-                        </p>
-                    </Show>
+                </form>
+                <Show
+                    when=move || chat_response.get().is_some()
+                    fallback=|| ()
+                >
+                    <p class="chat-bubble__response">
+                        {move || chat_response.get().unwrap_or_default()}
+                    </p>
+                </Show>
 
-                    <Show
-                        when=move || chat_error.get().is_some()
-                        fallback=|| ()
-                    >
-                        <p class="chat-bubble__error">
-                            {move || chat_error.get().unwrap_or_default()}
-                        </p>
-                    </Show>
+                <Show
+                    when=move || chat_error.get().is_some()
+                    fallback=|| ()
+                >
+                    <p class="chat-bubble__error">
+                        {move || chat_error.get().unwrap_or_default()}
+                    </p>
+                </Show>
 
-                </section>
-            </Show>
-        }
+            </section>
+        </Show>
+    }
 }
