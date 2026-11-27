@@ -1300,3 +1300,19 @@ mod day69_tests {
         assert!(html.contains("全部日期"));
     }
 }
+
+pub(crate) fn render_source_forbidden() -> String {
+    use crate::rpt::rpt1001::web::SourceForbidden;
+    format!("<!doctype html>{}", view! {
+        <html lang="zh-Hant">
+            <head>
+                <meta charset="utf-8"/>
+                <meta name="viewport" content="width=device-width, initial-scale=1"/>
+                <title>"無法檢視此來源"</title>
+                <style data-project-style="analytics">{include_str!("css/dashboard.css")}</style>
+                <link rel="stylesheet" href="/assets/source-report.css"/>
+            </head>
+            <body><SourceForbidden/></body>
+        </html>
+    }.to_html())
+}

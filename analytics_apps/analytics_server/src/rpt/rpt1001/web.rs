@@ -44,3 +44,16 @@ pub(crate) fn InvalidDateForm(
         </form>
     }
 }
+
+#[component]
+pub(crate) fn SourceForbidden() -> impl IntoView {
+    view! {
+        <main class="report-unavailable">
+            <section class="report-card" role="alert">
+                <h1>"無法檢視此來源"</h1>
+                <p>"您沒有此來源的檢視權限。可返回報表，由伺服器重新確認可用來源；若皆未授權，請聯絡管理員。"</p>
+                <a class="report-export" href="/dashboard">"返回可用報表"</a>
+            </section>
+        </main>
+    }
+}

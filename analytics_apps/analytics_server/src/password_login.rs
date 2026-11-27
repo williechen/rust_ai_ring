@@ -348,7 +348,14 @@ async fn dashboard(
     };
 
     if let Err(status) = require_source_session(&state, &headers, source).await {
-        return (status, "您沒有此來源的檢視權限。").into_response();
+        if status == StatusCode::FORBIDDEN {
+            return (
+                status,
+                axum::response::Html(crate::dashboard_ui::render_source_forbidden()),
+            )
+                .into_response();
+        }
+        return status.into_response();
     }
 
     let kind = query.event_type.as_deref().unwrap_or("").trim();
