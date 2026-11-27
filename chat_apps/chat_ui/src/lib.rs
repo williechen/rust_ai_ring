@@ -352,6 +352,7 @@ pub fn ChatPage(room_id: String) -> impl IntoView {
 
     let reconnect_failed = RwSignal::new(false);
     let reconnect_busy = RwSignal::new(false);
+    let connected = RwSignal::new(false);
     #[cfg(target_arch = "wasm32")]
     let (socket, reconnect) = {
         let socket = Rc::new(msg::msg2001::web_service::RoomConnection::default());
@@ -366,6 +367,7 @@ pub fn ChatPage(room_id: String) -> impl IntoView {
                 set_connection,
                 reconnect_failed,
                 reconnect_busy,
+                connected,
                 reload_history,
             )
         });
@@ -386,7 +388,7 @@ pub fn ChatPage(room_id: String) -> impl IntoView {
 
             let content = draft.get_untracked().trim().to_string();
 
-            if content.is_empty() {
+            if content.is_empty() || !connected.get_untracked() {
                 return;
             }
 
@@ -519,7 +521,7 @@ pub fn ChatPage(room_id: String) -> impl IntoView {
             />
             <button
                 type="button"
-                disabled=move || draft.get().trim().is_empty()
+                disabled=move || !connected.get() || draft.get().trim().is_empty()
                 on:click=move |_| send_button()>"傳送"</button>
         </div>
         <p class="composer-help">"Enter 傳送；Shift+Enter 換行"

@@ -27,12 +27,14 @@ impl RoomConnection {
         status: WriteSignal<String>,
         failed: RwSignal<bool>,
         busy: RwSignal<bool>,
+        connected: RwSignal<bool>,
         history: Callback<()>,
     ) {
         self.socket.borrow_mut().take();
         self.alive.set(true);
         let generation = self.generation.get().wrapping_add(1);
         self.generation.set(generation);
+        connected.set(false);
         busy.set(true);
         let location = web_sys::window().unwrap().location();
         let protocol = if location.protocol().unwrap() == "https:" {
@@ -67,6 +69,7 @@ impl RoomConnection {
                 {
                     return;
                 }
+                connected.set(text == "已連線");
                 status.set(text.into());
                 if text == "已連線" {
                     busy.set(false);
