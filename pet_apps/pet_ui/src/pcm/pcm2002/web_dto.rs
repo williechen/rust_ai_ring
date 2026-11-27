@@ -8,6 +8,7 @@ pub struct SettingsDraft {
     pub personality: String,
     pub interests: String,
 }
+
 impl From<PetProfile> for SettingsDraft {
     fn from(p: PetProfile) -> Self {
         Self {

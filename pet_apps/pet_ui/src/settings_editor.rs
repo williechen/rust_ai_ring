@@ -1,7 +1,7 @@
 use crate::bridge;
+use crate::pcm::pcm2002::web_dto::SettingsDraft as Draft;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
-use pet_application::settings_draft::SettingsDraft as Draft;
 use pet_domain::profile::PetProfile;
 
 #[cfg(test)]

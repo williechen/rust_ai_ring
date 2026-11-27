@@ -3,7 +3,6 @@ pub mod common;
 pub mod lifecycle;
 mod pcm;
 mod pml;
-pub mod settings_draft;
 pub mod settings_request;
 
 pub use common::pet_names;

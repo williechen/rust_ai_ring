@@ -122,3 +122,105 @@ async fn pcm2003_e2e_001_send_preserves_new_draft_and_rejects_previous_selection
     );
     b.save("完成");
 }
+
+#[sqlx::test(migrations = "../migrations")]
+async fn pcm2003_e2e_002_enter_submits_once_and_ime_modifiers_do_not_submit(
+    pool: sqlx::SqlitePool,
+) {
+    let root = PathBuf::from(required("RING_ARTIFACTS")).join("pcm2003_e2e_002");
+    std::fs::create_dir_all(&root).unwrap();
+    let options = pool.connect_options();
+    let database = options
+        .as_ref()
+        .clone()
+        .filename(std::path::absolute(options.get_filename()).unwrap())
+        .to_url_lossy()
+        .to_string();
+    let store = pet_server::pet_store::PetStore { pool: pool.clone() };
+    let a = store.create("計時甲").await.unwrap();
+    sqlx::query("UPDATE pet_profile SET is_default_closure=1")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let b = Browser::start_with_env(
+        "pcm2003_e2e_002",
+        Some(&required("RING_PET_BINARY")),
+        &[
+            ("PET_DATABASE_URL", database),
+            ("PET_AUTHORIZED_ROOT", root.to_string_lossy().into_owned()),
+            ("RING_TEST_CLOCK", "1".into()),
+            ("WEBKIT_DISABLE_DMABUF_RENDERER", "1".into()),
+            ("WEBKIT_DISABLE_COMPOSITING_MODE", "1".into()),
+        ],
+    );
+    b.until(
+        "控制台就緒",
+        "return !!document.querySelector('.control-pet-picker select');",
+    );
+    b.until(
+        "清單包含測試寵物",
+        &format!(
+            "return !!document.querySelector('.control-pet-picker option[value=\"{}\"]');",
+            a.id
+        ),
+    );
+    b.act_once("const n=document.querySelector('.control-pet-picker select');n.value=arguments[0];n.dispatchEvent(new Event('change',{bubbles:true}));",json!([a.id]));
+
+    b.until(
+        "聊天輸入",
+        "return !!document.querySelector('.chat-bubble__input');",
+    );
+    b.act_once("window.originalChat=window.chatWithPet;window.pendingChat=[];window.chatCalls=0;window.chatWithPet=(id,text)=>{window.chatCalls++;return window.originalChat(id,text).then(value=>new Promise(resolve=>window.pendingChat.push({resolve,value})));};",json!([]));
+    b.fill(".chat-bubble__input", "鍵盤測試");
+    for extra in [
+        "isComposing:true",
+        "keyCode:229",
+        "shiftKey:true",
+        "ctrlKey:true",
+        "altKey:true",
+        "metaKey:true",
+    ] {
+        b.act_once(&format!("document.querySelector('.chat-bubble__input').dispatchEvent(new KeyboardEvent('keydown',{{key:'Enter',bubbles:true,cancelable:true,{extra}}}));"),json!([]));
+    }
+    assert_eq!(b.read("return window.chatCalls;", json!([])), json!(0));
+    let element = b
+        .call(
+            "POST",
+            "/element",
+            json!({"using":"css selector","value":".chat-bubble__input"}),
+        )
+        .unwrap();
+    let id = element["element-6066-11e4-a52e-4f735466cecf"]
+        .as_str()
+        .unwrap();
+    b.call(
+        "POST",
+        &format!("/element/{id}/value"),
+        json!({"text":"\u{e007}","value":["\u{e007}"]}),
+    )
+    .unwrap();
+    b.until(
+        "Enter啟動真Native請求",
+        "return window.pendingChat.length===1;",
+    );
+    b.call(
+        "POST",
+        &format!("/element/{id}/value"),
+        json!({"text":"\u{e007}","value":["\u{e007}"]}),
+    )
+    .unwrap();
+    assert_eq!(b.read("return window.chatCalls;", json!([])), json!(1));
+    b.act_once(
+        "const p=window.pendingChat.shift();p.resolve(p.value);",
+        json!([]),
+    );
+    b.until("真Native聊天完成","return !!document.querySelector('.chat-bubble__response')?.textContent.trim()&&document.querySelector('.chat-bubble__input').value==='';");
+    b.call(
+        "POST",
+        &format!("/element/{id}/value"),
+        json!({"text":"\u{e007}","value":["\u{e007}"]}),
+    )
+    .unwrap();
+    assert_eq!(b.read("return window.chatCalls;", json!([])), json!(1));
+    b.save("Enter與輸入法保護");
+}

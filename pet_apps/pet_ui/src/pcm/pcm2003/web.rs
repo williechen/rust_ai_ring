@@ -64,77 +64,86 @@ pub fn ChatBubble(
     };
 
     view! {
-        <Show
-            when=move || chat_open.get()
-            fallback=|| ()
-        >
-            <section class="chat-bubble">
-                <div class="chat-bubble__header">
-                    <strong>"跟小寵物說話"</strong>
+            <Show
+                when=move || chat_open.get()
+                fallback=|| ()
+            >
+                <section class="chat-bubble">
+                    <div class="chat-bubble__header">
+                        <strong>"跟小寵物說話"</strong>
+
+                        <button
+                            type="button"
+                            class="chat-bubble__close"
+                            aria-label="關閉對話"
+                            on:click=move |_| {
+                                set_chat_open.set(false);
+                            }
+                        >
+                            "×"
+                        </button>
+                    </div>
+    <form on:submit=move |event| { event.prevent_default(); submit(); }>
+                    <input
+                        class="chat-bubble__input"
+                        type="text"
+                        placeholder="輸入一句話…"
+
+                        prop:value=move || {
+                            chat_input.get()
+                        }
+
+                        aria-label="與寵物對話"
+                        on:keydown=move |event: leptos::ev::KeyboardEvent| {
+                            if event.key() == "Enter"
+                                && (event.is_composing() || event.key_code() == 229
+                                    || event.shift_key() || event.ctrl_key()
+                                    || event.alt_key() || event.meta_key()) {
+                                event.prevent_default();
+                            }
+                        }
+
+                        on:input=move |event| {
+                            context.update(|c| c.edit());
+                            set_chat_input.set(
+                                event_target_value(&event)
+                            );
+                        }
+                    />
 
                     <button
-                        type="button"
-                        class="chat-bubble__close"
-                        aria-label="關閉對話"
-                        on:click=move |_| {
-                            set_chat_open.set(false);
-                        }
+                        class="chat-bubble__send"
+                        type="submit"
+                        prop:disabled=move || {chat_loading.get() || selected.get().is_none() || chat_input.get().trim().is_empty() }
                     >
-                        "×"
+                        {move || {
+                            if chat_loading.get() {
+                                "送出中…"
+                            } else {
+                                "送出"
+                            }
+                        }}
                     </button>
-                </div>
+                    </form>
+                    <Show
+                        when=move || chat_response.get().is_some()
+                        fallback=|| ()
+                    >
+                        <p class="chat-bubble__response">
+                            {move || chat_response.get().unwrap_or_default()}
+                        </p>
+                    </Show>
 
-                <input
-                    class="chat-bubble__input"
-                    type="text"
-                    placeholder="輸入一句話…"
+                    <Show
+                        when=move || chat_error.get().is_some()
+                        fallback=|| ()
+                    >
+                        <p class="chat-bubble__error">
+                            {move || chat_error.get().unwrap_or_default()}
+                        </p>
+                    </Show>
 
-                    prop:value=move || {
-                        chat_input.get()
-                    }
-
-                    on:input=move |event| {
-                        context.update(|c| c.edit());
-                        set_chat_input.set(
-                            event_target_value(&event)
-                        );
-                    }
-                />
-
-                <button
-                    class="chat-bubble__send"
-                    type="button"
-                    prop:disabled=move || {chat_loading.get() || selected.get().is_none() || chat_input.get().trim().is_empty() }
-                    on:click=move |_| submit()
-                >
-                    {move || {
-                        if chat_loading.get() {
-                            "送出中…"
-                        } else {
-                            "送出"
-                        }
-                    }}
-                </button>
-
-                <Show
-                    when=move || chat_response.get().is_some()
-                    fallback=|| ()
-                >
-                    <p class="chat-bubble__response">
-                        {move || chat_response.get().unwrap_or_default()}
-                    </p>
-                </Show>
-
-                <Show
-                    when=move || chat_error.get().is_some()
-                    fallback=|| ()
-                >
-                    <p class="chat-bubble__error">
-                        {move || chat_error.get().unwrap_or_default()}
-                    </p>
-                </Show>
-
-            </section>
-        </Show>
-    }
+                </section>
+            </Show>
+        }
 }
