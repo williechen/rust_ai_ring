@@ -582,7 +582,6 @@ fn App() -> impl IntoView {
                                             &created.id, &saved_pets.get_untracked(), set_management_pet_id,
                                         );
                                     }
-                                    set_new_pet_name.set(String::new());
                                     if new_pet_edit.get_untracked() == edit {
                                         set_new_pet_name.set(String::new());
                                     }
